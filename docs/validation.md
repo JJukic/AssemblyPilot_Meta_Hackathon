@@ -1,4 +1,27 @@
-# Phase 1 validation — 2026-10-26
+# Validation results
+
+## Phase 2 — 2026-10-26
+
+The Phase 2 implementation was validated in the current cloud checkout.
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 60 Python tests passed, including all original 28; TypeScript passed |
+| `make build` | Production build passed for `/`, `/blocks`, `/projects`, `/projects/[projectId]` |
+| Playwright (system Chromium, real isolated API) | All 11 tests passed, including all original 9 |
+| `make dev-backend` / `make dev-frontend` | Both started successfully |
+| Normal local startup | Five SQLite tables initialized; health, blocks and projects returned HTTP 200; DELETE CORS preflight passed |
+| Live browser checks | Desktop and mobile editors reviewed; no page errors or horizontal overflow; dashboard backend Connected and empty-project guidance visible |
+| Git exclusions | Database and upload paths confirmed ignored |
+
+Backend checks include CRUD/search, invalid dimensions/quantities, conflicting/missing references, cross-project isolation, concurrent reorder consistency, foreign-key and exactly-one-image-owner constraints, corrupt/unsupported/oversized uploads, path/symlink rejection, upload rollback cleanup, owner-specific deletion, app-restart persistence, and inspection context with a transient normalized snapshot.
+
+The new complete browser workflow creates a block, uploads a synthetic test photo, edits and filters the block, creates/edits a project, assigns quantities to steps, uploads a step photo, reorders and edits steps, reloads persisted data, captures a synthetic camera frame with the custom project, switches back to the demo without stopping the camera, verifies block-deletion conflicts, and removes owned records. A separate browser case covers backend errors. Tests use disposable SQLite storage, never the developer database. Live visual checks did not create real registry records or photographs.
+
+One upstream Starlette/httpx TestClient deprecation warning remains; no tests were skipped or disabled. Physical webcam/iPhone hardware, remote GitHub Actions and Meta inference were not tested. No Meta calls or credentials were required.
+
+## Phase 1 — 2026-10-26 (historical)
 
 Executed in the cloud checkout with Node 24.19.0, Python 3.12.14, uv 0.12.23 and system Chromium 154.0.8037.57.
 

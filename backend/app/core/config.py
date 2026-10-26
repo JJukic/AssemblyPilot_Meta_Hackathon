@@ -1,11 +1,24 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=BACKEND_ROOT / ".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    database_url: str = "sqlite:///./data/assemblypilot.db"
+    upload_dir: str = "./data/uploads"
+
+    @property
+    def upload_path(self) -> Path:
+        path = Path(self.upload_dir).expanduser()
+        return (path if path.is_absolute() else BACKEND_ROOT / path).resolve()
 
     model_api_key: SecretStr | None = None
     meta_api_base_url: str = "https://api.meta.ai/v1"

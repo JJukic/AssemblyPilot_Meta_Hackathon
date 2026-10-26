@@ -16,7 +16,7 @@ export function AssemblyPanel({ assembly }: { assembly: Assembly }) {
         <span className="tag">MANUAL</span>
       </div>
       <div className="assembly-content">
-        <p className="eyebrow">PRACTICE BUILD</p>
+        <p className="eyebrow">{assembly.id === "demo-lego" ? "PRACTICE BUILD" : "CUSTOM BUILD"}</p>
         <h3 className="assembly-name">{assembly.name}</h3>
         <p className="muted assembly-description">{assembly.description}</p>
         <ProgressTracker steps={assembly.steps} current={current} onSelect={setCurrent} />

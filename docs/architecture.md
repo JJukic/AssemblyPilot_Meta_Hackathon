@@ -1,43 +1,51 @@
-# Phase 1 architecture
+# AssemblyPilot architecture — Phase 2
 
-## Data flow
+## Components
 
 ```text
-Browser camera → live video → in-memory JPEG snapshot
-Assembly JSON → Next.js server page → manual five-step guide
-Browser health polling → FastAPI GET /health
-Explicit multipart API request → image validation → HTTP 501 (no inference)
+Browser camera → live preview → in-memory snapshot (unchanged Phase 1)
+Block/project forms → FastAPI → SQLModel/SQLAlchemy → local SQLite
+Explicit photo upload → Pillow validation → generated JPEG file + SQLite metadata
+Project selector → ordered steps/expected blocks/reference URLs → manual camera guide
+Selected step → inspection_context service → typed intermediate schema (no inference)
 ```
 
-`data/assemblies/demo-lego.json` is the single source of assembly instructions. The server page imports it and passes typed serializable data to the client dashboard. No duplicate public JSON copy, database or additional assembly endpoint is needed.
+Next.js App Router provides `/`, `/blocks`, `/projects`, and `/projects/[projectId]`. Interactive management components use a typed API client and reusable image uploader. Dynamic route parameters are awaited on the server. Client fetches display loading/error/empty states; project switching does not remount the camera hook. The five-step JSON demo remains a fallback and is not seeded into or synchronized with the database.
 
-The camera hook owns the MediaStream and request generation counter. Stopping, switching or unmounting invalidates pending permission requests and stops owned tracks. A late stream is immediately stopped. Device enumeration follows permission and updates on `devicechange`. Track `ended` events surface disconnection. The video is never mirrored, so captured frames preserve the build's spatial orientation. The browser stores one JPEG data URL; it does not store images in localStorage, send telemetry or upload frames.
+## Persistence and ownership
 
-The health client uses a five-second timeout, cancellation on unmount and a ten-second polling interval. It validates the service identity. Camera state is independent of network state.
+`db/tables.py` contains internal SQLModel tables; external API models live in `models/`. Routes acquire database sessions via dependency injection. The FastAPI lifespan creates missing tables, enables foreign keys and prepares the upload directory. Relative database/upload paths and `.env` always resolve from the backend root. No module import or test collection creates a database.
 
-## Backend boundaries
+| Table | Relationships / constraints |
+| --- | --- |
+| `building_blocks` | UUID ID; nonempty name; physical properties; positive default quantity; timestamps |
+| `assembly_projects` | UUID ID; nonempty name; description and timestamps |
+| `assembly_steps` | Project FK with cascade delete; unique `(project_id, position)`; positive positions; title/instruction |
+| `assembly_step_blocks` | Step FK with cascade delete; block FK with RESTRICT; unique `(step_id, block_id)`; positive required quantity |
+| `reference_images` | Exactly one concrete block/step FK (XOR CHECK); cascade delete; unique generated storage filename; display filename, dimensions, MIME, timestamp |
 
-- `api/`: HTTP contract and error mapping. `/health` reports service availability, not model readiness. `/api/inspect` returns 501 only after successful validation.
-- `services/image_processor.py`: bounded input reading at the endpoint, decoded format validation, pixel and dimension limits before full decode, Pillow bomb protection, corruption checks, EXIF normalization, proportional downscaling, alpha compositing, metadata removal.
-- `services/meta_client.py`: Meta-only typed integration boundary. Calling it raises `NotImplementedError`; no request is sent and a key is not required.
-- `agents/`: diagnosis, planning and verification roles with typed contracts. These are ordinary Python classes, not autonomous agents or external frameworks.
-- `core/orchestrator.py`: explicit diagnosis/planning operation and separate verification operation that requires a new image after the human repair. Not connected to the Phase 1 endpoint.
+A reference image cannot have no owner, two owners or a nonexistent owner. Foreign keys are enabled on every SQLite connection, including tests. API responses serialize explicit Pydantic schemas; local file paths never leave the backend.
 
-Image decoding runs in a worker thread so it does not block FastAPI's event loop. Images are not persisted by application code. Multipart uploads may be transiently spooled by Starlette; public deployments need an upstream total request-body limit and authenticated/rate-limited access. No wildcard CORS is accepted. Source EXIF and other metadata are not copied to normalized JPEGs.
+Mutation dependencies begin `BEGIN IMMEDIATE` before reading, serialize SQLite writers, and commit before the HTTP response is sent. Step ordering uses two passes through temporary positive positions to avoid transient unique-index collisions. Failed assignment/reorder mutations roll back. Full entity edits use last-write-wins semantics; this is a local single-user MVP, not collaborative editing.
 
-## Reproducibility
+## Files and deletion
 
-Node 24 and Python 3.12 are the development versions. npm and uv lockfiles pin resolved dependencies. `make install` uses frozen installs; CI runs lint, TypeScript, a production build, pytest and synthetic-camera browser tests. Build requires no remote fonts, model keys or GPU. Live processes must be started again after restoring a cloud snapshot.
+The existing image processor checks encoded size, formats, dimensions, decompression safety and corruption; applies EXIF orientation; resizes proportionately; flattens transparency; and emits metadata-free JPEG bytes. Reference uploads run in synchronous FastAPI worker threads, under bounded reads. Every stored name is a generated UUID with `.jpg`; exclusive creation prevents overwrites.
 
-## Phase 2: verify before integrating
+GET media requires a database record and a safe file under the upload root. Arbitrary paths and symlink escapes are rejected. Original filenames are sanitized display metadata, never storage addresses. The default backend remains loopback-bound with explicit CORS; no authentication/public deployment is provided.
 
-Muse Spark is the intended future default, **not a verified API model identifier**. The supplied base URL is a configuration placeholder until confirmed through official Meta documentation and account access. The repository makes no assertion about that URL's capabilities. Before implementation:
+Deleting a project cascades only its steps, assignments and step image records. Reusable blocks and their photos survive. Deleting a referenced block returns 409. Deleting a step also compacts remaining order. Image files are scheduled for removal after a successful database commit; new files are removed on rollback. Crash/IO failure can leave an unreachable orphan file because SQLite and the filesystem cannot commit atomically; failures are logged. There is no automatic orphan scan or destructive startup cleanup. See README for backup/deletion details.
 
-1. Verify the official endpoint, available model ID, vision support, authentication, content limits and image payload schema.
-2. Populate backend-only `MODEL_API_KEY`, `META_API_BASE_URL` and `META_VISION_MODEL` securely.
-3. Implement the small Meta client with httpx, TLS verification, finite timeouts, bounded transient retries and Pydantic response parsing.
-4. Require explicit user consent/action for uploads. Include the selected assembly instruction and real reference images only when available.
-5. Add mocked contract tests and an opt-in real Meta integration test; never invent diagnosis results if the service is unavailable.
-6. Expose uncertainty and failure states in the dashboard, then implement correction planning and verification using newly captured evidence.
+## Future Meta boundary
 
-SAM, Muse Image, smart glasses and autonomous loops remain outside Phase 1.
+`services/inspection_context.py` resolves only the selected step's registered definitions, quantities and reference metadata into `models/inspection_context.py`. A normalized camera frame and optional previous context can be attached in memory at inspection time. GET context returns metadata without a snapshot. No API credentials or frames are stored in SQLite. `/api/inspect` preserves Phase 1 behavior: validate an image, then HTTP 501. Meta client/agent interfaces remain explicit unimplemented boundaries.
+
+The next phase is Meta Vision integration, after verifying official endpoint, authentication, vision payload, model ID and response schema. Muse Spark is an intended future model name, not a verified API identifier. No SDK capabilities are assumed. Integrate timeouts, bounded retries, validated responses and explicit user-triggered uploads; verify a repair using a new frame after the human correction. SAM, generation, smart glasses and autonomous loops remain out of scope.
+
+## Testing and local operation
+
+Existing `make install`, `make dev-backend`, `make dev-frontend`, `make lint`, `make test`, and `make build` remain valid. Locked dependencies include SQLModel and SQLAlchemy. Python tests override settings with per-test temporary SQLite databases/uploads and exercise API behavior, DB constraints, persistence after restart, filesystem cleanup, rollback and contextual data scoping.
+
+Playwright starts `backend/browser_test_server.py`, which runs the API with a disposable temporary database and upload directory. It refuses an already-running backend on port 8000 rather than reuse user data. The frontend CI job installs backend dependencies as well. The browser suite preserves all original synthetic-camera tests and adds the complete registry/project workflow against the real isolated API. Physical-camera compatibility still requires local hardware validation.
+
+SQLite `create_all` initializes a new schema; it is not a migration system. Keep database/files outside Git and back up both before future schema changes. No external service, cloud sync or GPU is required.

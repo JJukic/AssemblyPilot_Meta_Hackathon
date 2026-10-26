@@ -5,7 +5,7 @@ export interface AssemblyPart {
 }
 
 export interface AssemblyStep {
-  id: number;
+  id: number | string;
   title: string;
   instruction: string;
   expected_parts: AssemblyPart[];

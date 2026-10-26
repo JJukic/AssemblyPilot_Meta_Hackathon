@@ -1,22 +1,38 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, inspection
+from app.api import blocks, health, inspection, media, projects, steps
 from app.core.config import Settings, get_settings
+from app.db.database import database_engine
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
-    application = FastAPI(title="AssemblyPilot API", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        engine = database_engine(settings)
+        application.state.engine = engine
+        settings.upload_path.mkdir(parents=True, exist_ok=True)
+        try:
+            yield
+        finally:
+            engine.dispose()
+
+    application = FastAPI(title="AssemblyPilot API", version="0.2.0", lifespan=lifespan)
     application.dependency_overrides[get_settings] = lambda: settings
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["Content-Type"],
     )
     application.include_router(health.router)
     application.include_router(inspection.router)
+    for router in (blocks.router, projects.router, steps.router, media.router):
+        application.include_router(router)
     return application
 
 
