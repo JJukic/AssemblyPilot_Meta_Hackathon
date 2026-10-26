@@ -33,6 +33,7 @@ function responseMessage(body: unknown): string | null {
   if (!body || typeof body !== "object" || !("detail" in body)) return null;
   const detail = body.detail;
   if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") return detail.message;
   if (Array.isArray(detail)) {
     return detail.map((item: unknown) => {
       if (!item || typeof item !== "object" || !("msg" in item)) return "Invalid field";

@@ -2,17 +2,17 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
-Phase 2 adds a persistent **custom building block registry and assembly project manager** to the Phase 1 camera dashboard. Register reusable blocks, upload real reference photographs, create projects with ordered steps, and select a project in the camera workspace. SQLite and local image storage require no external service.
+Phase 3A adds **on-demand Meta Muse Spark inspection** to the existing camera dashboard, custom block registry and assembly projects. Select a registered project and step, capture a frame, and choose **Inspect with Meta AI**. The backend combines the frame with relevant registered specifications and photographs, calls Meta, and validates the diagnosis before displaying it.
 
-**AI inspection is not implemented.** There are no inference calls, generated diagnoses, autonomous loops, Docker requirements, authentication, cloud synchronization or local GPU dependencies.
+All inference goes exclusively to Meta Model API. No automatic uploads, continuous analysis, autonomous correction, repair verification or local GPU models are implemented. Camera capture, SQLite and registry features still work without an API key.
 
 ## Architecture
 
 ```text
 frontend/    Next.js App Router, strict TypeScript, React, Tailwind, Lucide
-backend/     FastAPI, SQLModel/SQLAlchemy, SQLite, Pillow; future Meta-only context
+backend/     FastAPI, SQLModel/SQLAlchemy, SQLite, Pillow, async httpx Meta-only inspection
 data/        Shared configurable assembly JSON (data/assemblies/demo-lego.json)
-docs/        Architecture, registry API and validation notes
+docs/        Architecture, registry/inspection APIs and validation notes
 .github/     Lint, build, Python tests and synthetic-camera browser tests
 ```
 
@@ -36,7 +36,7 @@ cp -n backend/.env.example backend/.env
 cp -n frontend/.env.example frontend/.env.local
 ```
 
-`npm ci` uses `frontend/package-lock.json`; `uv sync --frozen` uses `backend/uv.lock`. No API key is needed to install, start or test either phase. If your sandbox disallows the default cache directories, set `npm_config_cache` and `UV_CACHE_DIR` to writable paths.
+`npm ci` uses `frontend/package-lock.json`; `uv sync --frozen` uses `backend/uv.lock`. No API key is needed to install, start or run automated tests. Live inspection requires a backend Meta API key. If your sandbox disallows the default cache directories, set `npm_config_cache` and `UV_CACHE_DIR` to writable paths.
 
 ## Run
 
@@ -59,9 +59,13 @@ Production build locally: `make build`, then `cd frontend && npm run start` (kee
 | `FRONTEND_ORIGIN` | `backend/.env` | `http://localhost:3000`; exact CORS origin, no wildcard |
 | `DATABASE_URL` | `backend/.env` | `sqlite:///./data/assemblypilot.db`; relative paths resolve from `backend/` |
 | `UPLOAD_DIR` | `backend/.env` | `./data/uploads`; normalized JPEG references, relative to `backend/` |
-| `MODEL_API_KEY` | `backend/.env` | Optional, unused in Phases 1–2; never put this in frontend configuration |
-| `META_API_BASE_URL` | `backend/.env` | `https://api.meta.ai/v1`; reserved, unverified integration setting, not called |
-| `META_VISION_MODEL` | `backend/.env` | Empty until verified against official Meta documentation |
+| `MODEL_API_KEY` | `backend/.env` | Required only for live inspection; never put this in frontend configuration |
+| `META_API_BASE_URL` | `backend/.env` | `https://api.meta.ai/v1`; only this HTTPS host and base path are allowed |
+| `META_VISION_MODEL` | `backend/.env` | `muse-spark-1.3`; verified in official Meta documentation |
+| `META_REQUEST_TIMEOUT` | `backend/.env` | 60 seconds for the entire network operation, including retries; maximum 180 |
+| `INSPECTION_MAX_DIMENSION` | `backend/.env` | 1280 pixels for frames and reference copies sent to Meta |
+| `META_MAX_REFERENCE_IMAGES` | `backend/.env` | 8 references plus the current snapshot |
+| `META_MAX_REQUEST_BYTES` | `backend/.env` | 10 MiB total serialized JSON, including base64 |
 | `MAX_UPLOAD_BYTES` | `backend/.env` | 8 MiB |
 | `MAX_IMAGE_PIXELS` | `backend/.env` | 20 million decoded pixels |
 | `MAX_IMAGE_DIMENSION` | `backend/.env` | 8192 pixels on either input edge |
@@ -89,7 +93,7 @@ Captures are not saved to disk or uploaded automatically. Refreshing the page cl
 4. Use the up/down buttons to reorder steps. Edit or delete steps as needed; positions stay contiguous. A block can be assigned once per step and reused by any number of projects.
 5. Choose **Open in workspace**, or select the project in the dashboard's **Assembly project** selector. The ordered instructions, expected quantities and first available step photo appear alongside the unchanged camera controls. Manual navigation never claims AI verification.
 
-Saving a block or step and uploading its photos are separate operations: if a photo fails validation, the saved entity remains available for another upload. Capturing a camera frame does **not** save or upload it. Only the explicit reference-photo uploader persists images.
+Saving a block or step and uploading its photos are separate operations: if a photo fails validation, the saved entity remains available for another upload. Capturing a camera frame does **not** save or upload it. Only the explicit reference-photo uploader persists images. The separate inspection button sends the captured frame to Meta through FastAPI without storing it locally.
 
 ## SQLite and image storage
 
@@ -115,20 +119,51 @@ Edit `data/assemblies/demo-lego.json` to configure the five-step example. Parts 
 
 Add your real reference photos under `frontend/public/references/` and set a step's `reference_image` to a path such as `/references/step-1.jpg`. Null or broken image paths show an explicit placeholder. No construction photos are fabricated. Restart/rebuild after changing assembly data in production.
 
+## Configure and use Meta inspection
+
+Create an API key in the [Meta Model API dashboard](https://dev.meta.ai/) (API keys → Create API key). In the existing `backend/.env`, set `MODEL_API_KEY` securely; do not paste it into source code, the frontend or logs. Keep the other defaults from `.env.example`:
+
+```env
+META_API_BASE_URL=https://api.meta.ai/v1
+META_VISION_MODEL=muse-spark-1.3
+META_REQUEST_TIMEOUT=60
+```
+
+Environment variables override `.env`. Restart the backend after changes. For cloud development, securely configure `MODEL_API_KEY` for this environment and allow `api.meta.ai` (inference) and `dev.meta.ai` (documentation); a saved setting may need propagation before the running backend receives it.
+
+Register your blocks, project and steps as above. A block photo describes an individual component; upload a **correctly assembled step photograph** to describe the intended arrangement. Without that photograph, spatial judgments are deliberately conservative. Capture a frame and choose **Inspect with Meta AI**. Results show `correct`, `incorrect` or `uncertain`, visible components/counts, issues, explanation and next action. Confidence can be null and is never a calibrated probability. Changing the frame, project or step clears the displayed result. An in-flight upstream request may still incur cost even if the browser discards its answer.
+
+The practice JSON demo has no registered SQLite context and does not offer AI inspection. Hidden connections, occluded parts, exact measurements and guaranteed physical correctness cannot be established from a single view. Do not treat a suggested fix as verified: capture a new frame after changing the build.
+
 ## API
 
 ```sh
 curl --fail http://localhost:8000/health
-curl -i -F 'image=@/path/to/photo.jpg' http://localhost:8000/api/inspect
+curl --fail-with-body -F 'image=@/path/to/photo.jpg' \
+  -F 'project_id=YOUR_PROJECT_ID' -F 'step_id=YOUR_STEP_ID' \
+  http://localhost:8000/api/inspect
 ```
 
-`GET /health` returns HTTP 200 with `status: ok`, `service: assemblypilot-backend`, `version: 0.1.0`.
+`GET /health` retains the Phase 1 contract (`status: ok`, `service: assemblypilot-backend`, `version: 0.1.0`). The API application metadata is version 0.3.0.
 
-`POST /api/inspect` accepts multipart field **image**. The actual bytes, not the MIME type or extension, determine the format. Valid JPEG/PNG/WebP is decoded, EXIF-oriented, resized proportionately, flattened on white if transparent, and encoded as metadata-free JPEG. Images are not persisted. A valid image returns **HTTP 501** with `status: not_implemented`, an explanation and image dimensions. No fake inference result is returned.
+`POST /api/inspect` returns validated diagnostic JSON on success. Missing Meta configuration returns 503; provider failures never produce a diagnosis. For compatibility, image-only requests still validate the image and return 501 with dimensions and guidance to supply both IDs. Both IDs plus the image are required for actual inspection.
 
-Invalid/corrupt/too-small images return 422; size/dimension excess returns 413; unsupported/animated formats return 415. Missing multipart fields return 422. The upload is read with a byte limit, but multipart parsing can spool to a temporary file before validation; a public deployment must add a request-body limit at its reverse proxy as well as authentication/rate limits. AssemblyPilot is a local development tool.
+JPEG/PNG/WebP bytes are validated regardless of file extension, EXIF-oriented, proportionately resized and converted to metadata-free JPEG in memory. Corrupt/too-small images return 422; oversized images return 413; unsupported/animated formats return 415. Multipart parsing can spool before validation; public deployment would require authentication, request-body and rate limits. Keep this unauthenticated MVP on a trusted local machine.
 
-Additional registry endpoints and request examples are documented in [docs/registry-api.md](docs/registry-api.md). The inspection context endpoint resolves only the selected step's block definitions, quantities and reference-image metadata. The typed Python service can also accept a transient normalized camera frame and optional previous context. It produces an intermediate schema, makes no model calls and never persists the frame.
+See [inspection API and verified Meta protocol](docs/inspection-api.md) and [registry API](docs/registry-api.md) for schemas, errors and limits.
+
+### Explicit live smoke test
+
+This command sends a potentially billable request to Meta. Use a real photograph and actual IDs from your local registry; it is never run by CI:
+
+```sh
+cd backend
+uv run --frozen python smoke_inspection.py \
+  --project-id YOUR_PROJECT_ID --step-id YOUR_STEP_ID \
+  --image /absolute/path/to/your-assembly-photo.jpg
+```
+
+It loads the backend environment, resolves the registered context and references, prints the validated diagnosis and duration, and exits 0 on success or nonzero on failure. Without a key it prints `SKIPPED` and exits 77. No sample result is substituted. See [validation results](docs/validation.md) for whether a live request was actually performed.
 
 ## Checks
 
@@ -140,16 +175,15 @@ cd frontend && npx playwright install chromium
 cd .. && make test-browser
 ```
 
-Browser tests start a real FastAPI service with an isolated temporary SQLite database and upload directory. They refuse to reuse an existing backend on port 8000: stop your development backend before running them. `make test-browser` builds with the local test API URL. The new browser workflow tests block/project/step CRUD, photo upload, reordering, deletion conflicts, and custom-project camera capture. The original tests exercise dashboard rendering, five-step navigation, backend statuses, synthetic camera capture, source restart, track cleanup, permission denial, disconnection and mobile layout. They use Chromium's **synthetic** camera (the original Phase 1 cases mock health responses); they do not establish physical webcam or iPhone compatibility. If Chromium is already installed, use `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` instead of downloading a browser. On Linux, Playwright may need system libraries (`npx playwright install --with-deps chromium`). CI runs without Meta credentials.
+Browser tests start a real FastAPI service with an isolated temporary SQLite database and upload directory. They refuse to reuse an existing backend on port 8000: stop your development backend before running them. `make test-browser` builds with the local test API URL. Browser inspection cases use test-only mocked responses to verify explicit uploads, loading, diagnosis display, errors and stale-result clearing. The registry browser workflow tests block/project/step CRUD, photo upload, reordering, deletion conflicts, and custom-project camera capture. The original tests exercise dashboard rendering, five-step navigation, backend statuses, synthetic camera capture, source restart, track cleanup, permission denial, disconnection and mobile layout. They use Chromium's **synthetic** camera (the original Phase 1 cases mock health responses); they do not establish physical webcam or iPhone compatibility. If Chromium is already installed, use `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` instead of downloading a browser. On Linux, Playwright may need system libraries (`npx playwright install --with-deps chromium`). CI runs without Meta credentials.
 
 The executed cloud validation results and remaining hardware limitations are recorded in [docs/validation.md](docs/validation.md).
 
-## Current limitations and next phase
+## Current limitations and Phase 3B
 
-- No AI diagnosis, correction, repair verification, SAM, image generation or smart-glasses integration.
-- Reference photos must be supplied by the user. Assembly navigation remains manual.
-- The registry is optimized for a small local collection: no pagination, multi-user editing/merge resolution, migrations or cloud sync. Concurrent writes preserve database integrity, but full-field edits use last-write-wins semantics.
-- No physical-camera testing is possible in a headless cloud environment. Validate your MacBook/iPhone with the steps above.
-- The proposed Meta endpoint and Muse Spark model identifier have **not been verified** against official documentation; the model ID is deliberately empty. No assumed SDK methods or payload formats exist in the code.
-- For the next phase (Meta Vision integration), verify official Meta API access, exact model ID and vision support, authentication, image payload format, response schema, limits and data policy. Then implement `MetaClient` behind the existing typed interfaces with timeouts, bounded retries, schema validation, and explicit user-triggered uploads. Keep credentials exclusively in the backend.
-- Verification must inspect a **new image after a human correction**, not reuse the original image as evidence of a repair.
+- Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified; no overlays are rendered.
+- Model confidence is an uncalibrated estimate or null. A `correct` result is not a physical safety or connection guarantee.
+- No correction agent loop, repair verification, SAM, image generation or smart-glasses integration. Phase 3B can add human-reviewed correction planning and verification against a **new frame**, after evaluating real assemblies.
+- Reference photos must be supplied by the user; navigation remains manual. Only the first step photo and first photo per assigned block are selected, up to the configured reference cap; omitted counts are included in the prompt.
+- Registry limitations remain: no pagination, multi-user conflict resolution, migrations or cloud sync. Full-field edits use last-write-wins semantics.
+- Physical webcam/iPhone compatibility needs local hardware validation. Offline transport tests establish request/response handling, not model recognition quality or your account's live access.

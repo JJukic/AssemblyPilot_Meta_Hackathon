@@ -12,6 +12,7 @@ from app.main import create_app
 def settings(tmp_path):
     return Settings(
         _env_file=None,
+        model_api_key=None,
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         upload_dir=str(tmp_path / "uploads"),
     )

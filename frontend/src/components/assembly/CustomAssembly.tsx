@@ -1,13 +1,15 @@
 "use client";
 import Link from "next/link";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useResource } from "@/hooks/useResource";
 import { registry } from "@/lib/registry";
 import { mediaUrl } from "@/lib/api";
 import { AssemblyPanel } from "./AssemblyPanel";
-import type { Assembly } from "@/types/assembly";
+import { InspectionPanel } from "@/components/inspection/InspectionPanel";
+import type { Assembly, Snapshot } from "@/types/assembly";
 
-export function CustomAssembly({ projectId }: { projectId: string }) {
+export function CustomAssembly({ projectId, snapshot }: { projectId: string; snapshot: Snapshot | null }) {
+  const [current, setCurrent] = useState(0);
   const load = useCallback(() => registry.project(projectId), [projectId]);
   const { data, error, reload } = useResource(load);
   if (error) return <section className="panel empty-state"><p role="alert">{error}</p><button className="button secondary" onClick={reload}>Retry project</button><Link href="/projects">Manage projects</Link></section>;
@@ -21,5 +23,10 @@ export function CustomAssembly({ projectId }: { projectId: string }) {
       reference_image: step.reference_images[0] ? mediaUrl(step.reference_images[0].url) : null,
     })),
   };
-  return <AssemblyPanel key={data.id} assembly={assembly} />;
+  const currentIndex = Math.min(current, assembly.steps.length - 1);
+  const stepId = String(assembly.steps[currentIndex].id);
+  return <div className="inspection-column">
+    <AssemblyPanel key={data.id} assembly={assembly} currentStep={currentIndex} onStepChange={setCurrent} />
+    <InspectionPanel key={`${data.id}:${stepId}:${snapshot?.capturedAt ?? "no-frame"}`} projectId={data.id} stepId={stepId} snapshot={snapshot} />
+  </div>;
 }

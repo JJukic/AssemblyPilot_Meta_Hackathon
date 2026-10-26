@@ -1,4 +1,4 @@
-# AssemblyPilot architecture — Phase 2
+# AssemblyPilot architecture — Phase 3A
 
 ## Components
 
@@ -7,7 +7,8 @@ Browser camera → live preview → in-memory snapshot (unchanged Phase 1)
 Block/project forms → FastAPI → SQLModel/SQLAlchemy → local SQLite
 Explicit photo upload → Pillow validation → generated JPEG file + SQLite metadata
 Project selector → ordered steps/expected blocks/reference URLs → manual camera guide
-Selected step → inspection_context service → typed intermediate schema (no inference)
+Explicit inspection → selected SQLite context + safe reference bytes + current snapshot
+  → async Meta Chat Completions → strict Pydantic diagnosis → dashboard
 ```
 
 Next.js App Router provides `/`, `/blocks`, `/projects`, and `/projects/[projectId]`. Interactive management components use a typed API client and reusable image uploader. Dynamic route parameters are awaited on the server. Client fetches display loading/error/empty states; project switching does not remount the camera hook. The five-step JSON demo remains a fallback and is not seeded into or synchronized with the database.
@@ -36,16 +37,26 @@ GET media requires a database record and a safe file under the upload root. Arbi
 
 Deleting a project cascades only its steps, assignments and step image records. Reusable blocks and their photos survive. Deleting a referenced block returns 409. Deleting a step also compacts remaining order. Image files are scheduled for removal after a successful database commit; new files are removed on rollback. Crash/IO failure can leave an unreachable orphan file because SQLite and the filesystem cannot commit atomically; failures are logged. There is no automatic orphan scan or destructive startup cleanup. See README for backup/deletion details.
 
-## Future Meta boundary
+## Meta inspection boundary
 
-`services/inspection_context.py` resolves only the selected step's registered definitions, quantities and reference metadata into `models/inspection_context.py`. A normalized camera frame and optional previous context can be attached in memory at inspection time. GET context returns metadata without a snapshot. No API credentials or frames are stored in SQLite. `/api/inspect` preserves Phase 1 behavior: validate an image, then HTTP 501. Meta client/agent interfaces remain explicit unimplemented boundaries.
+`services/inspection_context.py` remains the metadata-only selected-step resolver. `services/inspection_request.py` builds a typed `MultimodalInspectionRequest`, verifies each reference's ownership and safe storage path, and reprocesses its bytes with Pillow. The camera snapshot is image 0, followed by the first assembled-step reference and first photograph per assigned block, capped at eight references by default. No other step or library image is sent. Existing stored images are unchanged. Inspection copies use a 1280px maximum edge.
 
-The next phase is Meta Vision integration, after verifying official endpoint, authentication, vision payload, model ID and response schema. Muse Spark is an intended future model name, not a verified API identifier. No SDK capabilities are assumed. Integrate timeouts, bounded retries, validated responses and explicit user-triggered uploads; verify a repair using a new frame after the human correction. SAM, generation, smart glasses and autonomous loops remain out of scope.
+The route closes its SQLite read session before awaiting inference; file/SQLite work runs in a worker thread. `prompts/inspection.py` separates developer policy from JSON task data and labels all image roles. Separate component photos do not establish the intended arrangement. Quantities are assignments to the current step, not necessarily the total assembly. Missing/ambiguous visual evidence should result in `uncertain`; prompt instructions alone cannot guarantee model accuracy.
+
+`services/meta_client.py` uses async httpx and the documented `POST https://api.meta.ai/v1/chat/completions` protocol with Bearer `MODEL_API_KEY`, default model `muse-spark-1.3`, JPEG data URLs, and a strict JSON schema generated from `models/diagnosis.py`. The endpoint guard accepts only Meta HTTPS, without URL credentials/query/fragment, and redirects are not followed. No fallback inference provider, tool execution or local model exists. The transport is injectable for tests.
+
+One 60-second deadline covers networking, up to three attempts and backoff. Short transient 429/500/502/503 and transport failures may retry with exponential backoff/jitter; authentication/validation errors and upstream 504 do not. Long Retry-After values return guidance instead of retrying early. Request JSON is capped at 10 MiB; response bytes at 1 MiB. Raw upstream error bodies are never returned or logged.
+
+Successful HTTP status is insufficient: the adapter requires a completed single choice, JSON that passes strict Pydantic validation, the requested step ID, and only supplied block IDs or null. Extra fields, unknown statuses, invalid/nonfinite confidence, invalid boxes and inconsistent status/issues are rejected. Refusals, truncated output and malformed responses return errors, never fabricated success or a synthetic `uncertain` result.
+
+`InspectionPanel` sends multipart image/project_id/step_id only after a click, shows loading/errors and the validated diagnosis, and never advances the step. Remounting on project/step/capture changes aborts the browser request and discards stale results. This does not guarantee cancellation of work already running at Meta. Frames/results are not persisted by AssemblyPilot; references remain in the existing local registry. Credentials remain exclusively in backend settings.
+
+The image-only legacy route still validates and returns 501; context-aware requests use the real adapter. Phase 1 correction/verification/orchestration interfaces remain unimplemented and are not invoked by Phase 3A. Future verification needs a new post-repair frame. See [inspection API](inspection-api.md) for protocol sources and errors.
 
 ## Testing and local operation
 
-Existing `make install`, `make dev-backend`, `make dev-frontend`, `make lint`, `make test`, and `make build` remain valid. Locked dependencies include SQLModel and SQLAlchemy. Python tests override settings with per-test temporary SQLite databases/uploads and exercise API behavior, DB constraints, persistence after restart, filesystem cleanup, rollback and contextual data scoping.
+Existing `make install`, `make dev-backend`, `make dev-frontend`, `make lint`, `make test`, and `make build` remain valid. Locked dependencies include SQLModel and SQLAlchemy. Python tests explicitly disable ambient Meta credentials and override settings with per-test temporary SQLite databases/uploads and exercise API behavior, DB constraints, persistence after restart, filesystem cleanup, rollback and contextual data scoping.
 
-Playwright starts `backend/browser_test_server.py`, which runs the API with a disposable temporary database and upload directory. It refuses an already-running backend on port 8000 rather than reuse user data. The frontend CI job installs backend dependencies as well. The browser suite preserves all original synthetic-camera tests and adds the complete registry/project workflow against the real isolated API. Physical-camera compatibility still requires local hardware validation.
+Playwright starts `backend/browser_test_server.py`, which runs the API with a disposable temporary database and upload directory. It refuses an already-running backend on port 8000 rather than reuse user data. The frontend CI job installs backend dependencies as well. The browser suite preserves all original synthetic-camera tests and adds the complete registry/project workflow against the real isolated API. New inspection browser cases mock only API fixtures/results inside tests, exercising manual submission, state and failure handling. Physical-camera compatibility still requires local hardware validation.
 
 SQLite `create_all` initializes a new schema; it is not a migration system. Keep database/files outside Git and back up both before future schema changes. No external service, cloud sync or GPU is required.

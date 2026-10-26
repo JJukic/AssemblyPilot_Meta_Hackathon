@@ -1,5 +1,29 @@
 # Validation results
 
+## Phase 3A — 2026-10-26
+
+Validated on `feature/meta-vision-integration`, based on merged Phase 2 (`103cbbb`).
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 143 Python tests passed (all previous 60 retained); strict TypeScript passed |
+| `make build` | Next.js production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | All 14 tests passed, including all previous 11 |
+| Mobile inspection view | Synthetic diagnosis screenshot reviewed at 390px; no horizontal overflow |
+| Official Meta protocol documentation | Read successfully before implementing HTTP transport; sources in inspection-api.md |
+| Normal development startup | Backend/frontend started; health, blocks, projects and dashboard HTTP 200 |
+| `cd backend && .venv/bin/python smoke_inspection.py` | SKIPPED, exit 77: MODEL_API_KEY absent from this running backend |
+| Git exclusions | backend/.env, database and upload paths remain ignored |
+
+New backend coverage includes safe reference ownership/path/file validation; relevant image selection and omitted references; 1280px preprocessing; strict status/confidence/count/box schemas; documented multimodal payload/authentication; Meta-only destination and no redirects; transient retries and Retry-After; overall timeout; authentication/billing/rate/network errors; oversized request/response limits; incomplete/refused/malformed output; unknown IDs; API missing-context/configuration errors and successful mocked transport.
+
+Inspection browser cases cover explicit multipart submission without frontend credentials, disabled/loading states, diagnosis/components/issues/next-action rendering, no automatic advancement, clearing prior results on retry/capture, step changes during an in-flight request, project switching and continued camera use. Registry cases still run against the disposable real FastAPI/SQLite backend. Inspection answers are synthetic fixtures confined to tests; no real inference was used in automated tests.
+
+The user reported configuring a key locally and in environment settings; checks in this running cloud instance still found no backend key. The smoke script therefore skipped before any inference request. The local registry also contains no real project/step/reference photograph for live evaluation. **Real Meta inference and recognition accuracy remain unverified.** No credentials or personal photos were added to Git. Run the explicit README smoke command locally with the configured backend and a real assembly photograph.
+
+One upstream Starlette/httpx TestClient deprecation warning remains. No automated tests were skipped or disabled. Physical webcam/iPhone compatibility and remote GitHub Actions have not been verified here.
+
 ## Phase 2 — 2026-10-26
 
 The Phase 2 implementation was validated in the current cloud checkout.
