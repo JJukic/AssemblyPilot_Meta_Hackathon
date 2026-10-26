@@ -4,13 +4,15 @@ version = "0.1.0"
 description = "AssemblyPilot image validation and future Meta inference API"
 requires-python = ">=3.12"
 dependencies = [
-  "fastapi>=0.115,<1",
+  "fastapi>=0.121,<1",
   "uvicorn>=0.34,<1",
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
   "pillow>=11,<13",
   "httpx>=0.28,<1",
   "python-multipart>=0.0.20,<1",
+  "sqlmodel>=0.0.24,<0.1",
+  "sqlalchemy>=2.0,<2.1",
 ]
 
 [dependency-groups]

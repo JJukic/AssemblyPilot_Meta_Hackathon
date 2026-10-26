@@ -19,3 +19,12 @@ playwright-report/
 test-results/
 .DS_Store
 next-env.d.ts
+
+# Local registry data and reference photos
+backend/data/
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3

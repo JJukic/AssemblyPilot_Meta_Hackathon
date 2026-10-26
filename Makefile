@@ -23,5 +23,6 @@ build:
 
 # First run: cd frontend && npx playwright install chromium
 # Browser tests use a synthetic camera. They do not prove physical camera support.
-test-browser: build
+test-browser:
+	cd frontend && NEXT_PUBLIC_API_URL=http://localhost:8000 npm run build
 	cd frontend && npm run test:e2e
