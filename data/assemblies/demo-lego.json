@@ -1,0 +1,42 @@
+{
+  "id": "demo-lego",
+  "name": "LEGO Demo Assembly",
+  "description": "A small five-step practice build. Use compatible bricks you have; colors are suggestions, not a required set.",
+  "steps": [
+    {
+      "id": 1,
+      "title": "Build the base",
+      "instruction": "Place two blue 2×4 bricks side by side, with their long edges touching and studs facing up. They form a 4×4 base.",
+      "expected_parts": [{ "type": "2×4 brick", "color": "blue", "count": 2 }],
+      "reference_image": null
+    },
+    {
+      "id": 2,
+      "title": "Connect the foundation",
+      "instruction": "Place two red 2×4 bricks on top, rotated 90° relative to the base. Each brick should span the seam so the base is connected.",
+      "expected_parts": [{ "type": "2×4 brick", "color": "red", "count": 2 }],
+      "reference_image": null
+    },
+    {
+      "id": 3,
+      "title": "Add the left support",
+      "instruction": "Place a yellow 2×2 brick at the back-left corner of the top layer. Leave the front two rows of studs exposed.",
+      "expected_parts": [{ "type": "2×2 brick", "color": "yellow", "count": 1 }],
+      "reference_image": null
+    },
+    {
+      "id": 4,
+      "title": "Add the right support",
+      "instruction": "Place a second yellow 2×2 brick at the back-right corner, beside the left support. Both supports should be level.",
+      "expected_parts": [{ "type": "2×2 brick", "color": "yellow", "count": 1 }],
+      "reference_image": null
+    },
+    {
+      "id": 5,
+      "title": "Bridge the supports",
+      "instruction": "Place a green 2×4 brick across both yellow supports. Press gently into place and manually check that all layers are connected.",
+      "expected_parts": [{ "type": "2×4 brick", "color": "green", "count": 1 }],
+      "reference_image": null
+    }
+  ]
+}
