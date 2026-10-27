@@ -44,7 +44,7 @@ export function Dashboard({ assembly, initialProjectId = "" }: { assembly: Assem
       <main>
         <div className="page-heading">
           <div><p className="eyebrow">YOUR ASSEMBLY WORKSPACE</p><h1>Build with a clearer view.</h1><p className="muted">Observe your build. Follow each step. Keep moving forward.</p></div>
-          <div className="phase-badge"><span className="status-dot" /> PHASE 02 <span>Registry</span></div>
+          <div className="phase-badge"><span className="status-dot" /> PHASE 3A <span>Inspection</span></div>
         </div>
         <div className="project-selector panel">
           <label className="field"><span>Assembly project</span><select value={selectedProject} onChange={(event) => setSelectedProject(event.target.value)}>
@@ -55,18 +55,18 @@ export function Dashboard({ assembly, initialProjectId = "" }: { assembly: Assem
           <div>{projects.data?.length === 0 ? <p>No custom projects yet. <Link href="/projects">Create your first project</Link>.</p> : <Link href="/projects">Manage projects</Link>}
           {projects.error && <p className="muted">Custom projects unavailable. The practice demo and camera still work. <button className="text-button" onClick={projects.reload}>Retry</button></p>}</div>
         </div>
-        <div className="workspace-grid"><CameraView camera={camera} />{selectedProject ? <CustomAssembly key={selectedProject} projectId={selectedProject} /> : <AssemblyPanel assembly={assembly} />}</div>
+        <div className="workspace-grid"><CameraView camera={camera} />{selectedProject ? <CustomAssembly key={selectedProject} projectId={selectedProject} snapshot={camera.snapshot} /> : <AssemblyPanel assembly={assembly} />}</div>
         <section className="pipeline-panel" aria-label="AI inspection availability">
           <div className="pipeline-icon"><ScanLine size={22} /></div>
-          <div className="pipeline-copy"><h2>A foundation for visual intelligence</h2><p>Camera capture and manual guidance are ready. Meta-powered diagnosis, correction and verification are coming in a later phase.</p></div>
-          <span className="tag"><Eye size={13} /> INFERENCE NOT IMPLEMENTED</span>
+          <div className="pipeline-copy"><h2>Inspect your current assembly</h2><p>Select a custom project, capture a frame, then request a Meta AI diagnosis. Inspection runs only when you ask; step navigation stays manual.</p></div>
+          <span className="tag"><Eye size={13} /> ON-DEMAND META AI</span>
         </section>
         <details className="camera-help">
           <summary><CircleHelp size={15} /> Camera setup tips <ArrowUpRight size={14} /></summary>
           <p>Use localhost or HTTPS and allow camera access in your browser. Select your webcam after permission is granted. An iPhone can be selected if Apple Continuity Camera exposes it as a camera; availability depends on your Apple devices and settings. If the camera disconnects, reconnect it and press Start camera. The camera works even when the backend is disconnected.</p>
         </details>
       </main>
-      <footer><span>ASSEMBLYPILOT <span className="footer-divider">/</span> META AI DEVELOPER HACKATHON</span><span>Phase 2 · Local workspace</span></footer>
+      <footer><span>ASSEMBLYPILOT <span className="footer-divider">/</span> META AI DEVELOPER HACKATHON</span><span>Phase 3A · Meta inspection</span></footer>
     </div>
   );
 }

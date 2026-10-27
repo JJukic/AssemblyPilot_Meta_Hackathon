@@ -13,6 +13,7 @@ if __name__ == "__main__":
         root = Path(directory)
         settings = Settings(
             _env_file=None,
+            model_api_key=None,
             database_url=f"sqlite:///{root / 'browser.db'}",
             upload_dir=str(root / "uploads"),
             frontend_origin="http://localhost:3000",

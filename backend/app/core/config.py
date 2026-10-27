@@ -22,7 +22,11 @@ class Settings(BaseSettings):
 
     model_api_key: SecretStr | None = None
     meta_api_base_url: str = "https://api.meta.ai/v1"
-    meta_vision_model: str = ""
+    meta_vision_model: str = "muse-spark-1.3"
+    meta_request_timeout: float = Field(default=60, gt=0, le=180)
+    inspection_max_dimension: int = Field(default=1280, ge=256, le=1600)
+    meta_max_reference_images: int = Field(default=8, ge=0, le=20)
+    meta_max_request_bytes: int = Field(default=10 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
     frontend_origin: str = "http://localhost:3000"
     max_upload_bytes: int = Field(default=8 * 1024 * 1024, gt=0)
     max_image_pixels: int = Field(default=20_000_000, gt=0)

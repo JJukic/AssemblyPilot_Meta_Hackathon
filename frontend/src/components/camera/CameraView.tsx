@@ -56,7 +56,7 @@ export function CameraView({ camera }: { camera: Camera }) {
         onStart={() => void start(deviceId)} onStop={stop}
         onCapture={capture} onDeviceChange={selectDevice}
       />
-      <div className="privacy-note"><ShieldCheck size={14} /> Camera frames stay in this browser. Nothing is uploaded automatically.</div>
+      <div className="privacy-note"><ShieldCheck size={14} /> Frames stay in this browser until you choose Inspect with Meta AI. Nothing is uploaded automatically.</div>
     </section>
   );
 }

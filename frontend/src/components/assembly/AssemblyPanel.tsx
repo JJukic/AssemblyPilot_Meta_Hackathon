@@ -6,8 +6,12 @@ import type { Assembly } from "@/types/assembly";
 import { ProgressTracker } from "./ProgressTracker";
 import { ReferenceImage } from "./ReferenceImage";
 
-export function AssemblyPanel({ assembly }: { assembly: Assembly }) {
-  const [current, setCurrent] = useState(0);
+export function AssemblyPanel({ assembly, currentStep, onStepChange }: {
+  assembly: Assembly; currentStep?: number; onStepChange?: (index: number) => void;
+}) {
+  const [internalCurrent, setInternalCurrent] = useState(0);
+  const current = currentStep ?? internalCurrent;
+  const setCurrent = onStepChange ?? setInternalCurrent;
   const step = assembly.steps[current];
   return (
     <section className="panel assembly-panel" aria-labelledby="assembly-heading">
