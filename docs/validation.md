@@ -1,5 +1,27 @@
 # Validation results
 
+## Phase 3B — 2026-10-27
+
+Based on merged Phase 3A (`d577684`), on `feature/visual-ai-debugging`.
+
+| Check | Result |
+| --- | --- |
+| Phase 3A transport verification before changes | 56 mocked HTTP/client/API tests passed; live smoke exited 77 because no backend key was available |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | All 161 Python tests passed; strict TypeScript passed |
+| `make build` | Production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | All 19 tests passed |
+| Exact snapshot provenance | API response JPEG matched the bytes in the mocked Meta request, including EXIF rotation and 1280px resize |
+| Desktop/mobile overlays | Coordinate alignment verified against the actual image transform; mobile screenshot reviewed |
+| `python smoke_inspection.py` | SKIPPED, exit 77: MODEL_API_KEY missing from the running backend |
+| `python benchmark_inspection.py` | SKIPPED, exit 77: no real-photo manifest / live opt-in |
+
+No real user reference/test photographs were available in the configured local registry or reference directory: zero projects, steps and reference-image records. **No actual Meta inference succeeded in this task, and no real benchmark scores or localization-quality claims were produced.** The live tools remain ready for explicit use with the user’s real images and configured backend key.
+
+New coverage verifies expected/observed fields for all five discrepancy categories, null boxes for missing parts, required Active Vision for uncertain results, exact analyzed-image provenance and backend latency/timestamp metadata, failure-inclusive benchmark metrics, explicit benchmark opt-in, responsive overlay geometry, invalid coordinates and image-dimension mismatch rejection, snapshot/history separation, navigation persistence, history cap/clear/reload and existing stale-answer cancellation. Synthetic images and diagnoses exist only in tests.
+
+The initial coordinate assertion measured the visible SVG stroke rather than the coordinate rectangle. It was corrected to compare the SVG rectangle transformed to screen coordinates against the image in the same layout frame, with a tighter tolerance; the complete 19-test browser suite then passed. No application checks were disabled. The existing non-failing Starlette/httpx deprecation and browser NO_COLOR notices remain. Physical cameras and real recognition/localization quality still require user hardware and images.
+
 ## Phase 3A — 2026-10-26
 
 Validated on `feature/meta-vision-integration`, based on merged Phase 2 (`103cbbb`).

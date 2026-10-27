@@ -1,10 +1,10 @@
-# Phase 3A inspection API
+# Phase 3B inspection API
 
 `POST /api/inspect` accepts multipart `image`, `project_id`, `step_id`. The step must belong to that project. The frontend sends no duplicated block specifications or reference URLs; SQLite is authoritative. `GET /api/projects/{project_id}/steps/{step_id}/context` remains a metadata-only endpoint with no inference.
 
 ## Response
 
-HTTP 200 returns `InspectionResult`, with all fields required. Nullable fields must explicitly be null rather than receive manufactured defaults.
+HTTP 200 returns `InspectionResponse` (the diagnostic fields remain at the top level), with all fields required. Nullable fields must explicitly be null rather than receive manufactured defaults.
 
 | Field | Contract |
 | --- | --- |
@@ -12,11 +12,20 @@ HTTP 200 returns `InspectionResult`, with all fields required. Nullable fields m
 | `status` | `correct`, `incorrect`, `uncertain` |
 | `confidence` | Finite number 0–1 or null; model estimate, not calibrated probability |
 | `visible_blocks` | Array of `{block_id, description, estimated_count}`; registered ID or null, nonnegative integer count or null |
-| `issues` | Array of `{type, block_id, description, suggested_fix, bounding_box}` |
+| `issues` | Array of `{type, block_id, description, expected, observed, suggested_fix, bounding_box}` |
 | `explanation` | Nonempty bounded text explaining visual evidence |
 | `next_action` | Nonempty bounded next action; no automatic step transition |
+| `active_vision` | For uncertain only: `{reason, requested_view, instruction}`; otherwise null |
+| `analyzed_snapshot` | Backend-owned `{data_url, width, height}`: exact normalized JPEG sent as the current frame to Meta |
+| `model` | Configured Meta model ID, supplied by backend |
+| `model_latency_ms` | Backend monotonic duration of the adapter call, including retries/backoff, excluding context/image preparation; not provider-only compute time |
+| `inspected_at` | Backend UTC timestamp after successful validation |
 
-Issue types: `missing_part`, `misplaced_part`, `wrong_color`, `wrong_orientation`, `unexpected_part`, `unknown`. Boxes are null or `{x,y,width,height}` in camera-image coordinates 0–1, with positive dimensions and `x+width <= 1`, `y+height <= 1`. No default boxes are generated. A correct diagnosis cannot contain issues; incorrect must contain at least one. IDs must be among the supplied current-step blocks, or null. Geometric/schema validation cannot prove visual accuracy.
+Issue types: `missing_part`, `misplaced_part`, `wrong_color`, `wrong_orientation`, `unexpected_part`, `unknown`. Boxes are null or `{x,y,width,height}` in camera-image coordinates 0–1, with positive dimensions and `x+width <= 1`, `y+height <= 1`. No default boxes are generated. `missing_part` must use null: an absent component has no observed location. All five discrepancy categories carry distinct expected and observed text. A correct diagnosis cannot contain issues; incorrect must contain at least one. IDs must be among the supplied current-step blocks, or null. Geometric/schema validation cannot prove visual accuracy.
+
+Active Vision view values are `top_down`, `front`, `back`, `left_side`, `right_side`, `close_up`, `other`. The nonempty reason and instruction must explain the missing evidence and a concrete camera move/region to reveal. The prompt asks for unchanged assembly and distinguishes missing reference information from evidence another view can supply. An uncertain response without this request is invalid upstream output, not a reason to fabricate one in Python.
+
+The model receives only the `InspectionResult` JSON schema; the server adds provenance fields after inference. The browser validates the response shape and coordinates again before saving it to history. An image decode/dimension mismatch hides all boxes. Deploy backend/frontend together: Phase 3B adds required structured fields, so a newer frontend rejects a Phase 3A-only backend rather than drawing unverified overlays.
 
 ## Failures
 
@@ -51,10 +60,12 @@ The adapter uses raw httpx, no OpenAI/Anthropic SDK or endpoint. It requests 819
 
 The application's 8 MiB upload, 1280px inspection copy, eight-reference and 10 MiB JSON limits are conservative application choices, not advertised Meta limits. JSON size includes base64 expansion. Registered images stay at their existing registry normalization resolution. Model references use only validated image bytes, never local filenames, filesystem paths or public media URLs. Image roles and an omitted-reference count are supplied explicitly.
 
-Meta's default perception examples use a 0–1000 coordinate grid. This application explicitly requests its own 0–1 x/y/width/height schema and rejects values outside it rather than guessing units or fabricating conversions. No advanced overlays are included.
+Meta's default perception examples use a 0–1000 coordinate grid. This application explicitly requests its own 0–1 x/y/width/height schema and rejects values outside it rather than guessing units or fabricating conversions. `DiagnosticOverlay` renders these validated normalized coordinates only on the returned analyzed JPEG, preserving its aspect ratio. No live-video tracking, segmentation or SAM is used.
 
 ## Live versus offline validation
 
 `make test` uses HTTP mocks only inside tests and isolated SQLite stores. `make test-browser` uses synthetic camera input and test-only inspection fixtures; its disposable backend explicitly sets the model key to None. Neither command performs paid inference even if the developer environment has a key.
 
 Run `backend/smoke_inspection.py` explicitly with a real registered project/step and real photograph (README command). Missing credentials produce exit 77; failures exit nonzero; successful validated diagnosis exits 0. This verifies access and parsing for that photograph, not recognition reliability across assemblies. Real photos and backend credentials must never be committed.
+
+The optional [real-image benchmark](benchmark.md) runs the same adapter and provenance service. Its classification metrics do not establish localization quality; that still requires comparing reported boxes with real image evidence.

@@ -2,7 +2,7 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
-Phase 3A adds **on-demand Meta Muse Spark inspection** to the existing camera dashboard, custom block registry and assembly projects. Select a registered project and step, capture a frame, and choose **Inspect with Meta AI**. The backend combines the frame with relevant registered specifications and photographs, calls Meta, and validates the diagnosis before displaying it.
+Phase 3B adds **visual debugging of on-demand Meta Muse Spark inspections** to the existing camera dashboard, custom block registry and assembly projects. Select a registered project and step, capture a frame, and choose **Inspect with Meta AI**. The backend combines the frame with relevant registered specifications and photographs, calls Meta, and validates the diagnosis before displaying it. Numbered boxes appear only on the exact normalized snapshot analyzed by Meta; uncertain results request a specific additional camera view. A temporary session history keeps the last ten completed inspections.
 
 All inference goes exclusively to Meta Model API. No automatic uploads, continuous analysis, autonomous correction, repair verification or local GPU models are implemented. Camera capture, SQLite and registry features still work without an API key.
 
@@ -131,7 +131,9 @@ META_REQUEST_TIMEOUT=60
 
 Environment variables override `.env`. Restart the backend after changes. For cloud development, securely configure `MODEL_API_KEY` for this environment and allow `api.meta.ai` (inference) and `dev.meta.ai` (documentation); a saved setting may need propagation before the running backend receives it.
 
-Register your blocks, project and steps as above. A block photo describes an individual component; upload a **correctly assembled step photograph** to describe the intended arrangement. Without that photograph, spatial judgments are deliberately conservative. Capture a frame and choose **Inspect with Meta AI**. Results show `correct`, `incorrect` or `uncertain`, visible components/counts, issues, explanation and next action. Confidence can be null and is never a calibrated probability. Changing the frame, project or step clears the displayed result. An in-flight upstream request may still incur cost even if the browser discards its answer.
+Register your blocks, project and steps as above. A block photo describes an individual component; upload a **correctly assembled step photograph** to describe the intended arrangement. Without that photograph, spatial judgments are deliberately conservative. Capture a frame and choose **Inspect with Meta AI**. Results show `correct`, `incorrect` or `uncertain`, visible components/counts, issues, explanation and next action. Confidence can be null and is never a calibrated probability. Changing the frame, project or step clears the current displayed result. Completed diagnoses remain in the session history with capture/inspection timestamps, exact analyzed snapshot and measured Meta request latency. History survives client-side page navigation and is cleared by refresh, closing the tab, or **Clear history**; nothing is written to browser storage or SQLite. An in-flight upstream request may still incur cost even if the browser discards its answer.
+
+Each issue includes expected versus observed evidence and a suggested fix. Missing parts are never assigned a box; visible misplaced/wrong-color/wrong-orientation/unexpected parts can have a box only when localization is reliable. Boxes are not drawn on live video or the newest capture. When **Another view needed** appears, keep the build unchanged, follow the camera-angle instruction, capture a new frame and explicitly inspect again. There is no automatic camera movement or repeated inference.
 
 The practice JSON demo has no registered SQLite context and does not offer AI inspection. Hidden connections, occluded parts, exact measurements and guaranteed physical correctness cannot be established from a single view. Do not treat a suggested fix as verified: capture a new frame after changing the build.
 
@@ -144,7 +146,7 @@ curl --fail-with-body -F 'image=@/path/to/photo.jpg' \
   http://localhost:8000/api/inspect
 ```
 
-`GET /health` retains the Phase 1 contract (`status: ok`, `service: assemblypilot-backend`, `version: 0.1.0`). The API application metadata is version 0.3.0.
+`GET /health` retains the Phase 1 contract (`status: ok`, `service: assemblypilot-backend`, `version: 0.1.0`). The API application metadata is version 0.3.1.
 
 `POST /api/inspect` returns validated diagnostic JSON on success. Missing Meta configuration returns 503; provider failures never produce a diagnosis. For compatibility, image-only requests still validate the image and return 501 with dimensions and guidance to supply both IDs. Both IDs plus the image are required for actual inspection.
 
@@ -165,6 +167,10 @@ uv run --frozen python smoke_inspection.py \
 
 It loads the backend environment, resolves the registered context and references, prints the validated diagnosis and duration, and exits 0 on success or nonzero on failure. Without a key it prints `SKIPPED` and exits 77. No sample result is substituted. See [validation results](docs/validation.md) for whether a live request was actually performed.
 
+## Real-image benchmark
+
+No user photographs or labelled test cases are bundled. See [the benchmark guide](docs/benchmark.md) to evaluate 1–10 real, labelled photographs against your registered project and reference images. The runner is opt-in, uses Meta only, records validated diagnoses and latency, and reports errors without inventing scores. It does not run in CI.
+
 ## Checks
 
 ```sh
@@ -175,15 +181,15 @@ cd frontend && npx playwright install chromium
 cd .. && make test-browser
 ```
 
-Browser tests start a real FastAPI service with an isolated temporary SQLite database and upload directory. They refuse to reuse an existing backend on port 8000: stop your development backend before running them. `make test-browser` builds with the local test API URL. Browser inspection cases use test-only mocked responses to verify explicit uploads, loading, diagnosis display, errors and stale-result clearing. The registry browser workflow tests block/project/step CRUD, photo upload, reordering, deletion conflicts, and custom-project camera capture. The original tests exercise dashboard rendering, five-step navigation, backend statuses, synthetic camera capture, source restart, track cleanup, permission denial, disconnection and mobile layout. They use Chromium's **synthetic** camera (the original Phase 1 cases mock health responses); they do not establish physical webcam or iPhone compatibility. If Chromium is already installed, use `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` instead of downloading a browser. On Linux, Playwright may need system libraries (`npx playwright install --with-deps chromium`). CI runs without Meta credentials.
+Browser tests start a real FastAPI service with an isolated temporary SQLite database and upload directory. They refuse to reuse an existing backend on port 8000: stop your development backend before running them. `make test-browser` builds with the local test API URL. Browser inspection cases use test-only mocked responses to verify explicit uploads, loading, diagnosis display, errors, Active Vision, exact-snapshot box alignment on desktop/mobile, session history and stale-result clearing. The registry browser workflow tests block/project/step CRUD, photo upload, reordering, deletion conflicts, and custom-project camera capture. The original tests exercise dashboard rendering, five-step navigation, backend statuses, synthetic camera capture, source restart, track cleanup, permission denial, disconnection and mobile layout. They use Chromium's **synthetic** camera (the original Phase 1 cases mock health responses); they do not establish physical webcam or iPhone compatibility. If Chromium is already installed, use `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` instead of downloading a browser. On Linux, Playwright may need system libraries (`npx playwright install --with-deps chromium`). CI runs without Meta credentials.
 
 The executed cloud validation results and remaining hardware limitations are recorded in [docs/validation.md](docs/validation.md).
 
-## Current limitations and Phase 3B
+## Current limitations and next steps
 
-- Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified; no overlays are rendered.
+- Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified. Localization quality needs real-image evaluation; no SAM integration is justified yet.
 - Model confidence is an uncalibrated estimate or null. A `correct` result is not a physical safety or connection guarantee.
-- No correction agent loop, repair verification, SAM, image generation or smart-glasses integration. Phase 3B can add human-reviewed correction planning and verification against a **new frame**, after evaluating real assemblies.
+- No correction agent loop, repair verification, SAM, image generation or smart-glasses integration. A later phase can add human-reviewed correction planning and verification against a **new frame**, after evaluating real assemblies.
 - Reference photos must be supplied by the user; navigation remains manual. Only the first step photo and first photo per assigned block are selected, up to the configured reference cap; omitted counts are included in the prompt.
 - Registry limitations remain: no pagination, multi-user conflict resolution, migrations or cloud sync. Full-field edits use last-write-wins semantics.
 - Physical webcam/iPhone compatibility needs local hardware validation. Offline transport tests establish request/response handling, not model recognition quality or your account's live access.

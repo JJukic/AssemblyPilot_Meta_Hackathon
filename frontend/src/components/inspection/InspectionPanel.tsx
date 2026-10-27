@@ -1,17 +1,20 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, CircleCheck, HelpCircle, LoaderCircle, ScanLine } from "lucide-react";
+import { LoaderCircle, ScanLine } from "lucide-react";
+import { DiagnosisDetails } from "./DiagnosisDetails";
+import { useInspectionSession } from "./InspectionSession";
 import { inspectSnapshot } from "@/lib/inspection";
 import { errorMessage } from "@/lib/api";
 import type { Snapshot } from "@/types/assembly";
-import type { InspectionResult } from "@/types/inspection";
+import type { InspectionResponse } from "@/types/inspection";
 
 // Parent keys this component by project, step and snapshot, so results can never migrate to new input.
-export function InspectionPanel({ projectId, stepId, snapshot }: {
-  projectId: string; stepId: string; snapshot: Snapshot | null;
+export function InspectionPanel({ projectId, projectName, stepId, stepTitle, snapshot }: {
+  projectId: string; projectName: string; stepId: string; stepTitle: string; snapshot: Snapshot | null;
 }) {
+  const { add } = useInspectionSession();
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<InspectionResult | null>(null);
+  const [result, setResult] = useState<InspectionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(() => () => controllerRef.current?.abort(), []);
@@ -23,7 +26,10 @@ export function InspectionPanel({ projectId, stepId, snapshot }: {
     setBusy(true); setError(null); setResult(null);
     try {
       const diagnosis = await inspectSnapshot(projectId, stepId, snapshot, controller.signal);
-      if (!controller.signal.aborted) setResult(diagnosis);
+      if (!controller.signal.aborted) {
+        setResult(diagnosis);
+        add({ project_id: projectId, project_name: projectName, step_title: stepTitle, captured_at: snapshot.capturedAt, result: diagnosis });
+      }
     } catch (cause) {
       if (!controller.signal.aborted) setError(errorMessage(cause));
     } finally {
@@ -41,20 +47,7 @@ export function InspectionPanel({ projectId, stepId, snapshot }: {
       {!snapshot && <p className="empty-caption">Capture a camera frame first.</p>}
       {busy && <p role="status" className="muted">Waiting for a diagnosis. You can keep using the camera; a new frame or step clears this request.</p>}
       {error && <p className="form-error" role="alert">{error}</p>}
-      {result && <div className="diagnosis" aria-live="polite">
-        <div className={`diagnosis-status diagnosis-${result.status}`}>
-          {result.status === "correct" ? <CircleCheck size={20} /> : result.status === "incorrect" ? <AlertCircle size={20} /> : <HelpCircle size={20} />}
-          <h3>{result.status.charAt(0).toUpperCase() + result.status.slice(1)}</h3>
-        </div>
-        <p className="confidence-note">{result.confidence === null ? "Confidence not provided." : `Model confidence estimate: ${Math.round(result.confidence * 100)}% — not a calibrated probability.`}</p>
-        <p className="diagnosis-explanation">{result.explanation}</p>
-        <h4>VISIBLE COMPONENTS</h4>
-        {result.visible_blocks.length ? <ul className="diagnosis-list">{result.visible_blocks.map((block, index) => <li key={index}>{block.description}<span>{block.estimated_count === null ? "Count uncertain" : `Estimated count: ${block.estimated_count}`}</span></li>)}</ul> : <p className="muted">No components confidently identified.</p>}
-        <h4>IDENTIFIED ISSUES</h4>
-        {result.issues.length ? <ul className="diagnosis-list">{result.issues.map((issue, index) => <li key={index}><strong>{issue.type.replaceAll("_", " ")}</strong><p>{issue.description}</p><span>{issue.suggested_fix}</span></li>)}</ul> : <p className="muted">No issues reported. Hidden connections are not verified.</p>}
-        <div className="next-action"><h4>NEXT ACTION</h4><p>{result.next_action}</p></div>
-        <p className="confidence-note">A visual diagnosis is not a guarantee of physical correctness. Step navigation remains manual.</p>
-      </div>}
+      {result && <DiagnosisDetails result={result} />}
     </div>
   </section>;
 }
