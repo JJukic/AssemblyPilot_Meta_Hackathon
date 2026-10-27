@@ -56,8 +56,10 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     </div>
     {editing && <aside className="panel editor-panel"><div className="panel-heading"><h2>{editing === "new" ? "New construction step" : "Edit construction step"}</h2></div>
       {(editing === "new" || selected) && blocks.data ? <>
-        <StepEditor key={editing} step={selected} blocks={blocks.data} onCancel={() => setEditing(null)} onSave={async (input) => { const saved = await registry.saveStep(projectId, input, selected?.id); project.reload(); setEditing(saved.id); setNotice("Step saved. Add reference photographs below."); }} />
-        {selected && <ImageManager images={selected.reference_images} endpoint={`/api/projects/${projectId}/steps/${selected.id}/images`} onChange={project.reload} />}
+        <StepEditor key={editing} step={selected} blocks={blocks.data} onCancel={() => setEditing(null)} onSave={async (input) => { const saved = await registry.saveStep(projectId, input, selected?.id); project.reload(); setEditing(saved.id); setNotice("Step saved. Manage reference photographs below."); }} />
+        {selected && <ImageManager key={`images:${selected.id}`} images={selected.reference_images}
+          endpoint={`/api/projects/${projectId}/steps/${selected.id}/images`} onChange={project.reload}
+          onSelect={(image) => registry.selectStepReference(projectId, selected.id, image.id)} />}
       </> : <p className="empty-state">{blocks.error || "Loading editor…"}</p>}
     </aside>}
     </div>

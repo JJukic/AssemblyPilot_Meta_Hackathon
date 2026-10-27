@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 
 from app.core.config import Settings, get_settings
 from app.db.database import ReadSession, WriteSession
-from app.db.tables import AssemblyStep, now
+from app.db.tables import AssemblyStep, ReferenceImage, StepReferenceSelection, now
 from app.models.blocks import ImageRead
 from app.models.inspection_context import InspectionContext
-from app.models.projects import StepInput, StepOrder, StepRead
+from app.models.projects import ReferenceSelectionInput, StepInput, StepOrder, StepRead
 from app.services.inspection_context import build_inspection_context
 from app.services.media_service import images_for, schedule_image_cleanup, store_image
 from app.services.project_service import (
@@ -122,3 +122,24 @@ def upload_step_image(
 @router.get("/{step_id}/context", response_model=InspectionContext)
 def inspection_context(project_id: str, step_id: str, session: ReadSession):
     return build_inspection_context(session, project_id, step_id)
+
+
+@router.put("/{step_id}/reference-image", response_model=StepRead)
+def select_reference_image(
+    project_id: str, step_id: str, data: ReferenceSelectionInput, session: WriteSession
+):
+    step = require_step(session, project_id, step_id)
+    image = session.get(ReferenceImage, data.image_id)
+    if image is None or image.step_id != step_id:
+        raise HTTPException(404, "Reference photo not found in this step")
+    selection = session.get(StepReferenceSelection, step_id)
+    if selection is None:
+        selection = StepReferenceSelection(step_id=step_id, image_id=image.id)
+    else:
+        selection.image_id = image.id
+    session.add(selection)
+    step.updated_at = now()
+    session.add(step)
+    touch_project(session, project_id)
+    session.flush()
+    return public_step(session, step)

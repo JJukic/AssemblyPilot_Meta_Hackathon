@@ -26,7 +26,7 @@ export function CustomAssembly({ projectId, snapshot }: { projectId: string; sna
   const currentIndex = Math.min(current, assembly.steps.length - 1);
   const stepId = String(assembly.steps[currentIndex].id);
   return <div className="inspection-column">
-    <AssemblyPanel key={data.id} assembly={assembly} currentStep={currentIndex} onStepChange={setCurrent} />
     <InspectionPanel key={`${data.id}:${stepId}:${snapshot?.capturedAt ?? "no-frame"}`} projectId={data.id} projectName={data.name} stepId={stepId} stepTitle={assembly.steps[currentIndex].title} snapshot={snapshot} />
+    <AssemblyPanel key={data.id} assembly={assembly} currentStep={currentIndex} onStepChange={setCurrent} />
   </div>;
 }

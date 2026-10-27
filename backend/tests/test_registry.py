@@ -14,6 +14,7 @@ from app.main import create_app
 from app.models.inspection_context import PreviousInspection
 from app.services.image_processor import process_image
 from app.services.inspection_context import build_inspection_context
+from app.services.inspection_request import build_multimodal_request
 
 
 def block(client, **fields):
@@ -80,6 +81,67 @@ def test_block_crud_and_filters(client):
     assert client.delete(f"/api/blocks/{first['id']}").status_code == 204
     assert client.get(f"/api/blocks/{first['id']}").status_code == 404
     assert client.get(f"/api/blocks/{second['id']}").status_code == 200
+
+
+def test_selected_step_photo_drives_context_and_actual_image_payload(client, settings, image_bytes):
+    p = project(client)
+    s = step(client, p["id"])
+    endpoint = f"/api/projects/{p['id']}/steps/{s['id']}"
+    first = upload(client, f"{endpoint}/images", image_bytes, filename="first.png")
+    second = upload(client, f"{endpoint}/images", image_bytes, filename="second.png")
+    response = client.put(f"{endpoint}/reference-image", json={"image_id": second["id"]})
+    assert response.status_code == 200
+    assert [image["id"] for image in response.json()["reference_images"]] == [
+        second["id"], first["id"]
+    ]
+    context = client.get(f"{endpoint}/context").json()
+    assert context["step_reference_image"] == second["url"]
+    with Session(client.app.state.engine) as session:
+        request = build_multimodal_request(
+            session, settings, p["id"], s["id"], process_image(image_bytes(), settings)
+        )
+    assert request.images[1].reference_id == second["id"]
+    assert request.images[1].role == "assembled_step_reference"
+    assert client.get(first["url"]).status_code == 200
+
+
+def test_reference_selection_rejects_other_steps_projects_blocks_and_missing(client, image_bytes):
+    p, other = project(client), project(client, "Other")
+    s, sibling = step(client, p["id"]), step(client, p["id"])
+    foreign = step(client, other["id"])
+    b = block(client)
+    photos = [
+        upload(client, f"/api/projects/{p['id']}/steps/{sibling['id']}/images", image_bytes),
+        upload(client, f"/api/projects/{other['id']}/steps/{foreign['id']}/images", image_bytes),
+        upload(client, f"/api/blocks/{b['id']}/images", image_bytes),
+    ]
+    endpoint = f"/api/projects/{p['id']}/steps/{s['id']}/reference-image"
+    for image_id in [*(photo["id"] for photo in photos), "missing"]:
+        assert client.put(endpoint, json={"image_id": image_id}).status_code == 404
+    assert client.put(endpoint, json={"image_id": ""}).status_code == 422
+    assert client.put(endpoint, json={}).status_code == 422
+    assert client.put(
+        f"/api/projects/{other['id']}/steps/{s['id']}/reference-image",
+        json={"image_id": photos[0]["id"]},
+    ).status_code == 404
+
+
+def test_reference_selection_survives_restart_and_deleted_choice_falls_back(settings, image_bytes):
+    with TestClient(create_app(settings)) as client:
+        p = project(client)
+        s = step(client, p["id"])
+        endpoint = f"/api/projects/{p['id']}/steps/{s['id']}"
+        first = upload(client, f"{endpoint}/images", image_bytes)
+        second = upload(client, f"{endpoint}/images", image_bytes)
+        assert client.put(
+            f"{endpoint}/reference-image", json={"image_id": second["id"]}
+        ).status_code == 200
+    with TestClient(create_app(settings)) as client:
+        assert client.get(f"{endpoint}/context").json()["step_reference_image"] == second["url"]
+        assert client.delete(second["url"]).status_code == 204
+        assert client.get(f"{endpoint}/context").json()["step_reference_image"] == first["url"]
+        assert client.delete(f"/api/projects/{p['id']}").status_code == 204
+        assert client.get(first["url"]).status_code == 404
 
 
 @pytest.mark.parametrize(

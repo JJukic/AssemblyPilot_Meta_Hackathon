@@ -65,3 +65,8 @@ class ProjectDetail(ProjectRead):
 class StepOrder(BaseModel):
     model_config = ConfigDict(extra="forbid")
     step_ids: list[str]
+
+
+class ReferenceSelectionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    image_id: str = Field(min_length=1, max_length=100)
