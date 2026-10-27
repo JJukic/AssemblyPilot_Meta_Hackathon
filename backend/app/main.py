@@ -21,7 +21,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             engine.dispose()
 
-    application = FastAPI(title="AssemblyPilot API", version="0.3.0", lifespan=lifespan)
+    application = FastAPI(title="AssemblyPilot API", version="0.3.1", lifespan=lifespan)
     application.dependency_overrides[get_settings] = lambda: settings
     application.add_middleware(
         CORSMiddleware,

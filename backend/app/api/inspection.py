@@ -6,11 +6,12 @@ from sqlmodel import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings, get_settings
-from app.models.diagnosis import InspectionResult
+from app.models.diagnosis import InspectionResponse
 from app.models.inspection import ImageMetadata, InspectionUnavailable
 from app.services.image_processor import ImageValidationError, process_image
 from app.services.inspection_errors import InspectionError
 from app.services.inspection_request import build_multimodal_request, inspection_image_settings
+from app.services.inspection_service import inspect_with_metadata
 from app.services.meta_client import MetaClient
 
 router = APIRouter(prefix="/api")
@@ -22,7 +23,7 @@ def get_meta_client(settings: Annotated[Settings, Depends(get_settings)]) -> Met
 
 @router.post(
     "/inspect",
-    response_model=InspectionResult,
+    response_model=InspectionResponse,
     responses={
         413: {"description": "Image or inspection payload too large"},
         415: {"description": "Unsupported image format"},
@@ -41,7 +42,7 @@ async def inspect_image(
     meta: Annotated[MetaClient, Depends(get_meta_client)],
     project_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
     step_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
-) -> InspectionResult | JSONResponse:
+) -> InspectionResponse | JSONResponse:
     try:
         data = await image.read(settings.max_upload_bytes + 1)
         image_settings = inspection_image_settings(settings) if project_id or step_id else settings
@@ -71,7 +72,7 @@ async def inspect_image(
 
     try:
         context = await run_in_threadpool(prepare)
-        return await meta.inspect(context)
+        return await inspect_with_metadata(meta, context)
     except InspectionError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(

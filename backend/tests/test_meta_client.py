@@ -4,9 +4,11 @@ import asyncio
 import base64
 import json
 from dataclasses import replace
+from io import BytesIO
 
 import httpx
 import pytest
+from PIL import Image
 from pydantic import SecretStr
 from sqlmodel import Session
 
@@ -44,6 +46,11 @@ def inspection_case(client, settings, image_bytes):
         "issues": [],
         "explanation": "The connection is obscured.",
         "next_action": "Capture the top view.",
+        "active_vision": {
+            "reason": "The connection is obscured.",
+            "requested_view": "top_down",
+            "instruction": "Move above the base to show the connection.",
+        },
     }
     return request, result
 
@@ -237,6 +244,8 @@ def test_whole_operation_deadline(settings, inspection_case):
                     "type": "misplaced_part",
                     "block_id": None,
                     "description": "Offset",
+                    "expected": "Aligned edges",
+                    "observed": "Offset edges",
                     "suggested_fix": "Align",
                     "bounding_box": {"x": 0.8, "y": 0, "width": 0.4, "height": 0.2},
                 }
@@ -321,7 +330,9 @@ def test_inspection_api_success_with_mock_transport(client, settings, image_byte
     )
     response = api_post(client, image_bytes, request)
     assert response.status_code == 200
-    assert response.json() == result
+    assert {key: response.json()[key] for key in result} == result
+    assert response.json()["model_latency_ms"] >= 0
+    assert response.json()["inspected_at"].endswith("Z")
 
 
 def test_missing_key_preserves_health_and_registry(client, settings, image_bytes, inspection_case):
@@ -365,6 +376,8 @@ def test_inspection_api_failure_never_returns_diagnosis(
                         "type": "unknown",
                         "block_id": None,
                         "description": "Unknown",
+                        "expected": "Aligned edges",
+                        "observed": "Offset edges",
                         "suggested_fix": "Look closer",
                         "bounding_box": {"x": 2, "y": 0, "width": 0.1, "height": 0.1},
                     }
@@ -394,3 +407,46 @@ def test_full_inspection_rejects_corrupt_image_before_inference(client, settings
         files={"image": ("frame.jpg", b"corrupt")},
     )
     assert response.status_code == 422
+
+
+def test_returned_snapshot_is_exactly_the_model_input(
+    client, settings, image_bytes, inspection_case
+):
+    request, result = inspection_case
+    seen = {}
+
+    def handler(upstream):
+        payload = json.loads(upstream.content)
+        seen["url"] = payload["messages"][1]["content"][2]["image_url"]["url"]
+        assert (
+            "model_latency_ms"
+            not in payload["response_format"]["json_schema"]["schema"]["properties"]
+        )
+        return httpx.Response(200, json=completion(result))
+
+    client.app.dependency_overrides[get_meta_client] = lambda: MetaClient(
+        settings, transport=httpx.MockTransport(handler)
+    )
+    # Portrait JPEG with EXIF rotation: assert coordinates bind to the oriented, resized bytes.
+    exif = Image.Exif()
+    exif[274] = 6
+    response = client.post(
+        "/api/inspect",
+        data={"project_id": request.context.project_id, "step_id": request.context.step_id},
+        files={"image": ("frame.jpg", image_bytes(size=(1600, 800), exif=exif))},
+    )
+    assert response.status_code == 200
+    snapshot = response.json()["analyzed_snapshot"]
+    assert snapshot["data_url"] == seen["url"]
+    assert (snapshot["width"], snapshot["height"]) == (640, 1280)
+    with Image.open(BytesIO(base64.b64decode(snapshot["data_url"].split(",")[1]))) as image:
+        assert image.size == (640, 1280)
+        assert not image.getexif()
+
+
+def test_meta_uncertain_without_active_vision_is_not_fabricated(settings, inspection_case):
+    request, result = inspection_case
+    result["active_vision"] = None
+    with pytest.raises(InspectionError) as error:
+        run_meta(settings, request, lambda _: httpx.Response(200, json=completion(result)))
+    assert error.value.code == "meta_invalid_response"

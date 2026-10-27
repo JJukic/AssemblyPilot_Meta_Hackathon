@@ -17,6 +17,7 @@ export const registry = {
   saveStep: (projectId: string, data: StepInput, id?: string) => apiRequest<ProjectStep>(`/api/projects/${projectId}/steps${id ? `/${id}` : ""}`, json(id ? "PUT" : "POST", data)),
   deleteStep: (projectId: string, id: string) => apiRequest<void>(`/api/projects/${projectId}/steps/${id}`, { method: "DELETE" }),
   reorderSteps: (projectId: string, ids: string[]) => apiRequest<ProjectStep[]>(`/api/projects/${projectId}/steps/order`, json("PUT", { step_ids: ids })),
+  selectStepReference: (projectId: string, stepId: string, imageId: string) => apiRequest<ProjectStep>(`/api/projects/${projectId}/steps/${stepId}/reference-image`, json("PUT", { image_id: imageId })),
   uploadImage: (endpoint: string, file: File) => {
     const body = new FormData(); body.append("image", file);
     return apiRequest<ReferenceImage>(endpoint, { method: "POST", body });

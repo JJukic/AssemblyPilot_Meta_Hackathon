@@ -162,6 +162,16 @@ a.brand, a.button { text-decoration: none; }
 .image-gallery img { width: 100%; height: 95px; object-fit: contain; }
 .image-gallery figcaption { display: flex; justify-content: space-between; align-items: center; padding: 6px; font-size: 9px; color: var(--muted); }
 .image-gallery .icon-button { padding: 5px; }
+.reference-used { display: block; padding: 5px 6px; font-size: 10px; color: var(--muted); }
+.reference-select { padding: 6px; font-size: 11px; text-align: left; }
+.reference-camera { margin-top: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.reference-camera fieldset { border: 0; padding: 0; margin: 12px 0; min-width: 0; }
+.reference-camera .camera-controls { padding: 12px 0; gap: 12px; }
+.reference-camera .control-buttons { flex-wrap: wrap; }
+.reference-camera .form-actions { flex-wrap: wrap; }
+.reference-capture-preview { margin: 12px 0; }
+.reference-capture-preview img { display: block; width: 100%; height: auto; border-radius: 6px; }
+.reference-capture-preview figcaption { margin-top: 6px; font-size: 11px; color: var(--muted); }
 .project-card { padding: 24px; }
 .project-symbol { color: #94bcff; width: 50px; height: 50px; display: grid; place-items: center; background: #1d3453; border: 1px solid #345a8f; border-radius: 11px; margin-bottom: 22px; }
 .project-card h2 { font-size: 19px; margin-bottom: 10px; overflow-wrap: anywhere; }
@@ -194,7 +204,12 @@ a.brand, a.button { text-decoration: none; }
 @media (max-width: 1050px) { .collection-layout.has-editor { grid-template-columns: 1fr; } .editor-panel { grid-row: 1; } .block-grid, .project-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); } }
 @media (max-width: 600px) { .main-nav { gap: 4px; } .main-nav a { padding: 10px 8px; font-size: 11px; gap: 6px; } .collection-toolbar > select { min-width: 0; flex: 1; max-width: none; } .collection-toolbar .search-box { flex-basis: 100%; } .collection-toolbar > .button { margin-left: auto; } .project-summary, .project-selector { flex-direction: column; align-items: stretch; } .project-selector .field { width: 100%; flex-shrink: 1; } .project-summary .button { align-self: start; } .step-card { padding: 16px; } .step-card-heading { gap: 8px; } .step-card-heading h3 { font-size: 14px; } }
 
-.inspection-column { display: grid; gap: 20px; min-width: 0; }
+.inspection-column { display: contents; }
+.inspection-column > .inspection-panel { grid-column: 1; grid-row: 2; min-width: 0; }
+.inspection-column > .assembly-panel { grid-column: 2; grid-row: 1 / span 2; min-width: 0; }
+@media (max-width: 800px) {
+  .inspection-column > .assembly-panel { grid-column: 1; grid-row: 3; }
+}
 .inspection-content { padding: 20px; }
 .inspection-content > .muted { font-size: 12px; }
 .inspect-button { margin: 18px 0 12px; width: 100%; }
@@ -215,3 +230,22 @@ a.brand, a.button { text-decoration: none; }
 .spinner { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+/* Diagnostic coordinates belong only to the returned, unmodified snapshot. */
+.diagnostic-overlay { margin: 20px 0; }
+.diagnostic-image-stage { position: relative; width: 100%; line-height: 0; }
+.diagnostic-image-stage img { display: block; width: 100%; height: auto; border-radius: 6px; }
+.diagnostic-boxes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.diagnostic-boxes rect { fill: rgb(255 190 80 / 10%); stroke: #ffd171; stroke-width: 2; }
+.diagnostic-label { position: absolute; background: #ffd171; color: #17202d; font-size: 12px; font-weight: 700; line-height: 18px; min-width: 20px; padding: 0 3px; text-align: center; pointer-events: none; border-radius: 2px; }
+.diagnostic-overlay figcaption { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+.active-vision { margin: 16px 0; padding: 16px; border: 1px solid #937942; background: #342d1d; border-radius: 8px; }
+.active-vision h4 { color: #ffd171; margin-top: 0; }
+.active-vision p { margin: 10px 0; line-height: 1.6; }
+.diagnosis-list small { display: block; margin-top: 8px; color: var(--muted); }
+.inspection-history { margin-top: 24px; }
+.history-list { padding: 0; list-style: none; display: grid; gap: 8px; }
+.history-entry { width: 100%; text-align: left; background: #131e2d; border: 1px solid #2b3b50; color: inherit; border-radius: 6px; padding: 12px; cursor: pointer; overflow-wrap: anywhere; }
+.history-entry[aria-pressed="true"] { border-color: #68a2ff; }
+.history-entry span { display: block; color: var(--muted); margin-top: 6px; font-size: 12px; }
+.history-detail { max-width: 820px; margin-top: 20px; }

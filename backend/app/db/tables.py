@@ -96,3 +96,13 @@ class ReferenceImage(SQLModel, table=True):
     width: int
     height: int
     created_at: datetime = Field(default_factory=now)
+
+
+class StepReferenceSelection(SQLModel, table=True):
+    """Additive preference table; existing photos keep their creation-order fallback."""
+
+    __tablename__ = "step_reference_selections"
+    step_id: str = Field(
+        primary_key=True, foreign_key="assembly_steps.id", ondelete="CASCADE"
+    )
+    image_id: str = Field(foreign_key="reference_images.id", ondelete="CASCADE")

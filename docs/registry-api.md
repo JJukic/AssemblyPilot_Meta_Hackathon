@@ -13,6 +13,7 @@ The API runs locally on port 8000. No credentials or model calls are needed. JSO
 | `/api/projects/{id}/steps/order` | PUT | Atomically replace the complete step order |
 | `/api/projects/{id}/steps/{step_id}` | PUT, DELETE | Edit/move/delete a step |
 | `/api/projects/{id}/steps/{step_id}/images` | POST | Upload a correct step photo |
+| `/api/projects/{id}/steps/{step_id}/reference-image` | PUT | Select an existing photo owned by this step; body `{"image_id":"UUID"}` |
 | `/api/projects/{id}/steps/{step_id}/context` | GET | Prepare selected-step inspection metadata (no inference) |
 | `/api/media/{image_id}` | GET, DELETE | Retrieve/delete a known registered reference image |
 | `/health` | GET | Existing Phase 1 health contract |
@@ -68,9 +69,17 @@ curl -F 'image=@/path/to/real-reference.png' http://localhost:8000/api/blocks/BL
 
 File extensions and uploaded MIME types are not trusted. Existing Pillow validation enforces supported formats, byte/dimension limits and decoding safety. Accepted images are normalized to JPEG with EXIF removed and written under exclusive generated filenames. Original filenames are display metadata only and are stripped of path/control characters.
 
-The response includes `id`, `owner_type`, `owner_id`, `url`, `original_filename`, `mime_type`, `width`, `height`, and `created_at`. GET media only serves a recorded JPEG under the configured upload directory; traversal, absolute paths and symlink escapes are rejected. All images for a block/step are returned in deterministic creation order; the dashboard uses the first step photo. Delete/reupload photos to change that choice.
+The response includes `id`, `owner_type`, `owner_id`, `url`, `original_filename`, `mime_type`, `width`, `height`, and `created_at`. GET media only serves a recorded JPEG under the configured upload directory; traversal, absolute paths and symlink escapes are rejected. Block photos use deterministic creation order. Step photos put the selected reference first; the dashboard and inspection use this photo.
 
 Images are not BLOBs in SQLite. The frontend does not receive `storage_path`, database paths or upload-directory locations. No bulk camera upload is introduced.
+
+Step photo lists return the selected image first, then remaining images in creation order.
+`PUT .../reference-image` validates project/step ownership and rejects another step's or
+block's photo with 404. Selection is persisted in an additive `step_reference_selections`
+table; startup creates it for existing databases without modifying their tables or photos.
+The workspace, inspection context and actual multimodal image request use the same selected
+photo. Without a selection, or after deleting the selected photo, the oldest remaining photo
+is used. Changing the selection retains all photos.
 
 ## Inspection context
 

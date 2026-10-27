@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.core.config import Settings
-from app.db.tables import ReferenceImage, new_id
+from app.db.tables import ReferenceImage, StepReferenceSelection, new_id
 from app.models.blocks import ImageRead
 from app.services.image_processor import ImageValidationError, process_image
 
@@ -26,9 +26,14 @@ def public_image(image: ReferenceImage) -> ImageRead:
 
 def images_for(session: Session, *, block_id: str | None = None, step_id: str | None = None):
     owner = ReferenceImage.block_id == block_id if block_id else ReferenceImage.step_id == step_id
-    return session.exec(
+    images = list(session.exec(
         select(ReferenceImage).where(owner).order_by(ReferenceImage.created_at, ReferenceImage.id)
-    ).all()
+    ).all())
+    if step_id:
+        selection = session.get(StepReferenceSelection, step_id)
+        if selection:
+            images.sort(key=lambda image: image.id != selection.image_id)
+    return images
 
 
 def safe_path(settings: Settings, filename: str) -> Path:

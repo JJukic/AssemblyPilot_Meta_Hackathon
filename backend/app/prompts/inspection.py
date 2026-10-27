@@ -32,7 +32,25 @@ and suggest one practical next action. Do not advance the step or claim repair v
 Bounding boxes are optional: use null unless reliable localization is visible in the CURRENT
 CAMERA SNAPSHOT. Never give boxes in a component/reference image's coordinates. Use normalized
 x,y,width,height in [0,1], positive width/height, entirely inside the camera image. No fabricated
-localizations. Return only the requested JSON object; no markdown, prose wrappers or tool calls.
+localizations. A missing_part must ALWAYS have bounding_box=null: an absent component has no
+observed location. For misplaced_part, wrong_color, wrong_orientation and unexpected_part,
+a box may locate the visibly observed component, never an imagined target placement.
+
+For every issue, provide expected (what the supplied specification supports) and observed
+(what is actually visible), as well as description and suggested_fix. Use missing_part only
+when absence is supported, misplaced_part for visible incorrect placement, wrong_color for
+a supported color mismatch (consider lighting), wrong_orientation for visible incorrect rotation,
+and unexpected_part only for a visibly incompatible additional part. Use unknown if the type
+cannot be established. Do not invent exact stud locations or repair geometry.
+
+When status is uncertain, active_vision MUST describe why evidence is insufficient and request
+one specific additional view: top_down, front, back, left_side, right_side, close_up or other.
+Its instruction must say how to move the camera and which connection/region to reveal, keeping
+the assembly unchanged. For glare ask for diffuse lighting plus a useful changed angle; for
+occlusion ask for a view exposing the hidden area. If an assembled reference is missing, explain
+that another angle alone may not settle the expected arrangement. Never fabricate a request
+from a transport error. For correct/incorrect use active_vision=null. No automatic camera action.
+Return only the requested JSON object; no markdown, prose wrappers or tool calls.
 """
 
 

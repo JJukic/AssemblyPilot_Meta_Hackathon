@@ -49,7 +49,7 @@ export function BlockLibrary() {
             const saved = await registry.saveBlock(input, selected?.id);
             reload(); setEditing(saved.id); setNotice("Block saved. You can now add reference photographs.");
           }} />
-          {selected && <ImageManager images={selected.reference_images} endpoint={`/api/blocks/${selected.id}/images`} onChange={reload} />}
+          {selected && <ImageManager key={`images:${selected.id}`} images={selected.reference_images} endpoint={`/api/blocks/${selected.id}/images`} onChange={reload} />}
         </> : <p className="empty-state">Loading saved block…</p>}
       </aside>}
     </div>
