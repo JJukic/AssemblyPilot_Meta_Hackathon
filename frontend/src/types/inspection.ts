@@ -25,6 +25,9 @@ export interface InspectionResult {
 export interface AnalyzedSnapshot { data_url: string; width: number; height: number }
 export interface InspectionResponse extends InspectionResult {
   analyzed_snapshot: AnalyzedSnapshot;
+  inspection_id?: string;
+  snapshot_id?: string;
+  segmentations?: IssueSegmentation[];
   model: string;
   model_latency_ms: number;
   inspected_at: string;
@@ -36,4 +39,23 @@ export interface InspectionRecord {
   step_title: string;
   captured_at: string;
   result: InspectionResponse;
+}
+export interface SegmentationInstance {
+  instance_id: string;
+  left: number;
+  top: number;
+  mask: { encoding: "png"; width: number; height: number; data_url: string };
+}
+export interface IssueSegmentation {
+  issue_index: number;
+  status: "matched" | "ambiguous" | "no_match" | "unavailable" | "disabled" | "skipped";
+  concept: string | null;
+  prompt_kind: "concept" | "box" | null;
+  message: string;
+  latency_ms: number;
+  selected_instance_id: string | null;
+  result: {
+    snapshot_id: string; width: number; height: number; model: "sam-3.1";
+    instances: SegmentationInstance[];
+  } | null;
 }

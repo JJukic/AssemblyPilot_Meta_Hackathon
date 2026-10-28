@@ -60,7 +60,7 @@ The adapter uses raw httpx, no OpenAI/Anthropic SDK or endpoint. It requests 819
 
 The application's 8 MiB upload, 1280px inspection copy, eight-reference and 10 MiB JSON limits are conservative application choices, not advertised Meta limits. JSON size includes base64 expansion. Registered images stay at their existing registry normalization resolution. Model references use only validated image bytes, never local filenames, filesystem paths or public media URLs. Image roles and an omitted-reference count are supplied explicitly.
 
-Meta's default perception examples use a 0–1000 coordinate grid. This application explicitly requests its own 0–1 x/y/width/height schema and rejects values outside it rather than guessing units or fabricating conversions. `DiagnosticOverlay` renders these validated normalized coordinates only on the returned analyzed JPEG, preserving its aspect ratio. No live-video tracking, segmentation or SAM is used.
+Meta's default perception examples use a 0–1000 coordinate grid. This application explicitly requests its own 0–1 x/y/width/height schema and rejects values outside it rather than guessing units or fabricating conversions. `DiagnosticOverlay` renders these validated normalized coordinates only on the returned analyzed JPEG, preserving its aspect ratio. Phase 3C optionally adds SAM instance masks on that same snapshot; no live-video tracking is used. See [SAM protocol and browser contract](segmentation.md).
 
 ## Live versus offline validation
 
@@ -69,3 +69,17 @@ Meta's default perception examples use a 0–1000 coordinate grid. This applicat
 Run `backend/smoke_inspection.py` explicitly with a real registered project/step and real photograph (README command). Missing credentials produce exit 77; failures exit nonzero; successful validated diagnosis exits 0. This verifies access and parsing for that photograph, not recognition reliability across assemblies. Real photos and backend credentials must never be committed.
 
 The optional [real-image benchmark](benchmark.md) runs the same adapter and provenance service. Its classification metrics do not establish localization quality; that still requires comparing reported boxes with real image evidence.
+
+## Phase 3C response additions
+
+`inspection_id` is a server-generated UUID and `snapshot_id` is the SHA-256 of the
+normalized JPEG. `segmentations` contains per-issue status, concept/prompt kind,
+SAM latency, selected instance ID and validated result (or null). Each result repeats
+the snapshot identity/dimensions and model `sam-3.1`; instances use pixel left/top
+and box-local PNG dimensions. The browser validates identity, bounds and mask metadata
+before rendering. Existing Muse diagnosis fields and `model_latency_ms` retain their
+meaning; SAM never changes the overall inspection status. Per-issue SAM failures are
+successful inspection responses with localization-unavailable information, not a
+replacement diagnosis or a new top-level HTTP error. Correct/uncertain results have
+an empty localization list. See [segmentation.md](segmentation.md) for the complete
+contract, routing, association, fallbacks and resource limits.

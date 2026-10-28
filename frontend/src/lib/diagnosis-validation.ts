@@ -32,8 +32,58 @@ export function isInspectionResponse(value: unknown, stepId: string): value is I
       id(issue.block_id) && text(issue.description) && text(issue.expected) && text(issue.observed) && text(issue.suggested_fix) &&
       (issue.bounding_box === null || (issue.type !== "missing_part" && isValidBoundingBox(issue.bounding_box))))) return false;
   if ((value.status === "correct" && value.issues.length > 0) || (value.status === "incorrect" && !value.issues.length)) return false;
+  if (!validSegmentations(value)) return false;
   if (value.status !== "uncertain") return value.active_vision === null;
   const vision = value.active_vision;
   return record(vision) && text(vision.reason) && text(vision.instruction) &&
     ["top_down", "front", "back", "left_side", "right_side", "close_up", "other"].includes(String(vision.requested_view));
+}
+
+
+function validMask(mask: unknown): boolean {
+  if (!record(mask) || mask.encoding !== "png" || !Number.isInteger(mask.width) || !Number.isInteger(mask.height) ||
+      Number(mask.width) <= 0 || Number(mask.height) <= 0 || Number(mask.width) > 1600 || Number(mask.height) > 1600 ||
+      !text(mask.data_url) || mask.data_url.length > 700000 || !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(mask.data_url)) return false;
+  try {
+    const bytes = Uint8Array.from(atob(mask.data_url.split(",")[1]), (char) => char.charCodeAt(0));
+    const header = new DataView(bytes.buffer);
+    return bytes.length <= 524288 && bytes.length >= 33 && header.getUint32(0) === 0x89504e47 &&
+      header.getUint32(4) === 0x0d0a1a0a && header.getUint32(8) === 13 && header.getUint32(12) === 0x49484452 &&
+      header.getUint32(16) === mask.width && header.getUint32(20) === mask.height && bytes[24] === 8 && bytes[25] === 6;
+  } catch { return false; }
+}
+
+function validSegmentations(value: Record<string, unknown>): boolean {
+  // Phase 3B servers remain readable; any supplied SAM metadata must be complete.
+  if (value.segmentations === undefined) return value.snapshot_id === undefined && value.inspection_id === undefined;
+  if (!text(value.inspection_id) || !text(value.snapshot_id) || !/^[a-f0-9]{64}$/.test(value.snapshot_id) ||
+      !Array.isArray(value.segmentations) || value.segmentations.length > 100) return false;
+  const snapshot = value.analyzed_snapshot as Record<string, unknown>;
+  const issues = value.issues as Record<string, unknown>[];
+  const indices = new Set<number>();
+  let maskBytes = 0;
+  return value.segmentations.every((entry) => {
+    if (!record(entry) || !Number.isInteger(entry.issue_index) || Number(entry.issue_index) < 0 ||
+        Number(entry.issue_index) >= issues.length || indices.has(Number(entry.issue_index)) ||
+        !["matched", "ambiguous", "no_match", "unavailable", "disabled", "skipped"].includes(String(entry.status)) ||
+        !text(entry.message) || !finite(entry.latency_ms) || entry.latency_ms < 0 ||
+        !(entry.concept === null || text(entry.concept)) || ![null, "concept", "box"].includes(entry.prompt_kind as null | string)) return false;
+    indices.add(Number(entry.issue_index));
+    if (entry.result === null) return entry.selected_instance_id === null && ["unavailable", "disabled", "skipped"].includes(String(entry.status));
+    const result = entry.result;
+    if (value.status !== "incorrect" || issues[Number(entry.issue_index)].type === "missing_part" ||
+        !record(result) || result.snapshot_id !== value.snapshot_id || result.width !== snapshot.width ||
+        result.height !== snapshot.height || result.model !== "sam-3.1" || !Array.isArray(result.instances) || result.instances.length > 32) return false;
+    const ids = new Set<string>();
+    if (!result.instances.every((instance) => {
+      if (!record(instance) || !text(instance.instance_id) || ids.has(instance.instance_id) ||
+          !Number.isInteger(instance.left) || !Number.isInteger(instance.top) || Number(instance.left) < 0 || Number(instance.top) < 0 ||
+          !validMask(instance.mask)) return false;
+      const mask = instance.mask as { width: number; height: number; data_url: string };
+      ids.add(instance.instance_id); maskBytes += mask.data_url.length;
+      return Number(instance.left) + mask.width <= Number(snapshot.width) && Number(instance.top) + mask.height <= Number(snapshot.height);
+    }) || maskBytes > 4 * 1024 * 1024) return false;
+    if (entry.status === "matched") return text(entry.selected_instance_id) && ids.has(entry.selected_instance_id);
+    return entry.selected_instance_id === null && ((entry.status === "ambiguous" && ids.size > 0) || (entry.status === "no_match" && ids.size === 0));
+  });
 }

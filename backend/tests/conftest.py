@@ -13,6 +13,7 @@ def settings(tmp_path):
     return Settings(
         _env_file=None,
         model_api_key=None,
+        sam_enabled=False,  # SAM tests opt in with an injected offline transport.
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         upload_dir=str(tmp_path / "uploads"),
     )
