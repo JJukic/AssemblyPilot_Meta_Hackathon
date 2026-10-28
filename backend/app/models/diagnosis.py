@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 
 class StrictOutput(BaseModel):
@@ -67,6 +67,9 @@ class ActiveVision(StrictOutput):
 
 
 class InspectionResult(StrictOutput):
+    # Transport-owned, excluded from both the model schema and serialized diagnoses.
+    _meta_attempt_count: int = PrivateAttr(default=0)
+
     step_id: str = Field(min_length=1, max_length=100)
     status: Literal["correct", "incorrect", "uncertain"]
     confidence: float | None = Field(

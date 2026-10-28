@@ -1,4 +1,4 @@
-# AssemblyPilot architecture — Phase 3B
+# AssemblyPilot architecture — Phase 4
 
 ## Components
 
@@ -9,7 +9,9 @@ Explicit photo upload → Pillow validation → generated JPEG file + SQLite met
 Project selector → ordered steps/expected blocks/reference URLs → manual camera guide
 Explicit inspection → selected SQLite context + safe reference bytes + current snapshot
   → async Meta Chat Completions → strict Pydantic diagnosis + exact input JPEG + timings
-  → snapshot-only overlays / Active Vision / temporary tab history
+  → deterministic correction plan / snapshot-only overlays / Active Vision / tab history
+Explicit fresh capture → independent Muse verification + prior finding assessments
+  → version-checked SQLite progress → optional user-confirmed next step
 ```
 
 Next.js App Router provides `/`, `/blocks`, `/projects`, and `/projects/[projectId]`. Interactive management components use a typed API client and reusable image uploader. Dynamic route parameters are awaited on the server. Client fetches display loading/error/empty states; project switching does not remount the camera hook. The five-step JSON demo remains a fallback and is not seeded into or synchronized with the database.
@@ -67,3 +69,30 @@ Existing `make install`, `make dev-backend`, `make dev-frontend`, `make lint`, `
 Playwright starts `backend/browser_test_server.py`, which runs the API with a disposable temporary database and upload directory. It refuses an already-running backend on port 8000 rather than reuse user data. The frontend CI job installs backend dependencies as well. The browser suite preserves all original synthetic-camera tests and adds the complete registry/project workflow against the real isolated API. New inspection browser cases mock only API fixtures/results inside tests, exercising manual submission, state and failure handling. Physical-camera compatibility still requires local hardware validation.
 
 SQLite `create_all` initializes a new schema; it is not a migration system. Keep database/files outside Git and back up both before future schema changes. No external service, cloud sync or GPU is required.
+
+## Phase 4 active workflow
+
+`services/assembly_orchestrator.py` is the active coordinator for `/api/inspect` and
+`/api/verify`. It reuses `MetaClient`, adds deterministic `correction_planner`, and
+uses `VerificationClient` for a single verification-specific structured Meta request.
+The original context-free Phase 1 agents remain unused. No agent framework or autonomous
+loop is introduced. SAM PR #5 was not merged into main at implementation time, so this
+branch requires no SAM adapter and does not alter that separate PR.
+
+`models/workflow.py` defines explicit transitions, evidence assessments, tracked findings
+and API responses. `InspectionSessions` bounds metadata-only server sessions (default
+64 records, 30 minutes), rejects consumed/busy/cross-step/duplicate-frame references,
+and never retains JPEG bytes. `progress_service.py` uses short SQLite transactions and
+specification/request versions to reject stale commits. A new additive `step_progress`
+table stores only minimal metadata. Effective progress is invalidated by current
+specification/reference revisions, including edits made during inference.
+
+The existing camera hook can return a fresh frame without publishing it as the dashboard's
+manual capture. `InspectionPanel` uses that frame for Capture & Verify, keeps human
+acknowledgement separate from successful evidence, preserves on-demand behavior and
+never advances automatically. Project/step/manual-capture/specification changes abort
+and invalidate active UI work. Progress polling refreshes metadata only. Completed
+images remain exclusively in the existing temporary browser history.
+
+Full state machine, retry counts, cache limits, progress invalidation policy, real-image
+manual testing and known limitations are in [verification.md](verification.md).

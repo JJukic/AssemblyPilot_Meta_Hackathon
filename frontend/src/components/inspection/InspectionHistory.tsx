@@ -15,7 +15,7 @@ export function InspectionHistory() {
       <ul className="history-list">{entries.map((entry) => <li key={entry.id}>
         <button className="history-entry" aria-pressed={selectedId === entry.id} onClick={() => setSelectedId(selectedId === entry.id ? null : entry.id)}>
           <strong>{entry.project_name} · {entry.step_title}</strong>
-          <span>{entry.result.status} · {(entry.result.model_latency_ms / 1000).toFixed(2)} s · <time dateTime={entry.result.inspected_at}>{new Date(entry.result.inspected_at).toLocaleString()}</time></span>
+          <span>{"state" in entry.result && entry.result.state === "verified" ? "verified" : entry.result.status} · {(entry.result.model_latency_ms / 1000).toFixed(2)} s · <time dateTime={entry.result.inspected_at}>{new Date(entry.result.inspected_at).toLocaleString()}</time></span>
         </button>
       </li>)}</ul>
       {selected && <section className="history-detail" aria-label="Recorded inspection">

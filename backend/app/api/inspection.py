@@ -2,16 +2,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
-from sqlmodel import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings, get_settings
-from app.models.diagnosis import InspectionResponse
 from app.models.inspection import ImageMetadata, InspectionUnavailable
+from app.models.workflow import VerificationResponse, WorkflowInspectionResponse
+from app.services.assembly_orchestrator import AssemblyOrchestrator
 from app.services.image_processor import ImageValidationError, process_image
 from app.services.inspection_errors import InspectionError
-from app.services.inspection_request import build_multimodal_request, inspection_image_settings
-from app.services.inspection_service import inspect_with_metadata
+from app.services.inspection_request import inspection_image_settings
 from app.services.meta_client import MetaClient
 
 router = APIRouter(prefix="/api")
@@ -23,7 +22,7 @@ def get_meta_client(settings: Annotated[Settings, Depends(get_settings)]) -> Met
 
 @router.post(
     "/inspect",
-    response_model=InspectionResponse,
+    response_model=WorkflowInspectionResponse,
     responses={
         413: {"description": "Image or inspection payload too large"},
         415: {"description": "Unsupported image format"},
@@ -42,7 +41,7 @@ async def inspect_image(
     meta: Annotated[MetaClient, Depends(get_meta_client)],
     project_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
     step_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
-) -> InspectionResponse | JSONResponse:
+) -> WorkflowInspectionResponse | JSONResponse:
     try:
         data = await image.read(settings.max_upload_bytes + 1)
         image_settings = inspection_image_settings(settings) if project_id or step_id else settings
@@ -65,16 +64,47 @@ async def inspect_image(
     if project_id is None or step_id is None:
         raise HTTPException(422, "Supply both project_id and step_id")
 
-    def prepare():
-        # SQLite/image work runs off the event loop; close the transaction before inference.
-        with Session(request.app.state.engine) as session:
-            return build_multimodal_request(session, settings, project_id, step_id, processed)
-
     try:
-        context = await run_in_threadpool(prepare)
-        return await inspect_with_metadata(meta, context)
+        return await AssemblyOrchestrator(
+            request.app.state.engine, settings, request.app.state.inspection_sessions, meta
+        ).observe(project_id, step_id, processed)
     except InspectionError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(
             exc.status_code, detail={"code": exc.code, "message": str(exc)}, headers=headers
+        ) from None
+
+
+@router.post("/verify", response_model=VerificationResponse)
+async def verify_image(
+    request: Request,
+    image: Annotated[UploadFile, File()],
+    settings: Annotated[Settings, Depends(get_settings)],
+    meta: Annotated[MetaClient, Depends(get_meta_client)],
+    project_id: Annotated[str, Form(min_length=1, max_length=100)],
+    step_id: Annotated[str, Form(min_length=1, max_length=100)],
+    previous_inspection_id: Annotated[str, Form(min_length=1, max_length=100)],
+) -> VerificationResponse:
+    try:
+        data = await image.read(settings.max_upload_bytes + 1)
+        processed = await run_in_threadpool(
+            process_image, data, inspection_image_settings(settings)
+        )
+    except ImageValidationError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+    finally:
+        await image.close()
+    try:
+        return await AssemblyOrchestrator(
+            request.app.state.engine, settings, request.app.state.inspection_sessions, meta
+        ).observe(project_id, step_id, processed, previous_inspection_id)
+    except InspectionError as exc:
+        headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
+        raise HTTPException(
+            exc.status_code,
+            detail={
+                "code": exc.code,
+                "message": "AI verification is temporarily unavailable. Please retry. " + str(exc),
+            },
+            headers=headers,
         ) from None

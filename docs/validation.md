@@ -1,5 +1,63 @@
 # Validation results
 
+## Phase 4 — 2026-10-28
+
+Implemented on `feature/closed-loop-verification` from current `main` at `9089e07`.
+Phase 3B is merged. SAM PR #5 was checked at the start and end and remains an open
+draft, not merged; this implementation follows the requested Muse-only path and
+leaves the separate SAM branch intact. The reference-camera and selected-step-photo
+features already on main are preserved.
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 212 Python tests passed (164 existing + 48 new); strict TypeScript passed |
+| `make build` | Next.js production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | 33 browser tests passed, including all 23 existing tests |
+| Additive schema upgrade | Existing test project, block and reference bytes survived startup from a schema without `step_progress` |
+| Concurrent operations | Duplicate verification rejected; intervening edits/new inspections prevented stale verified commits |
+| Metadata persistence | Verified progress survives restart; no camera image or diagnosis text is written to the new table |
+| Fresh evidence | API rejects prior canonical JPEG hashes; browser test confirms a newly captured JPEG is uploaded |
+| Mobile review | Verification screenshot at 390px reviewed; no horizontal overflow |
+| Live runner preflight | `python smoke_verification.py` exited 77 without opt-in/photos; no request sent |
+
+The user has confirmed working live Muse inference in their local environment.
+**The new Phase 4 real-camera correction/verification cycle has not been independently
+completed here.** This running cloud environment still has no configured backend key,
+no `backend/.env` or `.env.backend`, and no real user reference/test photographs.
+No live inference or successful physical repair is claimed from mocked tests.
+An executable Four-Block Color Tower procedure and opt-in two-photo replay are provided
+in [verification.md](verification.md). No secrets, personal photographs or generated
+image outputs are committed.
+
+New backend coverage includes deterministic correction planning without extra inference,
+explicit transition rejection, independently assessed fresh verification, resolved/
+unresolved/uncertain finding IDs, new errors after old errors resolve, model schema and
+association validation, unknown/cross-context/consumed/superseded sessions, repeated
+frames, invalid images, missing credentials, authentication/rate/timeouts, cancellation,
+cache capacity/expiry (including expiry during inference), retries/attempt counts,
+progress persistence, additive schema startup and specification invalidation after
+instruction, quantity, block, photo addition/deletion/selection and order changes.
+Reverting a specification edit does not revive old verification. The smoke replay
+contract is also exercised through the real test API with mocked Meta transport.
+
+New browser coverage exercises correction acknowledgement without success, fresh
+Capture & Verify upload, loading, verified/still-incorrect/uncertain states, Active
+Vision, provider/session/malformed errors, camera availability, explicit advancement,
+progress reload, finding history, mobile layout and late-response rejection after
+step/manual-capture/specification changes. Specification changes also reload the
+assembly instructions. Inspection fixtures are synthetic and confined to tests;
+registry/reference-photo workflows continue to use the isolated real FastAPI service.
+
+Remaining limitations: single backend worker and trusted-local access only; sessions
+expire/evict and do not survive restart; progress invalidation is conservative; a hash
+is a duplicate-image guard, not camera attestation; finding links do not prove physical
+object tracking; visual verification cannot certify hidden connections or mechanical
+stability. Model text remains probabilistic. Real camera hardware, real recognition
+accuracy and the new live correction cycle need local acceptance testing. Existing
+non-failing Starlette/httpx and NO_COLOR notices remain; no tests were disabled.
+
+
 ## Phase 3B — 2026-10-27
 
 Based on merged Phase 3A (`d577684`), on `feature/visual-ai-debugging`.

@@ -106,3 +106,16 @@ class StepReferenceSelection(SQLModel, table=True):
         primary_key=True, foreign_key="assembly_steps.id", ondelete="CASCADE"
     )
     image_id: str = Field(foreign_key="reference_images.id", ondelete="CASCADE")
+
+
+class StepProgress(SQLModel, table=True):
+    """Additive metadata only: never camera images or model diagnostic text."""
+
+    __tablename__ = "step_progress"
+    __table_args__ = (CheckConstraint("status IN ('in_progress', 'verified')"),)
+    step_id: str = Field(primary_key=True, foreign_key="assembly_steps.id", ondelete="CASCADE")
+    specification_id: str
+    status: str = "in_progress"
+    revision: str
+    inspection_id: str | None = None
+    verified_at: datetime | None = None

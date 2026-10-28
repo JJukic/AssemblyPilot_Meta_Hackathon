@@ -172,7 +172,9 @@ class MetaClient:
                                                 "meta_invalid_response",
                                                 "Meta returned an oversized response.",
                                             )
-                                    return self.parse_response(bytes(data), request)
+                                    result = self.parse_response(bytes(data), request)
+                                    result._meta_attempt_count = attempt + 1
+                                    return result
                                 error = upstream_error(status, retry_after)
                                 retryable = status in (429, 500, 502, 503)
                         except httpx.TimeoutException:

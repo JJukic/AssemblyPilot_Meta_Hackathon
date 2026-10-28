@@ -69,3 +69,34 @@ Meta's default perception examples use a 0–1000 coordinate grid. This applicat
 Run `backend/smoke_inspection.py` explicitly with a real registered project/step and real photograph (README command). Missing credentials produce exit 77; failures exit nonzero; successful validated diagnosis exits 0. This verifies access and parsing for that photograph, not recognition reliability across assemblies. Real photos and backend credentials must never be committed.
 
 The optional [real-image benchmark](benchmark.md) runs the same adapter and provenance service. Its classification metrics do not establish localization quality; that still requires comparing reported boxes with real image evidence.
+
+## Phase 4 verification and progress
+
+Context-aware `/api/inspect` still returns the complete Phase 3B diagnosis and adds
+server-owned `inspection_id`, SHA-256 `snapshot_id`, `specification_id`, `state`,
+`tracked_issues`, `correction_plan`, `muse_call_count` (one logical operation) and
+`meta_attempt_count` (actual successful-operation HTTP attempts, 1–3). The image-only
+legacy response is unchanged. No model generates these orchestration fields.
+
+`POST /api/verify` requires multipart `image`, `project_id`, `step_id` and
+`previous_inspection_id`. It loads the expected specification/references from SQLite
+and earlier findings from the bounded server session. A previously analyzed canonical
+image cannot verify its own repair. One new Muse request returns the full current
+diagnosis plus explicit assessments for every outstanding earlier finding.
+
+The validated API response contains `verification_id`, `previous_inspection_id`,
+`status: verified | still_incorrect | uncertain`, `issue_assessments` and the complete
+new `inspection`. Its `tracked_issues` preserve stable finding IDs, original evidence
+and resolution state; new discrepancies have new IDs. Current issue indices reference
+only this new inspection. Prior coordinates are never copied onto the new snapshot.
+
+Missing/unknown context returns 422/404; conflicting step/session, reused images,
+consumed/busy references or changed specifications return 409; expired sessions return
+410. Existing image and Meta error codes remain in force. Provider failure cannot
+produce a verification result or mark progress verified.
+
+`GET /api/projects/{project_id}/progress` returns step ID, current specification hash,
+effective `not_started | in_progress | verified` state and nullable UTC verification
+time. There is no client-settable verified flag. Specifications are rechecked before
+committing results and when reading progress. See [verification.md](verification.md)
+for full contracts, invalidation, concurrency, session limits and a live test procedure.

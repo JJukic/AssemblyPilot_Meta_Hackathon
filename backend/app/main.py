@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import blocks, health, inspection, media, projects, steps
 from app.core.config import Settings, get_settings
 from app.db.database import database_engine
+from app.services.assembly_orchestrator import InspectionSessions
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -15,6 +16,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(application: FastAPI):
         engine = database_engine(settings)
         application.state.engine = engine
+        application.state.inspection_sessions = InspectionSessions(
+            settings.inspection_session_capacity, settings.inspection_session_ttl_seconds
+        )
         settings.upload_path.mkdir(parents=True, exist_ok=True)
         try:
             yield

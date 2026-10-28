@@ -7,7 +7,9 @@ from app.core.config import Settings, get_settings
 from app.db.database import ReadSession, WriteSession
 from app.db.tables import AssemblyProject, now
 from app.models.projects import ProjectDetail, ProjectInput, ProjectRead
+from app.models.workflow import StepProgressRead
 from app.services.media_service import images_for, schedule_image_cleanup
+from app.services.progress_service import read_progress
 from app.services.project_service import ordered_steps, public_project, public_step, require_project
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -58,3 +60,11 @@ def delete_project(
     session.delete(project)  # Foreign keys cascade steps/assignments/images, never reusable blocks.
     session.flush()
     return Response(status_code=204)
+
+
+@router.get("/{project_id}/progress", response_model=list[StepProgressRead])
+def project_progress(project_id: str, session: ReadSession):
+    require_project(session, project_id)
+    return [
+        read_progress(session, project_id, step.id) for step in ordered_steps(session, project_id)
+    ]
