@@ -2,7 +2,7 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
-Phase 3B adds **visual debugging of on-demand Meta Muse Spark inspections** to the existing camera dashboard, custom block registry and assembly projects. Select a registered project and step, capture a frame, and choose **Inspect with Meta AI**. The backend combines the frame with relevant registered specifications and photographs, calls Meta, and validates the diagnosis before displaying it. Numbered boxes appear only on the exact normalized snapshot analyzed by Meta; uncertain results request a specific additional camera view. A temporary session history keeps the last ten completed inspections.
+Phase 3C adds **optional Meta SAM 3.1 segmentation** to on-demand Meta Muse Spark inspections. It preserves the existing camera dashboard, custom block registry, assembly projects and visual debugging. Select a registered project and step, capture a frame, and choose **Inspect with Meta AI**. The backend combines the frame with relevant registered specifications and photographs, calls Meta, and validates the diagnosis before displaying it. Numbered boxes appear only on the exact normalized snapshot analyzed by Meta; uncertain results request a specific additional camera view. A temporary session history keeps the last ten completed inspections.
 
 All inference goes exclusively to Meta Model API. No automatic uploads, continuous analysis, autonomous correction, repair verification or local GPU models are implemented. Camera capture, SQLite and registry features still work without an API key.
 
@@ -167,6 +167,37 @@ uv run --frozen python smoke_inspection.py \
 
 It loads the backend environment, resolves the registered context and references, prints the validated diagnosis and duration, and exits 0 on success or nonzero on failure. Without a key it prints `SKIPPED` and exits 77. No sample result is substituted. See [validation results](docs/validation.md) for whether a live request was actually performed.
 
+## Optional SAM segmentation
+
+After Muse reports a visible discrepancy, the backend can call Meta-hosted `sam-3.1`
+through `POST https://api.meta.ai/v1/responses`, using the exact same normalized JPEG.
+The official Python parser decodes masks; validated instance geometry and transparent
+PNG overlays are returned with snapshot identity and separate timings. **Show Segmentation**
+toggles masks, and **Show original / Show annotated** compares the analyzed snapshot.
+Missing parts have no mask; ambiguous candidates are never selected arbitrarily.
+Failures preserve the Muse diagnosis and available Muse boxes.
+
+Backend defaults: `META_SAM_MODEL=sam-3.1`, `SAM_ENABLED=true`,
+`SAM_REQUEST_TIMEOUT=60`, `SAM_MAX_CONCEPTS_PER_INSPECTION=2`. Set
+`SAM_ENABLED=false` to retain Muse-only inspection. Up to two localization operations
+can add latency and billable requests; each has bounded transient retries. No local
+weights or GPU are required. The parser worker requires Linux/macOS resource limits.
+
+Explicit live test with your real photograph (never CI):
+
+```sh
+cd backend
+uv run --frozen python smoke_segmentation.py --image /absolute/path/to/your-photo.jpg \
+  --output data/sam-smoke/annotated.png
+```
+
+It uses `green building block`, reports real instance count/latency, and saves an
+annotated output without overwriting files. Missing credentials exit 77; errors exit 1.
+`backend/.env.backend` is not loaded automatically: use `uv run --env-file .env.backend`
+if that is your local configuration file. See [SAM protocol, limits and routing](docs/segmentation.md)
+and [actual validation status](docs/validation.md). Real inference is not yet verified
+in this cloud environment.
+
 ## Real-image benchmark
 
 No user photographs or labelled test cases are bundled. See [the benchmark guide](docs/benchmark.md) to evaluate 1–10 real, labelled photographs against your registered project and reference images. The runner is opt-in, uses Meta only, records validated diagnoses and latency, and reports errors without inventing scores. It does not run in CI.
@@ -187,9 +218,9 @@ The executed cloud validation results and remaining hardware limitations are rec
 
 ## Current limitations and next steps
 
-- Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified. Localization quality needs real-image evaluation; no SAM integration is justified yet.
+- Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified. SAM masks and association heuristics also need real-image evaluation; live localization quality remains unverified.
 - Model confidence is an uncalibrated estimate or null. A `correct` result is not a physical safety or connection guarantee.
-- No correction agent loop, repair verification, SAM, image generation or smart-glasses integration. A later phase can add human-reviewed correction planning and verification against a **new frame**, after evaluating real assemblies.
+- No correction agent loop, repair verification, image generation or smart-glasses integration. A later phase can add human-reviewed correction planning and verification against a **new frame**, after evaluating real assemblies.
 - Reference photos must be supplied by the user; navigation remains manual. The selected step photo (or oldest photo if no choice was saved) and first photo per assigned block are included, up to the configured reference cap; omitted counts are included in the prompt.
 - Registry limitations remain: no pagination, multi-user conflict resolution, migrations or cloud sync. Full-field edits use last-write-wins semantics.
 - Physical webcam/iPhone compatibility needs local hardware validation. Offline transport tests establish request/response handling, not model recognition quality or your account's live access.

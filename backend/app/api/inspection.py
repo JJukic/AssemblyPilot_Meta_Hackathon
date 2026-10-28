@@ -13,12 +13,17 @@ from app.services.inspection_errors import InspectionError
 from app.services.inspection_request import build_multimodal_request, inspection_image_settings
 from app.services.inspection_service import inspect_with_metadata
 from app.services.meta_client import MetaClient
+from app.services.sam_client import SamClient
 
 router = APIRouter(prefix="/api")
 
 
 def get_meta_client(settings: Annotated[Settings, Depends(get_settings)]) -> MetaClient:
     return MetaClient(settings)
+
+
+def get_sam_client(settings: Annotated[Settings, Depends(get_settings)]) -> SamClient:
+    return SamClient(settings)
 
 
 @router.post(
@@ -40,6 +45,7 @@ async def inspect_image(
     image: Annotated[UploadFile, File(description="A JPEG, PNG or WebP camera snapshot")],
     settings: Annotated[Settings, Depends(get_settings)],
     meta: Annotated[MetaClient, Depends(get_meta_client)],
+    sam: Annotated[SamClient, Depends(get_sam_client)],
     project_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
     step_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
 ) -> InspectionResponse | JSONResponse:
@@ -72,7 +78,7 @@ async def inspect_image(
 
     try:
         context = await run_in_threadpool(prepare)
-        return await inspect_with_metadata(meta, context)
+        return await inspect_with_metadata(meta, context, sam)
     except InspectionError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(

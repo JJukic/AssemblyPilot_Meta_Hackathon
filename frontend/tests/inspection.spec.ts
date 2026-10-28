@@ -224,3 +224,101 @@ test("incorrect snapshot dimensions suppress otherwise valid overlays", async ({
   await expect(page.getByRole("region", { name: "Meta AI inspection" }).getByRole("alert")).toContainText("Boxes are hidden");
   await expect(page.locator(".diagnostic-boxes")).toHaveCount(0);
 });
+
+async function samResponse(page: Page, status = "matched") {
+  const { snapshotId, mask } = await page.evaluate(async (snapshot) => {
+    const bytes = Uint8Array.from(atob(snapshot.data_url.split(",")[1]), (char) => char.charCodeAt(0));
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const snapshotId = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const canvas = document.createElement("canvas"); canvas.width = 120; canvas.height = 80;
+    const context = canvas.getContext("2d")!; context.fillStyle = "rgba(239,68,68,.4)"; context.fillRect(0, 0, 120, 80);
+    return { snapshotId, mask: canvas.toDataURL("image/png") };
+  }, analyzedSnapshot);
+  const instance = { instance_id: "2", left: 50, top: 50, mask: { encoding: "png", width: 120, height: 80, data_url: mask } };
+  return inspectionResponse({
+    inspection_id: "synthetic-sam-inspection", snapshot_id: snapshotId,
+    segmentations: [{ issue_index: 0, status, concept: "blue building block", prompt_kind: "concept",
+      message: status === "ambiguous" ? "Localization is ambiguous. No SAM instance is highlighted." : "Synthetic SAM test status.",
+      latency_ms: 2200, selected_instance_id: status === "matched" ? "2" : null,
+      result: ["matched", "ambiguous", "no_match"].includes(status) ? { snapshot_id: snapshotId, model: "sam-3.1", width: 400, height: 200,
+        instances: status === "no_match" ? [] : status === "ambiguous" ? [instance, { ...instance, instance_id: "3", left: 200 }] : [instance] } : null,
+    }],
+  });
+}
+
+test("SAM masks and boxes align on desktop/mobile; original comparison and recapture stay isolated", async ({ page }) => {
+  const response = await samResponse(page);
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: response }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI" }).click();
+  const panel = page.getByRole("region", { name: "Meta AI inspection" });
+  const mask = panel.getByAltText("SAM mask for issue 1");
+  await expect(mask).toBeVisible();
+  await expect(panel.locator('rect[data-source="sam"]')).toHaveCount(1);
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const imageBounds = (await panel.getByAltText("Analyzed snapshot").boundingBox())!;
+    const maskBounds = (await mask.boundingBox())!;
+    expect((maskBounds.x - imageBounds.x) / imageBounds.width).toBeCloseTo(.125, 3);
+    expect((maskBounds.y - imageBounds.y) / imageBounds.height).toBeCloseTo(.25, 3);
+    expect(maskBounds.width / imageBounds.width).toBeCloseTo(.3, 3);
+    expect(maskBounds.height / imageBounds.height).toBeCloseTo(.4, 3);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await panel.getByRole("checkbox", { name: "Show Segmentation" }).uncheck();
+  await expect(mask).toHaveCount(0);
+  await expect(panel.locator('rect[data-source="sam"]')).toHaveCount(1);
+  await panel.getByRole("checkbox", { name: "Show Segmentation" }).check();
+  await panel.getByRole("button", { name: "Show original" }).click();
+  await expect(mask).toHaveCount(0);
+  await expect(panel.locator("rect[data-issue-index]")).toHaveCount(0);
+  await expect(panel.getByAltText("Analyzed snapshot")).toBeVisible();
+  await panel.getByRole("button", { name: "Show annotated" }).click();
+  await expect(mask).toBeVisible();
+  await expect(page.getByRole("region", { name: "Observation workspace" }).locator(".segmentation-mask")).toHaveCount(0);
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  await expect(panel.locator(".segmentation-mask")).toHaveCount(0);
+  const history = page.getByRole("region", { name: "Inspection history", exact: true });
+  await history.locator(".history-entry").click();
+  await expect(history.getByAltText("SAM mask for issue 1")).toBeVisible();
+  await expect(history.getByText(/SAM localization: 2.20 s/)).toBeVisible();
+});
+
+test("ambiguous, empty, unavailable and disabled SAM preserve Muse diagnosis and its box", async ({ page }) => {
+  const statuses = ["ambiguous", "no_match", "unavailable", "disabled"];
+  const responses = await Promise.all(statuses.map((status) => samResponse(page, status)));
+  let calls = 0;
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: responses[calls++] }));
+  await capture(page);
+  const panel = page.getByRole("region", { name: "Meta AI inspection" });
+  for (const status of statuses) {
+    await page.getByRole("button", { name: "Inspect with Meta AI" }).click();
+    await expect(panel.getByText(`Segmentation · ${status.replaceAll("_", " ")}`, { exact: true })).toBeVisible();
+    await expect(panel.getByRole("heading", { name: "Incorrect", exact: true })).toBeVisible();
+    await expect(panel.locator(".segmentation-mask")).toHaveCount(0);
+    await expect(panel.locator('rect[data-source="muse"]')).toHaveCount(1);
+    await expect(panel.getByRole("checkbox", { name: "Show Segmentation" })).toBeDisabled();
+  }
+});
+
+test("SAM snapshot identity, mask dimensions and ambiguous selection are rejected before history", async ({ page }) => {
+  const base = await samResponse(page);
+  const payloads: Record<string, unknown>[] = [];
+  const wrongHash: Record<string, unknown> = structuredClone(base); wrongHash.snapshot_id = "a".repeat(64); payloads.push(wrongHash);
+  const wrongMask = structuredClone(base) as ReturnType<typeof inspectionResponse> & { segmentations: { result: { instances: { mask: { width: number } }[] } }[] };
+  wrongMask.segmentations[0].result.instances[0].mask.width = 121; payloads.push(wrongMask);
+  const ambiguous = await samResponse(page, "ambiguous") as ReturnType<typeof inspectionResponse> & { segmentations: { selected_instance_id: string }[] };
+  ambiguous.segmentations[0].selected_instance_id = "2"; payloads.push(ambiguous);
+  const wrongImage = structuredClone(base); wrongImage.analyzed_snapshot = { ...analyzedSnapshot, data_url: analyzedSnapshot.data_url.replace(/.$/, "A") }; payloads.push(wrongImage);
+  let calls = 0;
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: payloads[calls++] }));
+  await capture(page);
+  const panel = page.getByRole("region", { name: "Meta AI inspection" });
+  for (let index = 0; index < payloads.length; index++) {
+    await page.getByRole("button", { name: "Inspect with Meta AI" }).click();
+    await expect.poll(() => calls).toBe(index + 1);
+    await expect(panel.getByRole("alert")).toBeVisible();
+    await expect(panel.locator(".segmentation-mask")).toHaveCount(0);
+    await expect(page.locator(".history-entry")).toHaveCount(0);
+  }
+});

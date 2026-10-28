@@ -13,6 +13,7 @@ dependencies = [
   "python-multipart>=0.0.20,<1",
   "sqlmodel>=0.0.24,<0.1",
   "sqlalchemy>=2.0,<2.1",
+  "meta-sam-parser==0.1.0",
 ]
 
 [dependency-groups]
