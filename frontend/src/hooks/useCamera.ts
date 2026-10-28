@@ -147,5 +147,11 @@ export function useCamera() {
     };
   }, [releaseStream]);
 
-  return { videoRef, status, error, devices, deviceId, snapshot, start, stop, selectDevice, capture };
+  const getConfiguration = useCallback(() => {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track) return null;
+    // Read on every explicit capture; browser-exposed changes invalidate saved profiles.
+    return { label: track.label || "Unlabelled camera", settings: track.getSettings() };
+  }, []);
+  return { getConfiguration, publishSnapshot: setSnapshot, videoRef, status, error, devices, deviceId, snapshot, start, stop, selectDevice, capture };
 }

@@ -1,4 +1,4 @@
-# AssemblyPilot architecture — Phase 4
+# AssemblyPilot architecture — Phase 4.1A
 
 ## Components
 
@@ -79,8 +79,9 @@ SQLite `create_all` initializes a new schema; it is not a migration system. Keep
 `/api/verify`. It reuses `MetaClient`, adds deterministic `correction_planner`, and
 uses `VerificationClient` for a single verification-specific structured Meta request.
 The original context-free Phase 1 agents remain unused. No agent framework or autonomous
-loop is introduced. SAM PR #5 was not merged into main at implementation time, so this
-branch requires no SAM adapter and does not alter that separate PR.
+loop is introduced. Phase 4.1A integrates the now-merged SAM PR #5: the active
+orchestrator calls the existing optional localization service for each new diagnosis
+or verification snapshot, before storing completion metadata.
 
 `models/workflow.py` defines explicit transitions, evidence assessments, tracked findings
 and API responses. `InspectionSessions` bounds metadata-only server sessions (default
@@ -102,7 +103,7 @@ manual testing and known limitations are in [verification.md](verification.md).
 
 ## Phase 3C localization boundary
 
-`inspection_service.py` now calls `segmentation_service.localize_issues` after Muse,
+`inspection_service.py` (standalone smoke/benchmark) and the active orchestrator call `segmentation_service.localize_issues` after Muse,
 before returning server provenance. `sam_client.py` reuses the exact normalized image,
 Meta credential/origin guard, async HTTP and bounded retry conventions. It implements
 the official SAM streaming Responses protocol and supports concept or spatial-box
@@ -124,3 +125,18 @@ requests on capture/step/project changes; live camera state is independent.
 
 See [segmentation.md](segmentation.md) for protocol evidence, association thresholds,
 resource limits, optional configuration, cost considerations and live smoke testing.
+
+
+## Phase 4.1A deterministic geometry
+
+The camera dashboard's collapsed calibration panel reuses the camera stream.
+Explicit sample/capture actions call `api/calibration.py`; Pillow validates and
+orients without resizing, then `charuco_vision.py` detects board corners, fits
+intrinsics or estimates a distortion-aware board pose. `calibration_store.py`
+saves validated versioned JSON without photographs or SQLite changes.
+
+Only the assessed static image receives corner overlays. A user can publish that
+frame to the existing AI workspace. There is no automatic inference and OpenCV
+does not alter a semantic diagnosis. All dimensional assembly evidence remains
+`not_measured`. See [calibration.md](calibration.md) for coordinate frames,
+thresholds, storage/input limits and the manual camera experiment.

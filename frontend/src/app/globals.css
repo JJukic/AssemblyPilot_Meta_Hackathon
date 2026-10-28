@@ -267,3 +267,17 @@ a.brand, a.button { text-decoration: none; }
 .diagnostic-boxes rect[data-source="sam"] { stroke: #ef4444; fill: none; }
 .segmentation-status { font-size: 13px; }
 .segmentation-ambiguous { color: #ffd171; }
+
+.calibration-panel { margin: 24px 0; padding: 24px; }
+.calibration-panel summary { cursor: pointer; font-weight: 650; }
+.calibration-panel p { line-height: 1.6; overflow-wrap: anywhere; }
+.calibration-panel h2 { margin: 20px 0 12px; }
+.calibration-toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.calibration-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 16px; margin: 20px 0; }
+.calibration-confirm { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+.calibration-confirm input { margin-top: 5px; }
+.calibration-snapshot { position: relative; max-width: 800px; margin-top: 16px; }
+.calibration-snapshot img { display: block; width: 100%; height: auto; }
+.calibration-snapshot svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.calibration-samples { max-height: 140px; overflow-y: auto; }
+.calibration-samples li { padding: 4px 0; }

@@ -89,6 +89,7 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
       {phase === "inspecting" && <p role="status" className="muted">Waiting for a diagnosis. You can keep using the camera; a new frame or step clears this request.</p>}
       {workflow && <section className={`correction-workflow workflow-${phase}`} aria-label="Correction and verification">
         <h3>{headings[phase]}</h3>
+        {phase === "verified" && <p>Verified by semantic AI assessment. Geometric placement and millimeter tolerances have not been measured.</p>}
         {phase === "correct" && <p>This initial diagnosis looks correct. A fresh verification scan is required to record this step as verified.</p>}
         {phase === "verifying" && <p role="status">Assessing the fresh image against the step and previous findings. The camera preview remains available.</p>}
         {!busy && phase !== "verified" && workflow.correction_plan.length > 0 && <ol>{workflow.correction_plan.map((action, index) => <li key={action.issue_id ?? index}>{action.instruction}</li>)}</ol>}

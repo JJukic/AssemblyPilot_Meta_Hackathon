@@ -2,12 +2,11 @@
 
 ## Scope and branch basis
 
-Implemented from `main` at `9089e07`. Phase 3B is merged. SAM PR #5 was still an
-open draft when Phase 4 started, so this branch uses the existing Muse pipeline
-without introducing a SAM dependency. The SAM branch/PR remains untouched. The SAM
-variables already present in `.env.example` do not activate an adapter on this base.
-A later integration must explicitly connect optional SAM localization to the active
-orchestrator, preserving the same analyzed JPEG and never influencing correctness.
+Phase 4 was implemented from `main` at `9089e07` while SAM PR #5 was still open.
+Phase 4.1A now preserves that workflow together with SAM merged in `edbdef0`.
+The active orchestrator explicitly runs optional SAM localization after initial
+diagnosis and verification, using only the new analyzed JPEG. SAM never changes
+correctness. See [calibration.md](calibration.md) for the combined branch basis.
 
 Next.js, FastAPI, SQLite, registry data, selected step references, camera capture,
 Active Vision, diagnostic overlays and temporary image history remain in place.

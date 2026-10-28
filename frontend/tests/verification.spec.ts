@@ -23,7 +23,7 @@ async function observation(page: Page, id: string, status: "correct" | "incorrec
     original_snapshot_id: snapshot.hash, original: issue, resolution: "open" as const, evidence: issue.observed, current_issue_index: 0 }] : [];
   return { step_id: "loop-step", status, confidence: null, issues: status === "incorrect" ? [issue] : [], visible_blocks: [],
     explanation: "Synthetic visual assessment", next_action: "Review the current evidence.", active_vision,
-    analyzed_snapshot: { data_url: snapshot.data_url, width: 400, height: 200 }, snapshot_id: snapshot.hash, inspection_id: id, specification_id: "a".repeat(64),
+    segmentations: [], analyzed_snapshot: { data_url: snapshot.data_url, width: 400, height: 200 }, snapshot_id: snapshot.hash, inspection_id: id, specification_id: "a".repeat(64),
     model: "muse-spark-1.3", model_latency_ms: 1200, inspected_at: "2026-10-28T09:00:00Z", muse_call_count: 1, meta_attempt_count: 1,
     state: status === "correct" ? previous ? "verified" : "correct" : status === "incorrect" ? previous ? "still_incorrect" : "correction_required" : "uncertain",
     tracked_issues: tracks, correction_plan: status === "correct" ? [] : active_vision ? [{ issue_id: null, block_id: null, kind: "capture", instruction: active_vision.instruction }] :

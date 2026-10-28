@@ -1,3 +1,24 @@
+# Phase 4.1A validation — 2026-10-28
+
+OpenCV 4.14.0 (headless contrib wheel 4.14.0.94) is integrated with the preserved
+Phase 4 workflow and merged SAM adapter. Automated calibration tests use rendered
+ChArUco boards under a known pinhole camera, not photographs of actual assemblies.
+They exercise detection, calibration, pose, distortion-aware plane conversion,
+profile persistence/validation, bad views, ambiguity, blur and API limits.
+Browser tests cover the calibration workflow and existing camera/Muse/SAM flows.
+
+No physical camera experiment, real calibration or live Meta call was performed
+for this phase in the cloud. Runtime inspection found no Meta key, no reference
+JPEGs and no saved real calibration profiles. The user reports prior successful
+local Muse and SAM inference. Real print scale, hidden camera changes, board
+flatness and elevated geometry remain unvalidated. See [the manual protocol](calibration.md).
+
+Local validation: `make lint`, `make test` (Python plus TypeScript),
+`make build` and `make test-browser` passed. The browser suite has 41 tests;
+299 Python tests passed. GitHub CI status is recorded on the Phase 4.1A PR.
+No tests were disabled. The mobile calibration layout was visually reviewed.
+Existing Starlette/httpx and NO_COLOR notices are non-failing.
+
 # Validation results
 
 ## Phase 4 — 2026-10-28

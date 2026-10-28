@@ -437,7 +437,7 @@ def test_full_api_muse_and_sam_share_snapshot(client, settings, image_bytes, ins
     assert payload["model_latency_ms"] >= 0 and payload["inspection_id"]
     assert payload["status"] == "incorrect"
 
-    from app.models.diagnosis import InspectionResponse
+    from app.models.workflow import WorkflowInspectionResponse as InspectionResponse
 
     payload["segmentations"][0]["result"]["snapshot_id"] = "a" * 64
     with pytest.raises(ValidationError, match="different snapshot"):

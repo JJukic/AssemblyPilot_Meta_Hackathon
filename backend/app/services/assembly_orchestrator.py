@@ -27,9 +27,9 @@ from app.services.image_processor import ProcessedImage
 from app.services.inspection_request import build_multimodal_request
 from app.services.meta_client import MetaClient
 from app.services.progress_service import begin_progress, complete_progress
-from app.services.verification_client import VerificationClient
 from app.services.sam_client import SamClient
 from app.services.segmentation_service import localize_issues
+from app.services.verification_client import VerificationClient
 
 
 @dataclass
@@ -136,8 +136,12 @@ def track_issues(result, inspection_id, snapshot_id, previous=None):
 
 class AssemblyOrchestrator:
     def __init__(
-        self, engine: Engine, settings: Settings, sessions: InspectionSessions, meta: MetaClient,
-        sam: SamClient | None = None
+        self,
+        engine: Engine,
+        settings: Settings,
+        sessions: InspectionSessions,
+        meta: MetaClient,
+        sam: SamClient | None = None,
     ):
         self.engine, self.settings, self.sessions, self.meta = engine, settings, sessions, meta
         self.sam = sam or SamClient(settings)

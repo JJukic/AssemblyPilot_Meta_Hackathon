@@ -32,6 +32,6 @@ export function DiagnosisDetails({ result }: { result: InspectionResponse }) {
       {issue.bounding_box === null && !result.segmentations?.some((entry) => entry.issue_index === index && entry.status === "matched") && <small>No location marked for this issue.</small>}
     </li>)}</ol> : <p className="muted">No issues reported. Hidden connections are not verified.</p>}
     <div className="next-action"><h4>NEXT ACTION</h4><p>{result.next_action}</p></div>
-    <p className="confidence-note">A visual diagnosis is not a guarantee of physical correctness. Step navigation remains manual.</p>
+    <p className="confidence-note">A visual diagnosis is not a guarantee of physical correctness. Block offsets and dimensions have not been measured. Step navigation remains manual.</p>
   </div>;
 }
