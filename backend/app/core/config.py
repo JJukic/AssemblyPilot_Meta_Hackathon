@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +24,10 @@ class Settings(BaseSettings):
     model_api_key: SecretStr | None = None
     meta_api_base_url: str = "https://api.meta.ai/v1"
     meta_vision_model: str = "muse-spark-1.3"
+    meta_sam_model: Literal["sam-3.1"] = "sam-3.1"
+    sam_enabled: bool = True
+    sam_request_timeout: float = Field(default=60, gt=0, le=60)
+    sam_max_concepts_per_inspection: int = Field(default=2, ge=0, le=2)
     meta_request_timeout: float = Field(default=60, gt=0, le=180)
     inspection_max_dimension: int = Field(default=1280, ge=256, le=1600)
     meta_max_reference_images: int = Field(default=8, ge=0, le=20)

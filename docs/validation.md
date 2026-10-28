@@ -8,6 +8,13 @@ draft, not merged; this implementation follows the requested Muse-only path and
 leaves the separate SAM branch intact. The reference-camera and selected-step-photo
 features already on main are preserved.
 
+## Phase 3C — 2026-10-28
+
+Implemented on `feature/sam-segmentation`, based on `main` at `9089e07`.
+Phase 3B PR #4 was already merged (`2a6d1a2`). The newer reference-camera and selected
+step-photo changes on main were preserved. No repository reinitialization, database
+reset, model-weight download or photo replacement was performed.
+
 | Check | Result |
 | --- | --- |
 | `make lint` | Ruff and ESLint passed |
@@ -56,6 +63,49 @@ object tracking; visual verification cannot certify hidden connections or mechan
 stability. Model text remains probabilistic. Real camera hardware, real recognition
 accuracy and the new live correction cycle need local acceptance testing. Existing
 non-failing Starlette/httpx and NO_COLOR notices remain; no tests were disabled.
+
+| `make test` | 215 Python tests passed (164 existing + 51 SAM tests); strict TypeScript passed |
+| `make build` | Next.js production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | All 26 browser tests passed, including all 23 existing cases |
+| Mocked end-to-end API | Muse and SAM received byte-identical JPEG data URLs; returned identity and mask geometry validated |
+| Official parser | Parsed official synthetic conformance vector through the real installed parser; no live inference involved |
+| Live smoke preflight | `smoke_segmentation.py` exited 77: no backend `MODEL_API_KEY`; no request sent and no output generated |
+| Real images | No developer-supplied photograph available in this cloud checkout/attachments; no real-image benchmark run |
+
+**No actual Muse or SAM inference succeeded in this cloud task.** The separate
+user-provided local validation note reports a successful model-metadata GET, which
+is not inference. The current cloud process, `backend/.env` and `backend/.env.backend`
+do not provide a key here. Synthetic fixtures were used only in tests, never as
+application results or as substitutes for a developer photo. No credentials, private
+photos or generated annotation outputs are included in the change.
+
+Protocol implementation used official Meta GitHub sources because the requested
+`dev.meta.ai` pages were blocked by the cloud proxy (403); exact sources and remaining
+provider-limit/non-streaming documentation gaps are recorded in [segmentation.md](segmentation.md).
+
+Coverage includes authentication/origin/model/request format, exact JPEG identity,
+concept validation, official box prompting (including subpixel failure), SSE finalizers,
+empty/refused/incomplete/interleaved output, malformed masks, inconsistent dimensions,
+large allocations, safe errors/retries/Retry-After, overall timeout and cancellation,
+parser-worker cleanup, optional activation, correct/uncertain/missing routing,
+maximum two operations, wrong-color spatial prompts, multiple-instance ambiguity,
+spatial association and snapshot mismatch fallback. The backend retains the Muse
+status and issue details for all SAM fallback states.
+
+Browser checks cover responsive mask geometry, SAM box-only mode, original/annotated
+comparison, ambiguous/empty/disabled/unavailable fallback, malformed mask/provenance
+rejection, snapshot/history separation and existing stale-request behavior. They use
+Chromium's synthetic camera and mock inspection responses; registry and reference
+camera tests use the isolated real FastAPI/SQLite service. No tests were skipped.
+
+Known limits: real localization accuracy and provider/account access remain unverified;
+large masks can exceed conservative decoder limits; spatial association uses documented
+heuristics; color concepts use a small vocabulary, with validated box prompts or a clear
+skip for other cases. The parser worker requires POSIX resource limits (tested on Linux,
+not physical macOS hardware). Browser abort cannot guarantee cancellation of Meta work
+already in progress. Existing non-failing Starlette/httpx and NO_COLOR notices remain.
+The next acceptance step is the explicit smoke command with the developer's key and
+real photo, followed by visual review of multiple similar parts and occluded assemblies.
 
 
 ## Phase 3B — 2026-10-27

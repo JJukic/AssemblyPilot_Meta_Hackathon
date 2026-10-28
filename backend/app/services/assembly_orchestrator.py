@@ -28,6 +28,8 @@ from app.services.inspection_request import build_multimodal_request
 from app.services.meta_client import MetaClient
 from app.services.progress_service import begin_progress, complete_progress
 from app.services.verification_client import VerificationClient
+from app.services.sam_client import SamClient
+from app.services.segmentation_service import localize_issues
 
 
 @dataclass
@@ -134,9 +136,11 @@ def track_issues(result, inspection_id, snapshot_id, previous=None):
 
 class AssemblyOrchestrator:
     def __init__(
-        self, engine: Engine, settings: Settings, sessions: InspectionSessions, meta: MetaClient
+        self, engine: Engine, settings: Settings, sessions: InspectionSessions, meta: MetaClient,
+        sam: SamClient | None = None
     ):
         self.engine, self.settings, self.sessions, self.meta = engine, settings, sessions, meta
+        self.sam = sam or SamClient(settings)
 
     def prepare(self, project_id, step_id, image, revision, previous):
         with Session(self.engine) as session:
@@ -201,7 +205,11 @@ class AssemblyOrchestrator:
             diagnosis = InspectionResult.model_validate(
                 evidence.model_dump(exclude={"issue_assessments"})
             )
+            segmentations = await localize_issues(self.sam, request, diagnosis)
+            if previous and previous.expires_at <= self.sessions.clock():
+                raise HTTPException(410, "Inspection session expired. Inspect again.")
             response = WorkflowInspectionResponse(
+                segmentations=segmentations,
                 **diagnosis.model_dump(),
                 meta_attempt_count=evidence._meta_attempt_count,
                 inspection_id=revision,

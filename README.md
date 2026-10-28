@@ -200,6 +200,37 @@ billable and changes progress metadata; it never runs in CI. Without opt-in/inpu
 exits 77. Real Phase 4 verification in this cloud remains unverified despite the user's
 confirmation that their local Muse integration works.
 
+## Optional SAM segmentation
+
+After Muse reports a visible discrepancy, the backend can call Meta-hosted `sam-3.1`
+through `POST https://api.meta.ai/v1/responses`, using the exact same normalized JPEG.
+The official Python parser decodes masks; validated instance geometry and transparent
+PNG overlays are returned with snapshot identity and separate timings. **Show Segmentation**
+toggles masks, and **Show original / Show annotated** compares the analyzed snapshot.
+Missing parts have no mask; ambiguous candidates are never selected arbitrarily.
+Failures preserve the Muse diagnosis and available Muse boxes.
+
+Backend defaults: `META_SAM_MODEL=sam-3.1`, `SAM_ENABLED=true`,
+`SAM_REQUEST_TIMEOUT=60`, `SAM_MAX_CONCEPTS_PER_INSPECTION=2`. Set
+`SAM_ENABLED=false` to retain Muse-only inspection. Up to two localization operations
+can add latency and billable requests; each has bounded transient retries. No local
+weights or GPU are required. The parser worker requires Linux/macOS resource limits.
+
+Explicit live test with your real photograph (never CI):
+
+```sh
+cd backend
+uv run --frozen python smoke_segmentation.py --image /absolute/path/to/your-photo.jpg \
+  --output data/sam-smoke/annotated.png
+```
+
+It uses `green building block`, reports real instance count/latency, and saves an
+annotated output without overwriting files. Missing credentials exit 77; errors exit 1.
+`backend/.env.backend` is not loaded automatically: use `uv run --env-file .env.backend`
+if that is your local configuration file. See [SAM protocol, limits and routing](docs/segmentation.md)
+and [actual validation status](docs/validation.md). Real inference is not yet verified
+in this cloud environment.
+
 ## Real-image benchmark
 
 No user photographs or labelled test cases are bundled. See [the benchmark guide](docs/benchmark.md) to evaluate 1–10 real, labelled photographs against your registered project and reference images. The runner is opt-in, uses Meta only, records validated diagnoses and latency, and reports errors without inventing scores. It does not run in CI.
