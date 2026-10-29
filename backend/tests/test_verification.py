@@ -643,3 +643,48 @@ def test_smoke_replay_validates_both_real_api_contracts_with_mocked_meta(
     assert smoke_verification.main() == 0
     assert '"status": "verified"' in capsys.readouterr().out
     assert len(flow.calls) == 2
+
+
+@pytest.mark.parametrize("sam_failure", [False, True])
+def test_verification_sam_uses_only_new_snapshot_and_cannot_override_muse(flow, sam_failure):
+    from app.api.inspection import get_sam_client
+    from app.models.segmentation import SegmentationResult
+    from app.services.sam_client import snapshot_identity
+
+    class RecordingSam:
+        settings = flow.settings
+
+        def __init__(self):
+            self.images = []
+
+        async def segment(self, image, concept, box=None):
+            self.images.append(image)
+            if sam_failure:
+                from app.services.inspection_errors import InspectionError
+                raise InspectionError("sam_unavailable", "Test-only SAM outage")
+            return SegmentationResult(
+                snapshot_id=snapshot_identity(image),
+                width=image.width,
+                height=image.height,
+                instances=[],
+            )
+
+    sam = RecordingSam()
+    flow.settings.sam_enabled = True
+    flow.client.app.dependency_overrides[get_sam_client] = lambda: sam
+    before = flow.start().json()
+    flow.state["status"] = "incorrect"
+    response = flow.verify(before["inspection_id"])
+    assert response.status_code == 200, response.text
+    after = response.json()["inspection"]
+    assert len(sam.images) == 2
+    assert sam.images[0].jpeg_bytes != sam.images[1].jpeg_bytes
+    assert after["snapshot_id"] == snapshot_identity(sam.images[1])
+    localization = after["segmentations"][0]
+    if sam_failure:
+        assert localization["status"] == "unavailable" and localization["result"] is None
+        assert after["issues"][0]["bounding_box"] == flow.issue["bounding_box"]
+    else:
+        assert localization["result"]["snapshot_id"] == after["snapshot_id"]
+        assert localization["status"] == "no_match"
+    assert after["state"] == "still_incorrect" and flow.progress()["status"] == "in_progress"

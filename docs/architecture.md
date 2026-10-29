@@ -9,9 +9,10 @@ Explicit photo upload → Pillow validation → generated JPEG file + SQLite met
 Project selector → ordered steps/expected blocks/reference URLs → manual camera guide
 Explicit inspection → selected SQLite context + safe reference bytes + current snapshot
   → async Meta Chat Completions → strict Pydantic diagnosis + exact input JPEG + timings
-  → deterministic correction plan / snapshot-only overlays / Active Vision / tab history
+  → optional SAM localization → deterministic correction plan / snapshot overlays / Active Vision
 Explicit fresh capture → independent Muse verification + prior finding assessments
-  → version-checked SQLite progress → optional user-confirmed next step
+  → optional SAM on the new snapshot → version-checked SQLite progress
+  → snapshot-only boxes/masks / temporary tab history / user-confirmed next step
 ```
 
 Next.js App Router provides `/`, `/blocks`, `/projects`, and `/projects/[projectId]`. Interactive management components use a typed API client and reusable image uploader. Dynamic route parameters are awaited on the server. Client fetches display loading/error/empty states; project switching does not remount the camera hook. The five-step JSON demo remains a fallback and is not seeded into or synchronized with the database.
@@ -42,7 +43,7 @@ Deleting a project cascades only its steps, assignments and step image records. 
 
 ## Meta inspection boundary
 
-`services/inspection_context.py` remains the metadata-only selected-step resolver. `services/inspection_request.py` builds a typed `MultimodalInspectionRequest`, verifies each reference's ownership and safe storage path, and reprocesses its bytes with Pillow. The camera snapshot is image 0, followed by the first assembled-step reference and first photograph per assigned block, capped at eight references by default. No other step or library image is sent. Existing stored images are unchanged. Inspection copies use a 1280px maximum edge.
+`services/inspection_context.py` remains the metadata-only selected-step resolver. `services/inspection_request.py` builds a typed `MultimodalInspectionRequest`, verifies each reference's ownership and safe storage path, and reprocesses its bytes with Pillow. The camera snapshot is image 0, followed by the selected assembled-step reference (oldest fallback) and first photograph per assigned block, capped at eight references by default. No other step or library image is sent. Existing stored images are unchanged. Inspection copies use a 1280px maximum edge.
 
 The route closes its SQLite read session before awaiting inference; file/SQLite work runs in a worker thread. `prompts/inspection.py` separates developer policy from JSON task data and labels all image roles. Separate component photos do not establish the intended arrangement. Quantities are assignments to the current step, not necessarily the total assembly. Missing/ambiguous visual evidence should result in `uncertain`; prompt instructions alone cannot guarantee model accuracy.
 
@@ -76,8 +77,9 @@ SQLite `create_all` initializes a new schema; it is not a migration system. Keep
 `/api/verify`. It reuses `MetaClient`, adds deterministic `correction_planner`, and
 uses `VerificationClient` for a single verification-specific structured Meta request.
 The original context-free Phase 1 agents remain unused. No agent framework or autonomous
-loop is introduced. SAM PR #5 was not merged into main at implementation time, so this
-branch requires no SAM adapter and does not alter that separate PR.
+loop is introduced. SAM PR #5 is now merged into main. Both active routes inject
+SamClient into the orchestrator; localization follows the fresh Muse diagnosis before
+progress completion. SAM failures retain the diagnosis and valid Muse boxes.
 
 `models/workflow.py` defines explicit transitions, evidence assessments, tracked findings
 and API responses. `InspectionSessions` bounds metadata-only server sessions (default
@@ -96,3 +98,28 @@ images remain exclusively in the existing temporary browser history.
 
 Full state machine, retry counts, cache limits, progress invalidation policy, real-image
 manual testing and known limitations are in [verification.md](verification.md).
+
+## Phase 3C localization boundary
+
+`inspection_service.py` (standalone smoke/benchmark) and the active orchestrator call `segmentation_service.localize_issues` after Muse,
+before returning server provenance. `sam_client.py` reuses the exact normalized image,
+Meta credential/origin guard, async HTTP and bounded retry conventions. It implements
+the official SAM streaming Responses protocol and supports concept or spatial-box
+prompts. `sam_decode.py` isolates the official parser's CPU/memory use in a bounded
+subprocess and produces validated box-local RGBA PNGs. No keys are passed to it.
+`models/segmentation.py` validates geometry, masks and issue selection, while the
+inspection response binds every localization to its JPEG hash and dimensions.
+
+Correct/uncertain/missing/unknown cases skip SAM. Up to two visible issues receive
+localization, with conservative spatial association and explicit ambiguity. Errors
+remain per-issue localization statuses and never alter Muse's diagnosis. SAM itself
+adds no database tables or continuous inference; Phase 4 adds the progress table.
+
+The frontend validates provenance and mask metadata before storing the response.
+`DiagnosticOverlay` adds original/annotated comparison and segmentation/box modes,
+with fallback to valid Muse boxes. Both history and current inspection reuse this
+component on the returned snapshot only. The current view still aborts/discards stale
+requests on capture/step/project changes; live camera state is independent.
+
+See [segmentation.md](segmentation.md) for protocol evidence, association thresholds,
+resource limits, optional configuration, cost considerations and live smoke testing.

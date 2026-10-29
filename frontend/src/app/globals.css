@@ -260,3 +260,10 @@ a.brand, a.button { text-decoration: none; }
 .verification-capture figcaption, .step-progress { font-size: 13px; color: var(--muted); }
 .finding-history { margin: 20px 0; }
 .finding-history summary { cursor: pointer; }
+
+.segmentation-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; }
+.segmentation-controls label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.diagnostic-image-stage .segmentation-mask { position: absolute; border-radius: 0; pointer-events: none; }
+.diagnostic-boxes rect[data-source="sam"] { stroke: #ef4444; fill: none; }
+.segmentation-status { font-size: 13px; }
+.segmentation-ambiguous { color: #ffd171; }

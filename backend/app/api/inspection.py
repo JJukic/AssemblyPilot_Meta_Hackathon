@@ -12,12 +12,17 @@ from app.services.image_processor import ImageValidationError, process_image
 from app.services.inspection_errors import InspectionError
 from app.services.inspection_request import inspection_image_settings
 from app.services.meta_client import MetaClient
+from app.services.sam_client import SamClient
 
 router = APIRouter(prefix="/api")
 
 
 def get_meta_client(settings: Annotated[Settings, Depends(get_settings)]) -> MetaClient:
     return MetaClient(settings)
+
+
+def get_sam_client(settings: Annotated[Settings, Depends(get_settings)]) -> SamClient:
+    return SamClient(settings)
 
 
 @router.post(
@@ -39,6 +44,7 @@ async def inspect_image(
     image: Annotated[UploadFile, File(description="A JPEG, PNG or WebP camera snapshot")],
     settings: Annotated[Settings, Depends(get_settings)],
     meta: Annotated[MetaClient, Depends(get_meta_client)],
+    sam: Annotated[SamClient, Depends(get_sam_client)],
     project_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
     step_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
 ) -> WorkflowInspectionResponse | JSONResponse:
@@ -66,7 +72,7 @@ async def inspect_image(
 
     try:
         return await AssemblyOrchestrator(
-            request.app.state.engine, settings, request.app.state.inspection_sessions, meta
+            request.app.state.engine, settings, request.app.state.inspection_sessions, meta, sam
         ).observe(project_id, step_id, processed)
     except InspectionError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
@@ -81,6 +87,7 @@ async def verify_image(
     image: Annotated[UploadFile, File()],
     settings: Annotated[Settings, Depends(get_settings)],
     meta: Annotated[MetaClient, Depends(get_meta_client)],
+    sam: Annotated[SamClient, Depends(get_sam_client)],
     project_id: Annotated[str, Form(min_length=1, max_length=100)],
     step_id: Annotated[str, Form(min_length=1, max_length=100)],
     previous_inspection_id: Annotated[str, Form(min_length=1, max_length=100)],
@@ -96,7 +103,7 @@ async def verify_image(
         await image.close()
     try:
         return await AssemblyOrchestrator(
-            request.app.state.engine, settings, request.app.state.inspection_sessions, meta
+            request.app.state.engine, settings, request.app.state.inspection_sessions, meta, sam
         ).observe(project_id, step_id, processed, previous_inspection_id)
     except InspectionError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None

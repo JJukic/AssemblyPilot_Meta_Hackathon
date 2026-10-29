@@ -2,12 +2,12 @@
 
 ## Scope and branch basis
 
-Implemented from `main` at `9089e07`. Phase 3B is merged. SAM PR #5 was still an
-open draft when Phase 4 started, so this branch uses the existing Muse pipeline
-without introducing a SAM dependency. The SAM branch/PR remains untouched. The SAM
-variables already present in `.env.example` do not activate an adapter on this base.
-A later integration must explicitly connect optional SAM localization to the active
-orchestrator, preserving the same analyzed JPEG and never influencing correctness.
+Originally implemented from main at `9089e07`. This branch now includes main at
+`edbdef0`, including merged SAM PR #5. The active orchestrator runs optional SAM
+localization on the exact new image after initial diagnosis or verification. SAM
+never changes the semantic diagnosis, resolution assessments or progress decision.
+The existing bounded retries, mask validation and Muse-box fallback remain in place.
+See [the integration review](pr6-integration-review.md) for conflicts and PR #7 overlap.
 
 Next.js, FastAPI, SQLite, registry data, selected step references, camera capture,
 Active Vision, diagnostic overlays and temporary image history remain in place.

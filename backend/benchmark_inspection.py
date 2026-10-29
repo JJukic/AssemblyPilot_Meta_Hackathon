@@ -21,6 +21,7 @@ from app.services.inspection_errors import InspectionError
 from app.services.inspection_request import build_multimodal_request, inspection_image_settings
 from app.services.inspection_service import inspect_with_metadata
 from app.services.meta_client import MetaClient
+from app.services.sam_client import SamClient
 
 
 class BenchmarkCase(BaseModel):
@@ -101,7 +102,9 @@ async def evaluate(
             "reference_count": len(request.images) - 1,
         }
         try:
-            result = await inspect_with_metadata(client, request)
+            # Preserve this benchmark's Muse-only cost/latency and image-free report.
+            sam = SamClient(client.settings.model_copy(update={"sam_enabled": False}))
+            result = await inspect_with_metadata(client, request, sam)
             actual_types = {issue.type for issue in result.issues}
             row.update(
                 diagnosis=result.model_dump(

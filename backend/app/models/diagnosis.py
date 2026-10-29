@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
+from app.models.segmentation import IssueSegmentation
+
 
 class StrictOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
@@ -107,3 +109,33 @@ class InspectionResponse(InspectionResult):
     model: str
     model_latency_ms: float = Field(ge=0)
     inspected_at: datetime
+
+    inspection_id: str = Field(min_length=1)
+    snapshot_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    segmentations: list[IssueSegmentation] = Field(max_length=100)
+
+    @model_validator(mode="after")
+    def segmentation_provenance(self):
+        import base64
+        import hashlib
+
+        actual = hashlib.sha256(
+            base64.b64decode(self.analyzed_snapshot.data_url.split(",", 1)[1], validate=True)
+        ).hexdigest()
+        if self.snapshot_id != actual:
+            raise ValueError("Snapshot identity mismatch")
+        indices = [entry.issue_index for entry in self.segmentations]
+        if len(indices) != len(set(indices)):
+            raise ValueError("Duplicate issue localization")
+        for entry in self.segmentations:
+            if entry.issue_index >= len(self.issues):
+                raise ValueError("Unknown issue")
+            if self.issues[entry.issue_index].type == "missing_part" and entry.result is not None:
+                raise ValueError("Missing parts cannot be segmented")
+            if entry.result and (
+                entry.result.snapshot_id != self.snapshot_id
+                or (entry.result.width, entry.result.height)
+                != (self.analyzed_snapshot.width, self.analyzed_snapshot.height)
+            ):
+                raise ValueError("Segmentation belongs to a different snapshot")
+        return self
