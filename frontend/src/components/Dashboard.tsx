@@ -15,12 +15,14 @@ import { StatusIndicator } from "@/components/ui/StatusIndicator";
 import { useCamera } from "@/hooks/useCamera";
 import { checkHealth } from "@/lib/api";
 import type { Assembly, ConnectionStatus } from "@/types/assembly";
+import type { GeometrySetup } from "@/types/calibration";
 
 export function Dashboard({ assembly, initialProjectId = "" }: { assembly: Assembly; initialProjectId?: string }) {
   const projects = useResource(registry.projects);
   const [selectedProject, setSelectedProject] = useState(initialProjectId);
   const camera = useCamera();
   const [backend, setBackend] = useState<ConnectionStatus>("checking");
+  const [geometrySetup, setGeometrySetup] = useState<GeometrySetup | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     const check = async () => {
@@ -57,8 +59,8 @@ export function Dashboard({ assembly, initialProjectId = "" }: { assembly: Assem
           <div>{projects.data?.length === 0 ? <p>No custom projects yet. <Link href="/projects">Create your first project</Link>.</p> : <Link href="/projects">Manage projects</Link>}
           {projects.error && <p className="muted">Custom projects unavailable. The practice demo and camera still work. <button className="text-button" onClick={projects.reload}>Retry</button></p>}</div>
         </div>
-        <div className="workspace-grid"><CameraView camera={camera} />{selectedProject ? <CustomAssembly key={selectedProject} projectId={selectedProject} snapshot={camera.snapshot} captureFresh={() => camera.capture(false)} cameraReady={camera.status === "connected"} /> : <AssemblyPanel assembly={assembly} />}</div>
-        <CalibrationPanel key={`${camera.deviceId}:${camera.status}`} camera={camera} />
+        <div className="workspace-grid"><CameraView camera={camera} />{selectedProject ? <CustomAssembly key={selectedProject} projectId={selectedProject} snapshot={camera.snapshot} captureFresh={() => camera.capture(false)} cameraReady={camera.status === "connected"} geometrySetup={geometrySetup} /> : <AssemblyPanel assembly={assembly} />}</div>
+        <CalibrationPanel key={`${camera.deviceId}:${camera.status}`} camera={camera} onSelectionChange={setGeometrySetup} />
         <InspectionHistory />
         <section className="pipeline-panel" aria-label="AI inspection availability">
           <div className="pipeline-icon"><ScanLine size={22} /></div>

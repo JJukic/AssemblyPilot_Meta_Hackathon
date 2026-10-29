@@ -5,11 +5,11 @@ import type { useCamera } from "@/hooks/useCamera";
 import { apiRequest, errorMessage } from "@/lib/api";
 import { snapshotFile } from "@/lib/camera-image";
 import { assessCapture, downloadBoard } from "@/lib/calibration";
-import type { CalibrationProfile, CalibrationStatus, CameraConfiguration, CaptureAssessment } from "@/types/calibration";
+import type { CalibrationProfile, CalibrationStatus, CameraConfiguration, CaptureAssessment, GeometrySetup } from "@/types/calibration";
 import type { Snapshot } from "@/types/assembly";
 
 type Sample = { snapshot: Snapshot; hash: string };
-export function CalibrationPanel({ camera }: { camera: ReturnType<typeof useCamera> }) {
+export function CalibrationPanel({ camera, onSelectionChange }: { camera: ReturnType<typeof useCamera>; onSelectionChange: (setup: GeometrySetup | null) => void }) {
   const [status, setStatus] = useState<CalibrationStatus | null>(null);
   const [mode, setMode] = useState<"calibrate" | "precision">("calibrate");
   const [profileId, setProfileId] = useState("");
@@ -34,6 +34,14 @@ export function CalibrationPanel({ camera }: { camera: ReturnType<typeof useCame
       .then(setStatus).catch((e) => { if (!abort.signal.aborted) setError(errorMessage(e)); });
     return () => abort.abort();
   }, []);
+  useEffect(() => {
+    const profile = status?.profiles.find((item) => item.id === profileId);
+    onSelectionChange(profile && confirmed ? {
+      profile_id: profile.id,
+      camera: profile.camera,
+      configuration_confirmed: true,
+    } : null);
+  }, [confirmed, onSelectionChange, profileId, status]);
   const signal = () => AbortSignal.any([controller.current!.signal, AbortSignal.timeout(120000)]);
   function resetEvidence() {
     setSamples([]); setSampleCamera(null); setAssessment(null); setAssessedSnapshot(null);
@@ -99,7 +107,7 @@ export function CalibrationPanel({ camera }: { camera: ReturnType<typeof useCame
   }
   return <details className="panel calibration-panel">
     <summary>Camera Calibration &amp; Precision Capture</summary>
-    <p>Deterministic board detection and camera guidance. LEGO dimensions and placement are <strong>not measured</strong>. AI results, including “Step Verified”, remain semantic assessments.</p>
+    <p>Deterministic board detection and camera guidance. Steps with an explicit supported 2×4 constraint can use the selected confirmed profile for a separate height-aware stud-offset check. Other placement remains unmeasured.</p>
     <div className="calibration-toolbar">
       <button className="button secondary" disabled={busy} onClick={() => { resetEvidence(); setMode("calibrate"); }}>Camera Calibration</button>
       <button className="button secondary" disabled={busy} onClick={() => { resetEvidence(); setMode("precision"); }}>Precision Capture</button>
@@ -145,7 +153,7 @@ export function CalibrationPanel({ camera }: { camera: ReturnType<typeof useCame
           {assessment.corners.map((p) => <circle key={p.id} cx={p.x_px} cy={p.y_px} r={Math.max(3, assessment.width / 200)} fill="#37e3a6" stroke="black" strokeWidth={Math.max(1, assessment.width / 1000)} />)}
         </svg>
       </div>
-      {mode === "precision" && assessedSnapshot && <><p>{assessment.suitable_for_top_down_capture ? "Capture guidance passed." : "Precision guidance did not pass. You may still request a semantic AI inspection."} No geometric pass/fail is available.</p>
+      {mode === "precision" && assessedSnapshot && <><p>{assessment.suitable_for_top_down_capture ? "Capture guidance passed. A supported constrained step will still require complete stud evidence before returning a measurement." : "Precision guidance did not pass. You may still request a semantic AI inspection, but configured geometry will remain uncertain."}</p>
         <button className="button primary" onClick={() => { try {
           if (JSON.stringify(configuration(assessedSnapshot)) !== JSON.stringify(assessedCamera)) throw new Error("Camera configuration changed. Assess a fresh capture.");
           camera.publishSnapshot(assessedSnapshot); setMessage("Capture selected. Choose Inspect with Meta AI for your project and step; no AI request was sent yet."); } catch (e) { setError(errorMessage(e)); } }}>Use this capture for AI inspection</button></>}

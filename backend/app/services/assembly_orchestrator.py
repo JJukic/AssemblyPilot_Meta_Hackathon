@@ -1,5 +1,6 @@
 """Explicit diagnosis/planning/verification, bounded sessions, no autonomous loops."""
 
+import asyncio
 import base64
 import hashlib
 from collections import OrderedDict
@@ -16,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings
 from app.models.diagnosis import AnalyzedSnapshot, InspectionResult
+from app.models.geometry import GeometryFormContext
 from app.models.workflow import (
     TrackedIssue,
     VerificationResponse,
@@ -23,6 +25,7 @@ from app.models.workflow import (
     transition,
 )
 from app.services.correction_planner import plan_corrections
+from app.services.geometric_verification import GeometricVerifier
 from app.services.image_processor import ProcessedImage
 from app.services.inspection_request import build_multimodal_request
 from app.services.meta_client import MetaClient
@@ -173,6 +176,8 @@ class AssemblyOrchestrator:
         step_id: str,
         image: ProcessedImage,
         previous_inspection_id: str | None = None,
+        geometry_image: ProcessedImage | None = None,
+        geometry_context: GeometryFormContext | None = None,
     ) -> WorkflowInspectionResponse | VerificationResponse:
         snapshot_id = hashlib.sha256(image.jpeg_bytes).hexdigest()
         previous = (
@@ -188,18 +193,17 @@ class AssemblyOrchestrator:
             )
             client = VerificationClient(self.meta, previous.tracks) if previous else self.meta
             started = perf_counter()
-            evidence = await client.inspect(request)
+            geometry_task = run_in_threadpool(
+                GeometricVerifier(self.engine, self.settings).verify,
+                project_id,
+                step_id,
+                geometry_image or image,
+                geometry_context or GeometryFormContext(),
+            )
+            evidence, geometry = await asyncio.gather(client.inspect(request), geometry_task)
             latency = (perf_counter() - started) * 1000
             tracks = track_issues(evidence, revision, snapshot_id, previous)
-            state = (
-                {"correct": "verified", "incorrect": "still_incorrect", "uncertain": "uncertain"}
-                if previous
-                else {
-                    "correct": "correct",
-                    "incorrect": "correction_required",
-                    "uncertain": "uncertain",
-                }
-            )[evidence.status]
+            state = fused_state(evidence.status, geometry, previous is not None)
             transition("verifying" if previous else transition("idle", "inspecting"), state)
             if previous and previous.expires_at <= self.sessions.clock():
                 raise HTTPException(
@@ -221,7 +225,8 @@ class AssemblyOrchestrator:
                 specification_id=fingerprint,
                 state=state,
                 tracked_issues=tracks,
-                correction_plan=plan_corrections(diagnosis, tracks),
+                correction_plan=plan_corrections(diagnosis, tracks, geometry),
+                geometry=geometry,
                 analyzed_snapshot=AnalyzedSnapshot(
                     data_url="data:image/jpeg;base64,"
                     + base64.b64encode(image.jpeg_bytes).decode("ascii"),
@@ -264,3 +269,18 @@ class AssemblyOrchestrator:
         finally:
             if previous:
                 self.sessions.release(previous, consumed=completed)
+
+
+def fused_state(semantic_status: str, geometry, verification: bool) -> str:
+    """Muse may identify problems, but cannot override explicit reliable geometry."""
+
+    if semantic_status == "uncertain":
+        return "uncertain"
+    if semantic_status == "incorrect":
+        return "still_incorrect" if verification else "correction_required"
+    if geometry.constraint_id:
+        if geometry.geometry_status == "incorrect":
+            return "still_incorrect" if verification else "correction_required"
+        if geometry.geometry_status in {"uncertain", "not_measured"}:
+            return "uncertain"
+    return "verified" if verification else "correct"

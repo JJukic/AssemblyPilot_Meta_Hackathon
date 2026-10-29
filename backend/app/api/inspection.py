@@ -1,10 +1,13 @@
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+from app.api.calibration import camera_config
 from app.core.config import Settings, get_settings
+from app.models.geometry import GeometryFormContext
 from app.models.inspection import ImageMetadata, InspectionUnavailable
 from app.models.workflow import VerificationResponse, WorkflowInspectionResponse
 from app.services.assembly_orchestrator import AssemblyOrchestrator
@@ -47,11 +50,18 @@ async def inspect_image(
     sam: Annotated[SamClient, Depends(get_sam_client)],
     project_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
     step_id: Annotated[str | None, Form(min_length=1, max_length=100)] = None,
+    geometry_profile_id: Annotated[UUID | None, Form()] = None,
+    geometry_camera: Annotated[str | None, Form(max_length=2000)] = None,
+    geometry_configuration_confirmed: Annotated[bool, Form()] = False,
 ) -> WorkflowInspectionResponse | JSONResponse:
     try:
         data = await image.read(settings.max_upload_bytes + 1)
         image_settings = inspection_image_settings(settings) if project_id or step_id else settings
         processed = await run_in_threadpool(process_image, data, image_settings)
+        native_settings = settings.model_copy(
+            update={"resize_max_dimension": settings.max_image_dimension}
+        )
+        geometry_image = await run_in_threadpool(process_image, data, native_settings)
     except ImageValidationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     finally:
@@ -71,9 +81,20 @@ async def inspect_image(
         raise HTTPException(422, "Supply both project_id and step_id")
 
     try:
+        geometry_context = GeometryFormContext(
+            profile_id=geometry_profile_id,
+            camera=camera_config(geometry_camera) if geometry_camera else None,
+            configuration_confirmed=geometry_configuration_confirmed,
+        )
         return await AssemblyOrchestrator(
             request.app.state.engine, settings, request.app.state.inspection_sessions, meta, sam
-        ).observe(project_id, step_id, processed)
+        ).observe(
+            project_id,
+            step_id,
+            processed,
+            geometry_image=geometry_image,
+            geometry_context=geometry_context,
+        )
     except InspectionError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(
@@ -91,20 +112,39 @@ async def verify_image(
     project_id: Annotated[str, Form(min_length=1, max_length=100)],
     step_id: Annotated[str, Form(min_length=1, max_length=100)],
     previous_inspection_id: Annotated[str, Form(min_length=1, max_length=100)],
+    geometry_profile_id: Annotated[UUID | None, Form()] = None,
+    geometry_camera: Annotated[str | None, Form(max_length=2000)] = None,
+    geometry_configuration_confirmed: Annotated[bool, Form()] = False,
 ) -> VerificationResponse:
     try:
         data = await image.read(settings.max_upload_bytes + 1)
         processed = await run_in_threadpool(
             process_image, data, inspection_image_settings(settings)
         )
+        native_settings = settings.model_copy(
+            update={"resize_max_dimension": settings.max_image_dimension}
+        )
+        geometry_image = await run_in_threadpool(process_image, data, native_settings)
     except ImageValidationError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
     finally:
         await image.close()
     try:
+        geometry_context = GeometryFormContext(
+            profile_id=geometry_profile_id,
+            camera=camera_config(geometry_camera) if geometry_camera else None,
+            configuration_confirmed=geometry_configuration_confirmed,
+        )
         return await AssemblyOrchestrator(
             request.app.state.engine, settings, request.app.state.inspection_sessions, meta, sam
-        ).observe(project_id, step_id, processed, previous_inspection_id)
+        ).observe(
+            project_id,
+            step_id,
+            processed,
+            previous_inspection_id,
+            geometry_image,
+            geometry_context,
+        )
     except InspectionError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(

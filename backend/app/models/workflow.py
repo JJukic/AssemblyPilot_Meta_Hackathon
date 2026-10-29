@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from app.models.diagnosis import InspectionIssue, InspectionResponse, InspectionResult, StrictOutput
+from app.models.geometry import GeometricVerificationResult
 
 WorkflowState = Literal[
     "idle",
@@ -86,7 +87,7 @@ class TrackedIssue(StrictOutput):
 class CorrectionAction(StrictOutput):
     issue_id: str | None
     block_id: str | None
-    kind: Literal["adjust", "capture"]
+    kind: Literal["adjust", "geometry_adjust", "capture"]
     instruction: str
 
 
@@ -97,6 +98,7 @@ class WorkflowInspectionResponse(InspectionResponse):
     state: WorkflowState
     tracked_issues: list[TrackedIssue] = Field(max_length=200)
     correction_plan: list[CorrectionAction] = Field(max_length=100)
+    geometry: GeometricVerificationResult | None = None
     muse_call_count: Literal[1] = 1
     meta_attempt_count: int = Field(ge=1, le=3)
 
@@ -115,7 +117,15 @@ class WorkflowInspectionResponse(InspectionResponse):
             "incorrect": {"correction_required", "still_incorrect"},
             "uncertain": {"uncertain"},
         }
-        if self.state not in states[self.status]:
+        allowed = states[self.status]
+        if self.status == "correct" and self.geometry and self.geometry.constraint_id:
+            allowed = {
+                "correct": {"correct", "verified"},
+                "incorrect": {"correction_required", "still_incorrect"},
+                "uncertain": {"uncertain"},
+                "not_measured": {"uncertain"},
+            }[self.geometry.geometry_status]
+        if self.state not in allowed:
             raise ValueError("Workflow state contradicts diagnostic evidence")
         ids = [item.issue_id for item in self.tracked_issues]
         indices = [

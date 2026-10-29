@@ -119,3 +119,32 @@ class StepProgress(SQLModel, table=True):
     revision: str
     inspection_id: str | None = None
     verified_at: datetime | None = None
+
+
+class StepSpatialConstraint(SQLModel, table=True):
+    """Additive, explicit geometry: absence never implies geometric validity."""
+
+    __tablename__ = "step_spatial_constraints"
+    __table_args__ = (
+        CheckConstraint("target_block_id != reference_block_id"),
+        CheckConstraint("constraint_type = 'relative_stud_offset'"),
+        CheckConstraint("axis = 'longitudinal'"),
+        CheckConstraint("positive_direction IN ('board_positive_x', 'board_positive_y')"),
+        CheckConstraint("expected_stud_offset BETWEEN -32 AND 32"),
+        CheckConstraint("tolerance_studs > 0 AND tolerance_studs <= 0.5"),
+        CheckConstraint("reference_surface_height_mm > 0"),
+        CheckConstraint("target_surface_height_mm > reference_surface_height_mm"),
+    )
+    id: str = Field(default_factory=new_id, primary_key=True)
+    step_id: str = Field(
+        foreign_key="assembly_steps.id", ondelete="CASCADE", unique=True, index=True
+    )
+    target_block_id: str = Field(foreign_key="building_blocks.id", ondelete="RESTRICT")
+    reference_block_id: str = Field(foreign_key="building_blocks.id", ondelete="RESTRICT")
+    constraint_type: str = "relative_stud_offset"
+    axis: str = "longitudinal"
+    positive_direction: str
+    expected_stud_offset: float
+    tolerance_studs: float
+    reference_surface_height_mm: float
+    target_surface_height_mm: float

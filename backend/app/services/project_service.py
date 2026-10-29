@@ -1,7 +1,15 @@
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.db.tables import AssemblyProject, AssemblyStep, AssemblyStepBlock, now
+from app.db.tables import (
+    AssemblyProject,
+    AssemblyStep,
+    AssemblyStepBlock,
+    BuildingBlock,
+    StepSpatialConstraint,
+    now,
+)
+from app.models.geometry import StudOffsetConstraintRead
 from app.models.projects import ProjectRead, StepBlockRead, StepInput, StepRead
 from app.services.block_service import public_block, require_block
 from app.services.media_service import images_for, public_image
@@ -42,6 +50,9 @@ def public_step(session: Session, step: AssemblyStep) -> StepRead:
         .where(AssemblyStepBlock.step_id == step.id)
         .order_by(AssemblyStepBlock.id)
     ).all()
+    constraint = session.exec(
+        select(StepSpatialConstraint).where(StepSpatialConstraint.step_id == step.id)
+    ).first()
     return StepRead(
         **step.model_dump(),
         required_blocks=[
@@ -53,13 +64,19 @@ def public_step(session: Session, step: AssemblyStep) -> StepRead:
             for item in assignments
         ],
         reference_images=[public_image(image) for image in images_for(session, step_id=step.id)],
+        spatial_constraint=StudOffsetConstraintRead.model_validate(
+            constraint.model_dump(exclude={"step_id"})
+        )
+        if constraint
+        else None,
     )
 
 
 def replace_blocks(session: Session, step: AssemblyStep, data: StepInput):
     # Validate all references before touching existing associations.
-    for item in data.required_blocks:
-        require_block(session, item.block_id)
+    blocks = {item.block_id: require_block(session, item.block_id) for item in data.required_blocks}
+    if data.spatial_constraint:
+        validate_spatial_constraint(blocks, data.spatial_constraint)
     existing = session.exec(
         select(AssemblyStepBlock).where(AssemblyStepBlock.step_id == step.id)
     ).all()
@@ -68,7 +85,62 @@ def replace_blocks(session: Session, step: AssemblyStep, data: StepInput):
     session.flush()
     for item in data.required_blocks:
         session.add(AssemblyStepBlock(step_id=step.id, **item.model_dump()))
+    existing_constraint = session.exec(
+        select(StepSpatialConstraint).where(StepSpatialConstraint.step_id == step.id)
+    ).first()
+    if data.spatial_constraint:
+        values = data.spatial_constraint.model_dump()
+        if existing_constraint:
+            existing_constraint.sqlmodel_update(values)
+            session.add(existing_constraint)
+        else:
+            session.add(StepSpatialConstraint(step_id=step.id, **values))
+    elif existing_constraint:
+        session.delete(existing_constraint)
     session.flush()
+
+
+def validate_spatial_constraint(blocks: dict[str, BuildingBlock], constraint) -> None:
+    """Validate the deliberately narrow first metrology mode."""
+
+    target = blocks[constraint.target_block_id]
+    reference = blocks[constraint.reference_block_id]
+    for role, block in (("target", target), ("reference", reference)):
+        if (
+            block.shape.lower() != "rectangular"
+            or sorted((block.studs_x or 0, block.studs_y or 0)) != [2, 4]
+            or block.height_mm is None
+            or block.height_mm <= 0
+        ):
+            raise HTTPException(
+                422,
+                f"The first geometric mode supports registered rectangular 2x4 blocks; "
+                f"the {role} block is unsupported.",
+            )
+        if block.color.lower() not in {"red", "yellow", "blue", "green", "orange"}:
+            raise HTTPException(
+                422,
+                f"The first geometric mode cannot associate the {role} color deterministically. "
+                "Use red, yellow, blue, green or orange.",
+            )
+    if target.color.lower() == reference.color.lower():
+        raise HTTPException(
+            422,
+            "Target and reference need different registered colors for deterministic association.",
+        )
+    if abs(constraint.reference_surface_height_mm - reference.height_mm) > 0.5:
+        raise HTTPException(
+            422,
+            "Reference surface height must match the registered reference block height "
+            "within 0.5 mm.",
+        )
+    expected_target_height = constraint.reference_surface_height_mm + target.height_mm
+    if abs(constraint.target_surface_height_mm - expected_target_height) > 0.5:
+        raise HTTPException(
+            422,
+            "Target surface height must describe one target block stacked directly above "
+            "the reference surface (within 0.5 mm).",
+        )
 
 
 def apply_order(session: Session, steps: list[AssemblyStep]):

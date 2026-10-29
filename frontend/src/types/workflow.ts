@@ -1,4 +1,5 @@
 import type { InspectionIssue, InspectionResponse } from "./inspection";
+import type { GeometricVerification } from "./geometry";
 
 export type WorkflowState = "idle" | "inspecting" | "correct" | "correction_required" | "awaiting_rescan" | "verifying" | "verified" | "still_incorrect" | "uncertain" | "error";
 export interface TrackedIssue {
@@ -22,7 +23,8 @@ export interface WorkflowInspection extends InspectionResponse {
   specification_id: string;
   state: WorkflowState;
   tracked_issues: TrackedIssue[];
-  correction_plan: { issue_id: string | null; block_id: string | null; kind: "adjust" | "capture"; instruction: string }[];
+  correction_plan: { issue_id: string | null; block_id: string | null; kind: "adjust" | "geometry_adjust" | "capture"; instruction: string }[];
+  geometry?: GeometricVerification | null;
   muse_call_count: 1;
   meta_attempt_count: number;
 }

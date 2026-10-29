@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.models.blocks import BlockInput, ImageRead
+from app.models.geometry import StudOffsetConstraintRead
 
 
 class ExpectedBlock(BlockInput):
@@ -35,5 +36,6 @@ class InspectionContext(BaseModel):
     expected_blocks: list[ExpectedBlock]
     step_reference_images: list[ImageRead]
     step_reference_image: str | None
+    spatial_constraint: StudOffsetConstraintRead | None = None
     snapshot: CameraFrame | None = None
     previous_context: PreviousInspection | None = None

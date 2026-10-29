@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.blocks import BlockRead, ImageRead, Name
+from app.models.geometry import StudOffsetConstraintInput, StudOffsetConstraintRead
 
 
 class ProjectInput(BaseModel):
@@ -34,6 +35,7 @@ class StepInput(BaseModel):
     instruction: str = Field(min_length=1, max_length=10000)
     position: int | None = Field(default=None, gt=0)
     required_blocks: list[StepBlockInput] = Field(default_factory=list, max_length=200)
+    spatial_constraint: StudOffsetConstraintInput | None = None
 
     @model_validator(mode="after")
     def validate_step(self) -> "StepInput":
@@ -43,6 +45,18 @@ class StepInput(BaseModel):
         ids = [block.block_id for block in self.required_blocks]
         if len(ids) != len(set(ids)):
             raise ValueError("Assign each block only once; adjust its quantity instead")
+        if self.spatial_constraint:
+            constraint_ids = {
+                self.spatial_constraint.target_block_id,
+                self.spatial_constraint.reference_block_id,
+            }
+            if not constraint_ids.issubset(ids):
+                raise ValueError("Spatial constraint blocks must both be assigned to this step")
+            quantities = {item.block_id: item.required_quantity for item in self.required_blocks}
+            if any(quantities[block_id] != 1 for block_id in constraint_ids):
+                raise ValueError(
+                    "The first geometric mode requires one target and one reference block"
+                )
         return self
 
 
@@ -56,6 +70,7 @@ class StepRead(BaseModel):
     updated_at: datetime
     required_blocks: list[StepBlockRead]
     reference_images: list[ImageRead]
+    spatial_constraint: StudOffsetConstraintRead | None
 
 
 class ProjectDetail(ProjectRead):

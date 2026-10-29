@@ -1,5 +1,32 @@
 # Validation results
 
+## Phase 4.1B stud-level geometry — 2026-10-29
+
+Validated on `feature/stud-geometric-verification`, based on merged Phase 4.1A main
+at `4351f5e`.
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 308 Python tests passed; strict TypeScript passed |
+| `make build` | Next.js 16.4.3 production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | 44 Playwright tests passed against the isolated FastAPI/SQLite server |
+| Live Meta inference | Not requested; automated tests use no paid inference |
+| Physical iPhone/ChArUco/tower experiment | Not performed; no physical accuracy or repeatability result is claimed |
+
+New deterministic coverage includes constraint persistence and rejection, old steps
+without constraints, synthetic 2×4 grids under rotation, partial reference visibility,
+invalid masks, correct/incorrect offsets, uncertainty-boundary overlap, elevated-plane
+ray intersection, missing calibration, profile/resolution mismatch and semantic
+`correct` versus geometric `incorrect`. The browser verifies the fused correction
+state and exact-snapshot stud/axis overlay; no geometry is drawn on live video.
+
+The synthetic tests establish code behavior and transform consistency only. They do
+not validate HSV association, ChArUco print quality, iPhone Continuity Camera stability,
+physical dimensions, measurement accuracy or repeatability. The blank controlled
+experiment protocol and failure reporting table are in
+[geometric-verification.md](geometric-verification.md).
+
 ## Phase 4.1A integration — 2026-10-29
 
 OpenCV 4.14.0 (headless contrib wheel 4.14.0.94) is integrated with the preserved

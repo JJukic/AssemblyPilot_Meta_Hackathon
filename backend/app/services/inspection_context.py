@@ -37,6 +37,7 @@ def build_inspection_context(
         ],
         step_reference_images=step.reference_images,
         step_reference_image=step.reference_images[0].url if step.reference_images else None,
+        spatial_constraint=step.spatial_constraint,
         snapshot=CameraFrame(
             width=snapshot.width,
             height=snapshot.height,

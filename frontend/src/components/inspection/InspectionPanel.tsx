@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, ScanLine } from "lucide-react";
 import { DiagnosisDetails } from "./DiagnosisDetails";
+import { GeometricVerificationPanel } from "./GeometricVerificationPanel";
 import { useInspectionSession } from "./InspectionSession";
 import { inspectSnapshot, verifySnapshot } from "@/lib/inspection";
 import { isWorkflowInspection, transition } from "@/lib/workflow";
@@ -10,12 +11,13 @@ import { ApiError, errorMessage } from "@/lib/api";
 import type { Snapshot } from "@/types/assembly";
 import type { InspectionResponse } from "@/types/inspection";
 import type { WorkflowState } from "@/types/workflow";
+import type { GeometrySetup } from "@/types/calibration";
 
 // A manual capture/project/step/specification change remounts and aborts this component.
 // Capture & Verify obtains a separate fresh frame without changing that input boundary.
-export function InspectionPanel({ projectId, projectName, stepId, stepTitle, snapshot, captureFresh, cameraReady, onContinue, onProgressChange }: {
+export function InspectionPanel({ projectId, projectName, stepId, stepTitle, snapshot, captureFresh, cameraReady, geometrySetup, onContinue, onProgressChange }: {
   projectId: string; projectName: string; stepId: string; stepTitle: string; snapshot: Snapshot | null;
-  captureFresh: () => Snapshot | null; cameraReady: boolean; onContinue?: () => void; onProgressChange: () => void;
+  captureFresh: () => Snapshot | null; cameraReady: boolean; geometrySetup: GeometrySetup | null; onContinue?: () => void; onProgressChange: () => void;
 }) {
   const { add } = useInspectionSession();
   const [phase, setPhase] = useState<WorkflowState>("idle");
@@ -37,10 +39,10 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
     const controller = new AbortController(); controllerRef.current = controller;
     move("inspecting"); setError(null); setResult(null); setFresh(null);
     try {
-      const diagnosis = await inspectSnapshot(projectId, stepId, snapshot, controller.signal);
+      const diagnosis = await inspectSnapshot(projectId, stepId, snapshot, controller.signal, geometrySetup);
       if (!controller.signal.aborted) {
         remember(diagnosis, snapshot);
-        move(diagnosis.status === "correct" ? "correct" : diagnosis.status === "incorrect" ? "correction_required" : "uncertain");
+        move(isWorkflowInspection(diagnosis, stepId) ? diagnosis.state : diagnosis.status === "correct" ? "correct" : diagnosis.status === "incorrect" ? "correction_required" : "uncertain");
         onProgressChange();
       }
     } catch (cause) {
@@ -58,7 +60,7 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
       const frame = captureFresh();
       if (!frame) throw new Error("Start the camera and wait for a live image before verifying.");
       setFresh(frame);
-      const verification = await verifySnapshot(projectId, workflow, frame, controller.signal);
+      const verification = await verifySnapshot(projectId, workflow, frame, controller.signal, geometrySetup);
       if (!controller.signal.aborted) {
         remember(verification.inspection, frame); setFresh(null);
         move(verification.status); onProgressChange();
@@ -89,7 +91,7 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
       {phase === "inspecting" && <p role="status" className="muted">Waiting for a diagnosis. You can keep using the camera; a new frame or step clears this request.</p>}
       {workflow && <section className={`correction-workflow workflow-${phase}`} aria-label="Correction and verification">
         <h3>{headings[phase]}</h3>
-        {phase === "verified" && <p>Verified by semantic AI assessment. Geometric placement and millimeter tolerances have not been measured.</p>}
+        {phase === "verified" && <p>{workflow.geometry?.geometry_status === "correct" ? "Verified by semantic assessment and the configured geometric constraint." : "Verified by semantic AI assessment; this step has no measured geometric constraint."}</p>}
         {phase === "correct" && <p>This initial diagnosis looks correct. A fresh verification scan is required to record this step as verified.</p>}
         {phase === "verifying" && <p role="status">Assessing the fresh image against the step and previous findings. The camera preview remains available.</p>}
         {!busy && phase !== "verified" && workflow.correction_plan.length > 0 && <ol>{workflow.correction_plan.map((action, index) => <li key={action.issue_id ?? index}>{action.instruction}</li>)}</ol>}
@@ -111,6 +113,7 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
       {result && !busy && <>
         {error && <p className="muted">Last completed diagnosis below; this retry did not verify the assembly.</p>}
         <DiagnosisDetails result={result} />
+        {workflow?.geometry && <GeometricVerificationPanel result={workflow.geometry} />}
         {workflow && workflow.tracked_issues.length > 0 && <details className="finding-history"><summary>Finding history ({workflow.tracked_issues.length})</summary>
           <ul>{workflow.tracked_issues.map((item) => <li key={item.issue_id}><strong>{item.resolution} · {item.original.type.replaceAll("_", " ")}</strong><p>{item.original.description}</p><p>{item.evidence}</p></li>)}</ul>
           <p className="muted">Finding associations use block/category evidence. They do not establish physical object tracking across camera views.</p>
