@@ -1,4 +1,4 @@
-# AssemblyPilot architecture — Phase 3C
+# AssemblyPilot architecture — Phase 4
 
 ## Components
 
@@ -9,8 +9,10 @@ Explicit photo upload → Pillow validation → generated JPEG file + SQLite met
 Project selector → ordered steps/expected blocks/reference URLs → manual camera guide
 Explicit inspection → selected SQLite context + safe reference bytes + current snapshot
   → async Meta Chat Completions → strict Pydantic diagnosis + exact input JPEG + timings
-  → optional Meta SAM Responses API → official parser → validated instance PNGs
-  → snapshot-only boxes/masks / Active Vision / temporary tab history
+  → optional SAM localization → deterministic correction plan / snapshot overlays / Active Vision
+Explicit fresh capture → independent Muse verification + prior finding assessments
+  → optional SAM on the new snapshot → version-checked SQLite progress
+  → snapshot-only boxes/masks / temporary tab history / user-confirmed next step
 ```
 
 Next.js App Router provides `/`, `/blocks`, `/projects`, and `/projects/[projectId]`. Interactive management components use a typed API client and reusable image uploader. Dynamic route parameters are awaited on the server. Client fetches display loading/error/empty states; project switching does not remount the camera hook. The five-step JSON demo remains a fallback and is not seeded into or synchronized with the database.
@@ -69,9 +71,37 @@ Playwright starts `backend/browser_test_server.py`, which runs the API with a di
 
 SQLite `create_all` initializes a new schema; it is not a migration system. Keep database/files outside Git and back up both before future schema changes. No external service, cloud sync or GPU is required.
 
+## Phase 4 active workflow
+
+`services/assembly_orchestrator.py` is the active coordinator for `/api/inspect` and
+`/api/verify`. It reuses `MetaClient`, adds deterministic `correction_planner`, and
+uses `VerificationClient` for a single verification-specific structured Meta request.
+The original context-free Phase 1 agents remain unused. No agent framework or autonomous
+loop is introduced. SAM PR #5 is now merged into main. Both active routes inject
+SamClient into the orchestrator; localization follows the fresh Muse diagnosis before
+progress completion. SAM failures retain the diagnosis and valid Muse boxes.
+
+`models/workflow.py` defines explicit transitions, evidence assessments, tracked findings
+and API responses. `InspectionSessions` bounds metadata-only server sessions (default
+64 records, 30 minutes), rejects consumed/busy/cross-step/duplicate-frame references,
+and never retains JPEG bytes. `progress_service.py` uses short SQLite transactions and
+specification/request versions to reject stale commits. A new additive `step_progress`
+table stores only minimal metadata. Effective progress is invalidated by current
+specification/reference revisions, including edits made during inference.
+
+The existing camera hook can return a fresh frame without publishing it as the dashboard's
+manual capture. `InspectionPanel` uses that frame for Capture & Verify, keeps human
+acknowledgement separate from successful evidence, preserves on-demand behavior and
+never advances automatically. Project/step/manual-capture/specification changes abort
+and invalidate active UI work. Progress polling refreshes metadata only. Completed
+images remain exclusively in the existing temporary browser history.
+
+Full state machine, retry counts, cache limits, progress invalidation policy, real-image
+manual testing and known limitations are in [verification.md](verification.md).
+
 ## Phase 3C localization boundary
 
-`inspection_service.py` now calls `segmentation_service.localize_issues` after Muse,
+`inspection_service.py` (standalone smoke/benchmark) and the active orchestrator call `segmentation_service.localize_issues` after Muse,
 before returning server provenance. `sam_client.py` reuses the exact normalized image,
 Meta credential/origin guard, async HTTP and bounded retry conventions. It implements
 the official SAM streaming Responses protocol and supports concept or spatial-box
@@ -82,8 +112,8 @@ inspection response binds every localization to its JPEG hash and dimensions.
 
 Correct/uncertain/missing/unknown cases skip SAM. Up to two visible issues receive
 localization, with conservative spatial association and explicit ambiguity. Errors
-remain per-issue localization statuses and never alter Muse's diagnosis. There are no
-new database tables, autonomous agents, continuous inference or inferred repairs.
+remain per-issue localization statuses and never alter Muse's diagnosis. SAM itself
+adds no database tables or continuous inference; Phase 4 adds the progress table.
 
 The frontend validates provenance and mask metadata before storing the response.
 `DiagnosticOverlay` adds original/annotated comparison and segmentation/box modes,

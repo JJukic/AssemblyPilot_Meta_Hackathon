@@ -2,9 +2,9 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
-Phase 3C adds **optional Meta SAM 3.1 segmentation** to on-demand Meta Muse Spark inspections. It preserves the existing camera dashboard, custom block registry, assembly projects and visual debugging. Select a registered project and step, capture a frame, and choose **Inspect with Meta AI**. The backend combines the frame with relevant registered specifications and photographs, calls Meta, and validates the diagnosis before displaying it. Numbered boxes appear only on the exact normalized snapshot analyzed by Meta; uncertain results request a specific additional camera view. A temporary session history keeps the last ten completed inspections.
+Phase 4 adds **human-guided correction and fresh-image verification** to the existing Muse Spark inspections with optional Meta SAM 3.1 localization, camera dashboard, custom block registry and assembly projects. Select a registered project and step, capture a frame, and choose **Inspect with Meta AI**. The backend combines the frame with relevant registered specifications and photographs, calls Meta, and validates the diagnosis before displaying it. Numbered boxes appear only on the exact normalized snapshot analyzed by Meta; uncertain results request a specific additional camera view. A temporary session history keeps the last ten completed inspections.
 
-All inference goes exclusively to Meta Model API. No automatic uploads, continuous analysis, autonomous correction, repair verification or local GPU models are implemented. Camera capture, SQLite and registry features still work without an API key.
+All inference goes exclusively to Meta Model API. No automatic uploads, continuous analysis, autonomous physical correction or local GPU models are implemented. Verification runs only after an explicit fresh camera capture. Camera capture, SQLite and registry features still work without an API key.
 
 ## Architecture
 
@@ -167,6 +167,39 @@ uv run --frozen python smoke_inspection.py \
 
 It loads the backend environment, resolves the registered context and references, prints the validated diagnosis and duration, and exits 0 on success or nonzero on failure. Without a key it prints `SKIPPED` and exits 77. No sample result is substituted. See [validation results](docs/validation.md) for whether a live request was actually performed.
 
+## Correct and verify an assembly step
+
+After an incorrect diagnosis, read **Correction Required** and the suggested fix.
+Physically adjust the assembly, choose **I've corrected it**, then **Capture & Verify**.
+This captures a new live frame and asks Muse to independently assess the whole step
+and every outstanding earlier finding. No success is inferred from the acknowledgement.
+
+Results are **Step Verified**, **Correction Still Required**, or **Another View Needed**.
+Only accepted verification persists `verified` progress in SQLite. Initial `correct`
+diagnoses and manual navigation do not. **Continue to Next Step** requires a click and
+appears only when a next step exists. Editing specifications or reference photographs
+invalidates previous verification. Overlays always use the newly analyzed snapshot.
+
+The planner reuses the diagnosis without another model call: one initial Muse operation
+and one per explicit verification, each with the existing bounded transport retries.
+Sessions retain metadata/findings for up to 30 minutes (64 records by default), without
+camera bytes. They expire on backend restart; progress persists. Use one backend worker.
+
+See [workflow architecture, API and real Four-Block Color Tower test](docs/verification.md).
+The optional two-photo API replay is:
+
+```sh
+cd backend
+uv run --frozen python smoke_verification.py --run-live \
+  --project-id YOUR_PROJECT_ID --step-id YOUR_STEP_4_ID \
+  --before /absolute/path/to/before.jpg --after /absolute/path/to/after.jpg
+```
+
+Use actual photographs and a running backend with the Meta key. This is potentially
+billable and changes progress metadata; it never runs in CI. Without opt-in/inputs it
+exits 77. Real Phase 4 verification in this cloud remains unverified despite the user's
+confirmation that their local Muse integration works.
+
 ## Optional SAM segmentation
 
 After Muse reports a visible discrepancy, the backend can call Meta-hosted `sam-3.1`
@@ -218,9 +251,9 @@ The executed cloud validation results and remaining hardware limitations are rec
 
 ## Current limitations and next steps
 
-- Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified. SAM masks and association heuristics also need real-image evaluation; live localization quality remains unverified.
+- Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified. Localization and verification quality need real-image evaluation.
 - Model confidence is an uncalibrated estimate or null. A `correct` result is not a physical safety or connection guarantee.
-- No correction agent loop, repair verification, image generation or smart-glasses integration. A later phase can add human-reviewed correction planning and verification against a **new frame**, after evaluating real assemblies.
+- No autonomous correction loop, image generation or smart-glasses integration. Optional SAM localization runs on each new diagnosis/verification snapshot and never changes the Muse assessment. Real assemblies still need evaluation of correction and verification quality.
 - Reference photos must be supplied by the user; navigation remains manual. The selected step photo (or oldest photo if no choice was saved) and first photo per assigned block are included, up to the configured reference cap; omitted counts are included in the prompt.
 - Registry limitations remain: no pagination, multi-user conflict resolution, migrations or cloud sync. Full-field edits use last-write-wins semantics.
 - Physical webcam/iPhone compatibility needs local hardware validation. Offline transport tests establish request/response handling, not model recognition quality or your account's live access.

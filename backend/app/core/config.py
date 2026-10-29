@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     inspection_max_dimension: int = Field(default=1280, ge=256, le=1600)
     meta_max_reference_images: int = Field(default=8, ge=0, le=20)
     meta_max_request_bytes: int = Field(default=10 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
+    inspection_session_capacity: int = Field(default=64, ge=1, le=256)
+    inspection_session_ttl_seconds: int = Field(default=1800, ge=60, le=7200)
     frontend_origin: str = "http://localhost:3000"
     max_upload_bytes: int = Field(default=8 * 1024 * 1024, gt=0)
     max_image_pixels: int = Field(default=20_000_000, gt=0)

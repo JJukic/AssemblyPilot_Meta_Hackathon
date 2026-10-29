@@ -44,6 +44,10 @@ function responseMessage(body: unknown): string | null {
   return null;
 }
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) { super(message); this.name = "ApiError"; }
+}
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
@@ -58,7 +62,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   }
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
-    throw new Error(responseMessage(body) ?? `Request failed (HTTP ${response.status})`);
+    throw new ApiError(responseMessage(body) ?? `Request failed (HTTP ${response.status})`, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

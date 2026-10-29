@@ -250,6 +250,17 @@ a.brand, a.button { text-decoration: none; }
 .history-entry span { display: block; color: var(--muted); margin-top: 6px; font-size: 12px; }
 .history-detail { max-width: 820px; margin-top: 20px; }
 
+.correction-workflow { margin-top: 20px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; }
+.correction-workflow h3 { margin: 0 0 12px; }
+.correction-workflow li, .finding-history li { margin-bottom: 12px; }
+.workflow-verified { border-color: #4ade80; }
+.workflow-correction_required, .workflow-still_incorrect, .workflow-uncertain { border-color: #ffd171; }
+.verification-capture { margin: 16px 0; }
+.verification-capture img { width: 100%; height: auto; border-radius: 6px; }
+.verification-capture figcaption, .step-progress { font-size: 13px; color: var(--muted); }
+.finding-history { margin: 20px 0; }
+.finding-history summary { cursor: pointer; }
+
 .segmentation-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; }
 .segmentation-controls label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .diagnostic-image-stage .segmentation-mask { position: absolute; border-radius: 0; pointer-events: none; }

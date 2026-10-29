@@ -100,11 +100,11 @@ export function useCamera() {
     if (status === "connected" || status === "starting") void start(id);
   }, [start, status]);
 
-  const capture = useCallback(() => {
+  const capture = useCallback((publish = true): Snapshot | null => {
     const video = videoRef.current;
     if (!video || status !== "connected" || video.readyState < 2 || !video.videoWidth) {
       setError("Wait for the live camera image before capturing.");
-      return;
+      return null;
     }
     try {
       const canvas = document.createElement("canvas");
@@ -113,15 +113,18 @@ export function useCamera() {
       const context = canvas.getContext("2d");
       if (!context) throw new Error("Canvas unavailable");
       context.drawImage(video, 0, 0);
-      setSnapshot({
+      const captured: Snapshot = {
         dataUrl: canvas.toDataURL("image/jpeg", 0.9),
         width: canvas.width,
         height: canvas.height,
         capturedAt: new Date().toISOString(),
-      });
+      };
+      if (publish) setSnapshot(captured);
       setError(null);
+      return captured;
     } catch {
       setError("Could not capture this frame. Try again once the preview is visible.");
+      return null;
     }
   }, [status]);
 
