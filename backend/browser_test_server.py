@@ -16,6 +16,7 @@ if __name__ == "__main__":
             model_api_key=None,
             database_url=f"sqlite:///{root / 'browser.db'}",
             upload_dir=str(root / "uploads"),
+            calibration_dir=str(root / "calibrations"),
             frontend_origin="http://localhost:3000",
         )
         uvicorn.run(create_app(settings), host="127.0.0.1", port=8000)

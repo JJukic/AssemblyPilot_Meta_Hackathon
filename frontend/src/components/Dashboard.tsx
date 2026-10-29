@@ -9,6 +9,7 @@ import { CustomAssembly } from "@/components/assembly/CustomAssembly";
 import { useResource } from "@/hooks/useResource";
 import { registry } from "@/lib/registry";
 import { AssemblyPanel } from "@/components/assembly/AssemblyPanel";
+import { CalibrationPanel } from "@/components/calibration/CalibrationPanel";
 import { CameraView } from "@/components/camera/CameraView";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
 import { useCamera } from "@/hooks/useCamera";
@@ -57,6 +58,7 @@ export function Dashboard({ assembly, initialProjectId = "" }: { assembly: Assem
           {projects.error && <p className="muted">Custom projects unavailable. The practice demo and camera still work. <button className="text-button" onClick={projects.reload}>Retry</button></p>}</div>
         </div>
         <div className="workspace-grid"><CameraView camera={camera} />{selectedProject ? <CustomAssembly key={selectedProject} projectId={selectedProject} snapshot={camera.snapshot} captureFresh={() => camera.capture(false)} cameraReady={camera.status === "connected"} /> : <AssemblyPanel assembly={assembly} />}</div>
+        <CalibrationPanel key={`${camera.deviceId}:${camera.status}`} camera={camera} />
         <InspectionHistory />
         <section className="pipeline-panel" aria-label="AI inspection availability">
           <div className="pipeline-icon"><ScanLine size={22} /></div>

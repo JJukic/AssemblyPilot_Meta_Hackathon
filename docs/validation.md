@@ -1,11 +1,29 @@
 # Validation results
 
-## PR #6 integration review — 2026-10-29
+## Phase 4.1A integration — 2026-10-29
 
-Phase 4 now integrates main at `edbdef0`, including Meta SAM 3.1. The dated
-sections below describe their original branch validations; they are not statements
-about the current merge status. See [the conflict review](pr6-integration-review.md)
-for integration decisions, current checks and the comparison with PR #7.
+OpenCV 4.14.0 (headless contrib wheel 4.14.0.94) is integrated with the preserved
+Phase 4 workflow and merged SAM adapter. Automated calibration tests use rendered
+ChArUco boards under a known pinhole camera, not photographs of actual assemblies.
+They exercise detection, calibration, pose, distortion-aware plane conversion,
+profile persistence/validation, bad views, ambiguity, blur and API limits.
+Browser tests cover the calibration workflow and existing camera/Muse/SAM flows.
+
+No physical camera experiment, real calibration or live Meta call was performed
+for this phase in the cloud. Runtime inspection found no Meta key, no reference
+JPEGs and no saved real calibration profiles. The user reports prior successful
+local Muse and SAM inference. Real print scale, hidden camera changes, board
+flatness and elevated geometry remain unvalidated. See [the manual protocol](calibration.md).
+
+PR #6 is merged in main at `b03d4db`, including the Phase 4/SAM conflict resolution
+and its additional fallback regressions. PR #7 merges that exact main state while
+retaining calibration APIs, profiles, UI and geometry tests. The current integrated
+branch passes `make lint`, `make test` (300 Python tests plus strict TypeScript),
+`make build`, and `make test-browser` (43 Playwright tests). No tests are disabled.
+Existing Starlette/httpx and NO_COLOR notices remain non-failing.
+
+The dated sections below preserve the original branch validation history; their old
+merge-status statements are historical. See [the Phase 4 conflict review](pr6-integration-review.md).
 
 ## Phase 4 — 2026-10-28
 
@@ -63,7 +81,6 @@ object tracking; visual verification cannot certify hidden connections or mechan
 stability. Model text remains probabilistic. Real camera hardware, real recognition
 accuracy and the new live correction cycle need local acceptance testing. Existing
 non-failing Starlette/httpx and NO_COLOR notices remain; no tests were disabled.
-
 
 ## Phase 3C — 2026-10-28
 

@@ -16,6 +16,7 @@ def settings(tmp_path):
         sam_enabled=False,  # SAM tests opt in with an injected offline transport.
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         upload_dir=str(tmp_path / "uploads"),
+        calibration_dir=str(tmp_path / "calibrations"),
     )
 
 

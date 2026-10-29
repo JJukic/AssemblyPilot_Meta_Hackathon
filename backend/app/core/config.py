@@ -15,6 +15,13 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/assemblypilot.db"
     upload_dir: str = "./data/uploads"
+    calibration_dir: str = "./data/calibrations"
+
+    @property
+    def calibration_path(self) -> Path:
+        path = Path(self.calibration_dir).expanduser()
+        return (path if path.is_absolute() else BACKEND_ROOT / path).resolve()
+
 
     @property
     def upload_path(self) -> Path:
