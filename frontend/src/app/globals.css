@@ -267,7 +267,6 @@ a.brand, a.button { text-decoration: none; }
 .diagnostic-boxes rect[data-source="sam"] { stroke: #ef4444; fill: none; }
 .segmentation-status { font-size: 13px; }
 .segmentation-ambiguous { color: #ffd171; }
-
 .calibration-panel { margin: 24px 0; padding: 24px; }
 .calibration-panel summary { cursor: pointer; font-weight: 650; }
 .calibration-panel p { line-height: 1.6; overflow-wrap: anywhere; }

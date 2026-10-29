@@ -1,4 +1,6 @@
-# Phase 4.1A validation — 2026-10-28
+# Validation results
+
+## Phase 4.1A integration — 2026-10-29
 
 OpenCV 4.14.0 (headless contrib wheel 4.14.0.94) is integrated with the preserved
 Phase 4 workflow and merged SAM adapter. Automated calibration tests use rendered
@@ -13,13 +15,15 @@ JPEGs and no saved real calibration profiles. The user reports prior successful
 local Muse and SAM inference. Real print scale, hidden camera changes, board
 flatness and elevated geometry remain unvalidated. See [the manual protocol](calibration.md).
 
-Local validation: `make lint`, `make test` (Python plus TypeScript),
-`make build` and `make test-browser` passed. The browser suite has 41 tests;
-299 Python tests passed. GitHub CI status is recorded on the Phase 4.1A PR.
-No tests were disabled. The mobile calibration layout was visually reviewed.
-Existing Starlette/httpx and NO_COLOR notices are non-failing.
+PR #6 is merged in main at `b03d4db`, including the Phase 4/SAM conflict resolution
+and its additional fallback regressions. PR #7 merges that exact main state while
+retaining calibration APIs, profiles, UI and geometry tests. The current integrated
+branch passes `make lint`, `make test` (300 Python tests plus strict TypeScript),
+`make build`, and `make test-browser` (43 Playwright tests). No tests are disabled.
+Existing Starlette/httpx and NO_COLOR notices remain non-failing.
 
-# Validation results
+The dated sections below preserve the original branch validation history; their old
+merge-status statements are historical. See [the Phase 4 conflict review](pr6-integration-review.md).
 
 ## Phase 4 — 2026-10-28
 
@@ -28,13 +32,6 @@ Phase 3B is merged. SAM PR #5 was checked at the start and end and remains an op
 draft, not merged; this implementation follows the requested Muse-only path and
 leaves the separate SAM branch intact. The reference-camera and selected-step-photo
 features already on main are preserved.
-
-## Phase 3C — 2026-10-28
-
-Implemented on `feature/sam-segmentation`, based on `main` at `9089e07`.
-Phase 3B PR #4 was already merged (`2a6d1a2`). The newer reference-camera and selected
-step-photo changes on main were preserved. No repository reinitialization, database
-reset, model-weight download or photo replacement was performed.
 
 | Check | Result |
 | --- | --- |
@@ -85,6 +82,16 @@ stability. Model text remains probabilistic. Real camera hardware, real recognit
 accuracy and the new live correction cycle need local acceptance testing. Existing
 non-failing Starlette/httpx and NO_COLOR notices remain; no tests were disabled.
 
+## Phase 3C — 2026-10-28
+
+Implemented on `feature/sam-segmentation`, based on `main` at `9089e07`.
+Phase 3B PR #4 was already merged (`2a6d1a2`). The newer reference-camera and selected
+step-photo changes on main were preserved. No repository reinitialization, database
+reset, model-weight download or photo replacement was performed.
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
 | `make test` | 215 Python tests passed (164 existing + 51 SAM tests); strict TypeScript passed |
 | `make build` | Next.js production build passed |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | All 26 browser tests passed, including all 23 existing cases |

@@ -2,7 +2,13 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
-Phase 4.1A adds **OpenCV camera calibration and guided ChArUco capture** alongside human-guided correction and fresh-image verification to the existing Muse Spark inspections, camera dashboard, custom block registry and assembly projects. Select a registered project and step, capture a frame, and choose **Inspect with Meta AI**. The backend combines the frame with relevant registered specifications and photographs, calls Meta, and validates the diagnosis before displaying it. Numbered boxes appear only on the exact normalized snapshot analyzed by Meta; uncertain results request a specific additional camera view. A temporary session history keeps the last ten completed inspections.
+Phase 4.1A adds **OpenCV camera calibration and guided ChArUco capture** to the
+merged Phase 4 correction and fresh-image verification workflow. Muse Spark remains
+the semantic inspection model, with optional Meta SAM 3.1 localization and fallback
+overlays. Select a registered project and step, capture a frame, and choose **Inspect
+with Meta AI**. The backend combines the frame with registered specifications and
+photographs, calls Meta, and validates the diagnosis. Overlays appear only on the
+exact analyzed snapshot; uncertain results request a specific additional view.
 
 All inference goes exclusively to Meta Model API. No automatic uploads, continuous analysis, autonomous physical correction or local GPU models are implemented. Verification runs only after an explicit fresh camera capture. Camera capture, SQLite and registry features still work without an API key.
 
@@ -271,7 +277,7 @@ The executed cloud validation results and remaining hardware limitations are rec
 
 - Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified. Localization and verification quality need real-image evaluation.
 - Model confidence is an uncalibrated estimate or null. A `correct` result is not a physical safety or connection guarantee.
-- No autonomous correction loop, 3D metrology, image generation or smart-glasses integration. The merged SAM adapter and Phase 4 workflow are preserved together; real camera and geometry validation remain necessary.
+- No autonomous correction loop, 3D metrology, image generation or smart-glasses integration. Optional SAM localization runs on each new diagnosis/verification snapshot and never changes the Muse assessment. Real camera, correction and geometry quality still need evaluation.
 - Reference photos must be supplied by the user; navigation remains manual. The selected step photo (or oldest photo if no choice was saved) and first photo per assigned block are included, up to the configured reference cap; omitted counts are included in the prompt.
 - Registry limitations remain: no pagination, multi-user conflict resolution, migrations or cloud sync. Full-field edits use last-write-wins semantics.
 - Physical webcam/iPhone compatibility needs local hardware validation. Offline transport tests establish request/response handling, not model recognition quality or your account's live access.

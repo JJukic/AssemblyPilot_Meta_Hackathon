@@ -192,3 +192,42 @@ test("camera must be running; an initial correct diagnosis is not verified progr
   await page.getByRole("button", { name: "Prepare a new scan", exact: true }).click();
   await expect(page.getByRole("button", { name: "Capture & Verify", exact: true })).toBeDisabled();
 });
+
+for (const fallback of [false, true]) test(`fresh verification preserves SAM ${fallback ? "fallback" : "mask provenance"} and Phase 4 findings`, async ({ page }) => {
+  await setup(page);
+  const initial = await observation(page, "sam-initial", "incorrect");
+  const after = await observation(page, "sam-verification", "incorrect", initial);
+  const mask = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = 30; canvas.height = 20;
+    const ctx = canvas.getContext("2d")!; ctx.fillStyle = "rgba(255,0,0,.5)"; ctx.fillRect(0, 0, 30, 20);
+    return canvas.toDataURL("image/png");
+  });
+  for (const result of [initial, after]) result.segmentations = [{
+    issue_index: 0, status: fallback && result === after ? "unavailable" : "matched",
+    concept: "blue building block", prompt_kind: "concept", latency_ms: 100,
+    message: fallback && result === after ? "SAM unavailable; Muse diagnosis retained." : "Test-only SAM localization",
+    selected_instance_id: fallback && result === after ? null : "instance-1",
+    result: fallback && result === after ? null : {
+      snapshot_id: result.snapshot_id, width: 400, height: 200, model: "sam-3.1",
+      instances: [{ instance_id: "instance-1", left: 40, top: 40, mask: { encoding: "png", width: 30, height: 20, data_url: mask } }],
+    },
+  }];
+  await page.route("**/api/verify", (route) => route.fulfill({ json: verification(initial, after) }));
+  await begin(page, initial);
+  const panel = page.getByRole("region", { name: "Meta AI inspection", exact: true });
+  await expect(panel.getByAltText("SAM mask for issue 1")).toBeVisible();
+  await page.getByRole("button", { name: "Capture & Verify", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Correction Still Required", exact: true })).toBeVisible();
+  await expect(panel.getByAltText("Analyzed snapshot")).toHaveAttribute("src", after.analyzed_snapshot.data_url);
+  if (fallback) {
+    await expect(panel.getByAltText("SAM mask for issue 1")).toHaveCount(0);
+    await expect(panel.locator('rect[data-source="muse"]')).toHaveCount(1);
+    await expect(panel.getByText("SAM unavailable; Muse diagnosis retained.")).toBeVisible();
+  } else {
+    await expect(panel.getByAltText("SAM mask for issue 1")).toBeVisible();
+  }
+  await panel.getByText("Finding history (1)", { exact: true }).click();
+  await expect(panel.getByText("unresolved · misplaced part", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Observation workspace" }).locator(".segmentation-mask")).toHaveCount(0);
+  await expect(page.getByText("Step progress: not started", { exact: true })).toBeVisible();
+});

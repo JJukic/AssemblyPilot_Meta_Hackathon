@@ -2,11 +2,13 @@
 
 ## Scope and branch basis
 
-Phase 4 was implemented from `main` at `9089e07` while SAM PR #5 was still open.
-Phase 4.1A now preserves that workflow together with SAM merged in `edbdef0`.
-The active orchestrator explicitly runs optional SAM localization after initial
-diagnosis and verification, using only the new analyzed JPEG. SAM never changes
-correctness. See [calibration.md](calibration.md) for the combined branch basis.
+Originally implemented from main at `9089e07`. Phase 4 is now merged into main at
+`b03d4db`; Phase 4.1A preserves it together with merged SAM PR #5. The active orchestrator runs optional SAM
+localization on the exact new image after initial diagnosis or verification. SAM
+never changes the semantic diagnosis, resolution assessments or progress decision.
+The existing bounded retries, mask validation and Muse-box fallback remain in place.
+See [the Phase 4 integration review](pr6-integration-review.md) and
+[the calibration architecture](calibration.md) for the combined branch basis.
 
 Next.js, FastAPI, SQLite, registry data, selected step references, camera capture,
 Active Vision, diagnostic overlays and temporary image history remain in place.

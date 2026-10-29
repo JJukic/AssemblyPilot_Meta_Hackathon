@@ -645,7 +645,8 @@ def test_smoke_replay_validates_both_real_api_contracts_with_mocked_meta(
     assert len(flow.calls) == 2
 
 
-def test_verification_sam_uses_only_new_snapshot_and_cannot_override_muse(flow):
+@pytest.mark.parametrize("sam_failure", [False, True])
+def test_verification_sam_uses_only_new_snapshot_and_cannot_override_muse(flow, sam_failure):
     from app.api.inspection import get_sam_client
     from app.models.segmentation import SegmentationResult
     from app.services.sam_client import snapshot_identity
@@ -658,6 +659,9 @@ def test_verification_sam_uses_only_new_snapshot_and_cannot_override_muse(flow):
 
         async def segment(self, image, concept, box=None):
             self.images.append(image)
+            if sam_failure:
+                from app.services.inspection_errors import InspectionError
+                raise InspectionError("sam_unavailable", "Test-only SAM outage")
             return SegmentationResult(
                 snapshot_id=snapshot_identity(image),
                 width=image.width,
@@ -676,6 +680,11 @@ def test_verification_sam_uses_only_new_snapshot_and_cannot_override_muse(flow):
     assert len(sam.images) == 2
     assert sam.images[0].jpeg_bytes != sam.images[1].jpeg_bytes
     assert after["snapshot_id"] == snapshot_identity(sam.images[1])
-    assert after["segmentations"][0]["result"]["snapshot_id"] == after["snapshot_id"]
-    assert after["segmentations"][0]["status"] == "no_match"
+    localization = after["segmentations"][0]
+    if sam_failure:
+        assert localization["status"] == "unavailable" and localization["result"] is None
+        assert after["issues"][0]["bounding_box"] == flow.issue["bounding_box"]
+    else:
+        assert localization["result"]["snapshot_id"] == after["snapshot_id"]
+        assert localization["status"] == "no_match"
     assert after["state"] == "still_incorrect" and flow.progress()["status"] == "in_progress"

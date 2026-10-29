@@ -9,12 +9,12 @@ Explicit photo upload → Pillow validation → generated JPEG file + SQLite met
 Project selector → ordered steps/expected blocks/reference URLs → manual camera guide
 Explicit inspection → selected SQLite context + safe reference bytes + current snapshot
   → async Meta Chat Completions → strict Pydantic diagnosis + exact input JPEG + timings
-  → deterministic correction plan / snapshot-only overlays / Active Vision / tab history
+  → optional SAM localization → deterministic correction plan / snapshot overlays / Active Vision
 Explicit fresh capture → independent Muse verification + prior finding assessments
-  → version-checked SQLite progress → optional user-confirmed next step
-
-  → optional Meta SAM Responses API → official parser → validated instance PNGs
-  → snapshot-only boxes/masks / Active Vision / temporary tab history
+  → optional SAM on the new snapshot → version-checked SQLite progress
+  → snapshot-only boxes/masks / temporary tab history / user-confirmed next step
+Explicit precision capture → ChArUco detection → calibration/pose quality guidance
+  → user-selected static snapshot → existing on-demand Muse/SAM workflow
 ```
 
 Next.js App Router provides `/`, `/blocks`, `/projects`, and `/projects/[projectId]`. Interactive management components use a typed API client and reusable image uploader. Dynamic route parameters are awaited on the server. Client fetches display loading/error/empty states; project switching does not remount the camera hook. The five-step JSON demo remains a fallback and is not seeded into or synchronized with the database.
@@ -79,9 +79,9 @@ SQLite `create_all` initializes a new schema; it is not a migration system. Keep
 `/api/verify`. It reuses `MetaClient`, adds deterministic `correction_planner`, and
 uses `VerificationClient` for a single verification-specific structured Meta request.
 The original context-free Phase 1 agents remain unused. No agent framework or autonomous
-loop is introduced. Phase 4.1A integrates the now-merged SAM PR #5: the active
-orchestrator calls the existing optional localization service for each new diagnosis
-or verification snapshot, before storing completion metadata.
+loop is introduced. Phase 4 and SAM PR #5 are merged into main. Both active routes inject
+SamClient into the orchestrator; localization follows the fresh Muse diagnosis before
+progress completion. SAM failures retain the diagnosis and valid Muse boxes.
 
 `models/workflow.py` defines explicit transitions, evidence assessments, tracked findings
 and API responses. `InspectionSessions` bounds metadata-only server sessions (default
@@ -114,8 +114,8 @@ inspection response binds every localization to its JPEG hash and dimensions.
 
 Correct/uncertain/missing/unknown cases skip SAM. Up to two visible issues receive
 localization, with conservative spatial association and explicit ambiguity. Errors
-remain per-issue localization statuses and never alter Muse's diagnosis. There are no
-new database tables, autonomous agents, continuous inference or inferred repairs.
+remain per-issue localization statuses and never alter Muse's diagnosis. SAM itself
+adds no database tables or continuous inference; Phase 4 adds the progress table.
 
 The frontend validates provenance and mask metadata before storing the response.
 `DiagnosticOverlay` adds original/annotated comparison and segmentation/box modes,
@@ -125,8 +125,6 @@ requests on capture/step/project changes; live camera state is independent.
 
 See [segmentation.md](segmentation.md) for protocol evidence, association thresholds,
 resource limits, optional configuration, cost considerations and live smoke testing.
-
-
 ## Phase 4.1A deterministic geometry
 
 The camera dashboard's collapsed calibration panel reuses the camera stream.
