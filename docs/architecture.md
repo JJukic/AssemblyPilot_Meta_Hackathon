@@ -1,4 +1,4 @@
-# AssemblyPilot architecture — Phase 4.1A
+# AssemblyPilot architecture — Phase 4.1B
 
 ## Components
 
@@ -125,7 +125,7 @@ requests on capture/step/project changes; live camera state is independent.
 
 See [segmentation.md](segmentation.md) for protocol evidence, association thresholds,
 resource limits, optional configuration, cost considerations and live smoke testing.
-## Phase 4.1A deterministic geometry
+## Phase 4.1A calibration and Phase 4.1B deterministic verification
 
 The camera dashboard's collapsed calibration panel reuses the camera stream.
 Explicit sample/capture actions call `api/calibration.py`; Pillow validates and
@@ -133,8 +133,18 @@ orients without resizing, then `charuco_vision.py` detects board corners, fits
 intrinsics or estimates a distortion-aware board pose. `calibration_store.py`
 saves validated versioned JSON without photographs or SQLite changes.
 
-Only the assessed static image receives corner overlays. A user can publish that
-frame to the existing AI workspace. There is no automatic inference and OpenCV
-does not alter a semantic diagnosis. All dimensional assembly evidence remains
-`not_measured`. See [calibration.md](calibration.md) for coordinate frames,
-thresholds, storage/input limits and the manual camera experiment.
+Only the assessed static image receives corner overlays. Phase 4.1B adds an optional
+step constraint in the additive `step_spatial_constraints` table and a narrow
+`geometric_verification.py` service. It intersects calibrated camera rays with two
+explicit known-height surfaces, fits complete 2×4 stud grids and compares a signed
+longitudinal offset with an uncertainty-aware tolerance. It never projects elevated
+studs with the board-plane-only helper.
+
+Geometry runs on the native static upload while Muse receives its bounded inspection
+copy. Each result retains its own JPEG hash, dimensions and overlay coordinates.
+The orchestrator fuses validated statuses: Muse `correct` cannot override geometric
+`incorrect`; inconclusive configured geometry remains `uncertain`. No-constraint
+steps remain `not_measured` and keep their previous semantic behavior. See
+[calibration.md](calibration.md) for calibration and
+[geometric-verification.md](geometric-verification.md) for frames, thresholds,
+API fields, tests and the unperformed physical experiment.

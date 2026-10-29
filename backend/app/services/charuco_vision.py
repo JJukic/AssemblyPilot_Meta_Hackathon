@@ -324,7 +324,30 @@ def image_to_board_plane(
         raise ValueError("Unreliable grazing-angle pose")
     if plane_z_mm != 0:
         raise ValueError("Elevated block geometry is not measured in Phase 4.1A")
+    return image_to_board_surface(points_px, profile, pose, surface_z_mm=0)
+
+
+def image_to_board_surface(
+    points_px: list[list[float]],
+    profile: CalibrationProfile,
+    pose: BoardPose,
+    *,
+    surface_z_mm: float,
+) -> list[list[float]]:
+    """Intersect calibrated camera rays with an explicit board-parallel surface.
+
+    This is valid only when the caller has trusted dimensions for the feature's
+    physical height. It must not be used to infer an unknown height from one view.
+    """
+
+    if pose.calibration_id != profile.id or pose.board_id != profile.board_id:
+        raise ValueError("Pose belongs to another calibration or board")
+    if pose.viewing_angle_degrees > 70:
+        raise ValueError("Unreliable grazing-angle pose")
+
     pts = np.asarray(points_px, dtype=np.float64)
+    if not np.isfinite(surface_z_mm) or not 0 <= surface_z_mm <= 200:
+        raise ValueError("Surface height must be a known finite value from 0 to 200 mm")
     if (
         pts.ndim != 2
         or pts.shape[1] != 2
@@ -357,9 +380,9 @@ def image_to_board_plane(
     rays = np.column_stack([normalized, np.ones(len(pts))]) @ rotation
     if np.any(np.abs(rays[:, 2]) < 0.1):
         raise ValueError("Unreliable grazing-angle plane intersection")
-    distances = -origin[2] / rays[:, 2]
+    distances = (surface_z_mm - origin[2]) / rays[:, 2]
     if not np.isfinite(distances).all() or np.any(distances <= 0):
-        raise ValueError("Board plane is behind the camera")
+        raise ValueError("Requested surface is behind the camera")
     board_points = origin + rays * distances[:, None]
     if np.any(board_points[:, :2] < 0) or np.any(
         board_points[:, :2]

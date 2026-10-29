@@ -8,8 +8,9 @@ import { mediaUrl } from "@/lib/api";
 import { AssemblyPanel } from "./AssemblyPanel";
 import { InspectionPanel } from "@/components/inspection/InspectionPanel";
 import type { Assembly, Snapshot } from "@/types/assembly";
+import type { GeometrySetup } from "@/types/calibration";
 
-export function CustomAssembly({ projectId, snapshot, captureFresh, cameraReady }: { projectId: string; snapshot: Snapshot | null; captureFresh: () => Snapshot | null; cameraReady: boolean }) {
+export function CustomAssembly({ projectId, snapshot, captureFresh, cameraReady, geometrySetup }: { projectId: string; snapshot: Snapshot | null; captureFresh: () => Snapshot | null; cameraReady: boolean; geometrySetup: GeometrySetup | null }) {
   const [current, setCurrent] = useState(0);
   const load = useCallback(() => registry.project(projectId), [projectId]);
   const { data, error, reload } = useResource(load);
@@ -44,7 +45,7 @@ export function CustomAssembly({ projectId, snapshot, captureFresh, cameraReady 
   const stepProgress = progress.data?.find((entry) => entry.step_id === stepId);
   return <div className="inspection-column">
     <p className="step-progress" aria-live="polite">Step progress: {stepProgress?.status.replaceAll("_", " ") ?? "not available"}{progress.error && " · Progress could not be refreshed."}</p>
-    <InspectionPanel key={`${data.id}:${stepId}:${snapshot?.capturedAt ?? "no-frame"}:${stepProgress?.specification_id ?? "unknown"}`} projectId={data.id} projectName={data.name} stepId={stepId} stepTitle={assembly.steps[currentIndex].title} snapshot={snapshot} captureFresh={captureFresh} cameraReady={cameraReady} onProgressChange={refreshProgress} onContinue={currentIndex < assembly.steps.length - 1 ? () => setCurrent(currentIndex + 1) : undefined} />
+    <InspectionPanel key={`${data.id}:${stepId}:${snapshot?.capturedAt ?? "no-frame"}:${stepProgress?.specification_id ?? "unknown"}`} projectId={data.id} projectName={data.name} stepId={stepId} stepTitle={assembly.steps[currentIndex].title} snapshot={snapshot} captureFresh={captureFresh} cameraReady={cameraReady} geometrySetup={geometrySetup} onProgressChange={refreshProgress} onContinue={currentIndex < assembly.steps.length - 1 ? () => setCurrent(currentIndex + 1) : undefined} />
     <AssemblyPanel key={data.id} assembly={assembly} currentStep={currentIndex} onStepChange={setCurrent} />
   </div>;
 }

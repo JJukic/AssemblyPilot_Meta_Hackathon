@@ -1,4 +1,5 @@
 import type { BuildingBlock, ReferenceImage } from "./blocks";
+import type { StudOffsetConstraint } from "./geometry";
 
 export interface ProjectInput { name: string; description: string | null }
 export interface Project extends ProjectInput {
@@ -13,6 +14,7 @@ export interface StepInput {
   instruction: string;
   position?: number;
   required_blocks: StepBlockInput[];
+  spatial_constraint?: Omit<StudOffsetConstraint, "id"> | null;
 }
 export interface ProjectStep extends StepInput {
   id: string;
@@ -20,6 +22,7 @@ export interface ProjectStep extends StepInput {
   position: number;
   required_blocks: (StepBlockInput & { block: BuildingBlock })[];
   reference_images: ReferenceImage[];
+  spatial_constraint: StudOffsetConstraint | null;
   created_at: string;
   updated_at: string;
 }

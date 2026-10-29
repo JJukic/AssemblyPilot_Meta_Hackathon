@@ -1,6 +1,11 @@
 export interface CameraConfiguration {
   device_label: string; lens: string; configuration: string; width: number; height: number;
 }
+export interface GeometrySetup {
+  profile_id: string;
+  camera: CameraConfiguration;
+  configuration_confirmed: true;
+}
 export interface CalibrationProfile {
   schema_version: 1; id: string; created_at: string; opencv_version: string;
   board_id: string; camera: CameraConfiguration; accepted_views: number;

@@ -280,3 +280,30 @@ a.brand, a.button { text-decoration: none; }
 .calibration-snapshot svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .calibration-samples { max-height: 140px; overflow-y: auto; }
 .calibration-samples li { padding: 4px 0; }
+
+.geometry-editor { margin-top: 22px; padding-top: 4px; border-top: 1px solid var(--border); }
+.geometry-editor .muted { margin: 12px 0 16px; line-height: 1.7; }
+.geometry-result { margin-top: 20px; padding: 16px; border: 1px solid #53647b; border-radius: 8px; background: #101b2a; }
+.geometry-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.geometry-heading h3 { font-size: 15px; }
+.geometry-heading span { padding: 5px 8px; border: 1px solid currentColor; border-radius: 999px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.geometry-correct .geometry-heading { color: #89e4c0; }
+.geometry-incorrect .geometry-heading { color: #ffb7a5; }
+.geometry-uncertain .geometry-heading, .geometry-not_measured .geometry-heading { color: #e6cc88; }
+.geometry-measurements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: #30415a; border: 1px solid #30415a; margin: 0 0 14px; }
+.geometry-measurements div { background: #111d2d; padding: 10px; min-width: 0; }
+.geometry-measurements dt { color: var(--muted); font-size: 10px; margin-bottom: 5px; }
+.geometry-measurements dd { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.geometry-result > p, .geometry-result li, .geometry-result summary { font-size: 11px; line-height: 1.7; }
+.geometry-result details { margin-top: 12px; }
+.geometry-result summary { cursor: pointer; }
+.geometry-image-stage { position: relative; width: 100%; line-height: 0; margin-top: 14px; }
+.geometry-image-stage img { width: 100%; height: auto; display: block; border-radius: 6px; }
+.geometry-image-stage svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.geometry-stud { stroke: #07101b; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.geometry-stud-reference { fill: #37e3a6; }
+.geometry-stud-target { fill: #62a8ff; }
+.geometry-axis { stroke: #ffd171; stroke-width: 3; vector-effect: non-scaling-stroke; }
+#geometry-arrow path { fill: #ffd171; }
+.geometry-overlay figcaption { color: var(--muted); font-size: 10px; line-height: 1.6; margin-top: 8px; }
+@media (max-width: 520px) { .geometry-measurements { grid-template-columns: 1fr; } }

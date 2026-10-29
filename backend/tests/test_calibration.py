@@ -25,6 +25,7 @@ from app.services.charuco_vision import (
     detect,
     estimate_pose,
     image_to_board_plane,
+    image_to_board_surface,
     make_board,
 )
 from app.services.image_processor import ProcessedImage, process_image
@@ -273,6 +274,14 @@ def test_board_plane_transform_distortion_units_and_elevated_limit():
     ].reshape(-1, 2)
     converted = image_to_board_plane(pixels.tolist(), profile, pose)
     np.testing.assert_allclose(converted, actual_mm[:, :2], atol=0.0001)
+    elevated_mm = np.array([[30.0, 25, 19.2], [90, 60, 19.2]])
+    elevated_pixels = cv2.projectPoints(
+        elevated_mm, rvec, translation, K, np.array(profile.distortion)
+    )[0].reshape(-1, 2)
+    elevated = image_to_board_surface(
+        elevated_pixels.tolist(), profile, pose, surface_z_mm=19.2
+    )
+    np.testing.assert_allclose(elevated, elevated_mm[:, :2], atol=0.0001)
     with pytest.raises(ValueError, match="Elevated"):
         image_to_board_plane(pixels.tolist(), profile, pose, plane_z_mm=9.6)
     with pytest.raises(ValueError):

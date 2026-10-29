@@ -2,8 +2,8 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
-Phase 4.1A adds **OpenCV camera calibration and guided ChArUco capture** to the
-merged Phase 4 correction and fresh-image verification workflow. Muse Spark remains
+Phase 4.1B adds a narrow **perspective-aware stud-offset check** on top of the
+OpenCV ChArUco calibration and merged Phase 4 correction workflow. Muse Spark remains
 the semantic inspection model, with optional Meta SAM 3.1 localization and fallback
 overlays. Select a registered project and step, capture a frame, and choose **Inspect
 with Meta AI**. The backend combines the frame with registered specifications and
@@ -95,7 +95,7 @@ Captures are not saved to disk or uploaded automatically. Refreshing the page cl
 
 1. Start both services and open **Block library** (`/blocks`). Choose **Add block**, enter its name, category, color, shape, optional dimensions and positive default quantity, then save.
 2. In the saved block editor, choose **Take reference photo**, then **Start camera** and allow camera access. Select a camera, place the individual block in view, choose **Capture**, review the preview and choose **Save as reference**. You can capture again before saving or cancel without uploading. Alternatively, choose **Upload reference photo** for an existing JPEG, PNG or WebP. Photos are validated, oriented, resized and saved as metadata-free JPEGs. You can add multiple photos or delete an individual photo with confirmation. The first photo is marked **Used for inspection**; delete it to use the next photo. Arbitrary category names are supported.
-3. Open **Projects** (`/projects`) and create a project. Open it, choose **Add step**, write the title/instruction, select registered blocks and enter each required quantity, then save. In **Edit step**, the **Reference photographs** section lets you upload, capture, select or delete that step's photos. Use **Take reference photo → Start camera → Capture → Save as reference** for a new capture. Choose **Use for inspection** on a photo to make it the active reference. The selection survives reloads and backend restarts; other photos remain stored. Closing the step editor also closes its camera.
+3. Open **Projects** (`/projects`) and create a project. Open it, choose **Add step**, write the title/instruction, select registered blocks and enter each required quantity, then save. An optional **Geometric constraint** configures the signed longitudinal offset between one supported target and reference 2×4 block; steps without one remain `not measured`. In **Edit step**, the **Reference photographs** section lets you upload, capture, select or delete that step's photos. Use **Take reference photo → Start camera → Capture → Save as reference** for a new capture. Choose **Use for inspection** on a photo to make it the active reference. The selection survives reloads and backend restarts; other photos remain stored. Closing the step editor also closes its camera.
 4. Use the up/down buttons to reorder steps. Edit or delete steps as needed; positions stay contiguous. A block can be assigned once per step and reused by any number of projects.
 5. Choose **Open in workspace**, or select the project in the dashboard's **Assembly project** selector. The ordered instructions, expected quantities and selected step photo appear alongside the camera controls. The same selected photo is sent as the assembled-step reference for inspection. Without an explicit selection, the oldest available photo is used. Deleting the selected photo falls back to the oldest remaining photo. Manual navigation never claims AI verification.
 
@@ -105,7 +105,7 @@ Saving a block or step and saving its photos are separate operations: if a photo
 
 The first backend startup creates missing tables in `backend/data/assemblypilot.db` and the `backend/data/uploads/` directory. Data survives restarts. Existing tables/data are never reset or seeded automatically. Initialization uses SQLModel `create_all`, not a migration framework; future schema changes require an explicit migration and backup plan.
 
-The core tables are `building_blocks`, `assembly_projects`, `assembly_steps`, `assembly_step_blocks` and `reference_images`. The additive `step_reference_selections` table stores the chosen photo per step; it is created on startup without rebuilding existing tables or changing existing photos. SQLite foreign keys are enabled on every connection. Reference images have exactly one concrete foreign-key owner (`block_id` or `step_id`), not an unchecked polymorphic ID. API responses expose `/api/media/{id}` URLs, never storage paths.
+The core tables are `building_blocks`, `assembly_projects`, `assembly_steps`, `assembly_step_blocks` and `reference_images`. Additive tables include `step_reference_selections`, `step_progress` and `step_spatial_constraints`; startup creates missing tables without rebuilding existing tables or changing existing photos. SQLite foreign keys are enabled on every connection. Reference images have exactly one concrete foreign-key owner (`block_id` or `step_id`), not an unchecked polymorphic ID. API responses expose `/api/media/{id}` URLs, never storage paths.
 
 Deletion policy:
 
@@ -181,15 +181,17 @@ capture 12–20 varied views. Enter the measured dimensions and fixed camera
 configuration, then **Calibrate & save profile**. Calibration uses OpenCV 4.14.0,
 requires no AI key, and saves versioned JSON under `backend/data/calibrations`.
 
-In **Precision Capture**, choose the profile and explicitly capture a board-visible
+In **Precision Capture**, choose the profile, confirm the unchanged configuration and explicitly capture a board-visible
 frame. Review focus, board visibility and perspective guidance, then choose
 **Use this capture for AI inspection** to continue the existing Muse/SAM workflow.
-Overlays stay on the analyzed snapshot. Calibration does not establish LEGO
-placement correctness: **no stud offsets, elevated surfaces or millimeter deviations
-are measured in this phase**. Keep lens, resolution, focus, crop, zoom and
+Overlays stay on the analyzed snapshot. A step with an explicit supported 2×4
+constraint can then report a height-aware relative stud offset, deviation and
+uncertainty. Missing calibration or incomplete features return no numeric claim.
+Keep lens, resolution, focus, crop, zoom and
 stabilization fixed; hidden Continuity Camera changes may require recalibration.
 
-See [calibration APIs, coordinate frames, limits and real-camera procedure](docs/calibration.md).
+See [calibration APIs](docs/calibration.md) and [supported geometric verification,
+coordinate frames, fusion policy and the unperformed physical experiment](docs/geometric-verification.md).
 
 ## Correct and verify an assembly step
 
@@ -269,7 +271,7 @@ cd frontend && npx playwright install chromium
 cd .. && make test-browser
 ```
 
-Browser tests start a real FastAPI service with an isolated temporary SQLite database and upload directory. They refuse to reuse an existing backend on port 8000: stop your development backend before running them. `make test-browser` builds with the local test API URL. Browser inspection cases use test-only mocked responses to verify explicit uploads, loading, diagnosis display, errors, Active Vision, exact-snapshot box alignment on desktop/mobile, session history and stale-result clearing. The registry browser workflow tests block/project/step CRUD, photo upload, reordering, deletion conflicts, and custom-project camera capture. The original tests exercise dashboard rendering, five-step navigation, backend statuses, synthetic camera capture, source restart, track cleanup, permission denial, disconnection and mobile layout. They use Chromium's **synthetic** camera (the original Phase 1 cases mock health responses); they do not establish physical webcam or iPhone compatibility. If Chromium is already installed, use `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` instead of downloading a browser. On Linux, Playwright may need system libraries (`npx playwright install --with-deps chromium`). CI runs without Meta credentials.
+Browser tests start a real FastAPI service with an isolated temporary SQLite database and upload directory. They refuse to reuse an existing backend on port 8000: stop your development backend before running them. `make test-browser` builds with the local test API URL. Browser inspection cases use test-only mocked responses to verify explicit uploads, loading, diagnosis display, errors, Active Vision, exact-snapshot semantic and geometric overlays, fusion precedence, session history and stale-result clearing. The registry browser workflow tests block/project/step CRUD, photo upload, reordering, deletion conflicts, and custom-project camera capture. The original tests exercise dashboard rendering, five-step navigation, backend statuses, synthetic camera capture, source restart, track cleanup, permission denial, disconnection and mobile layout. They use Chromium's **synthetic** camera; they do not establish physical webcam, iPhone or measurement compatibility. If Chromium is already installed, use `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` instead of downloading a browser. On Linux, Playwright may need system libraries (`npx playwright install --with-deps chromium`). CI runs without Meta credentials.
 
 The executed cloud validation results and remaining hardware limitations are recorded in [docs/validation.md](docs/validation.md).
 

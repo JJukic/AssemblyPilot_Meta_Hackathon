@@ -5,12 +5,21 @@ import { snapshotFile } from "./camera-image";
 import { isInspectionResponse } from "./diagnosis-validation";
 import type { Snapshot } from "@/types/assembly";
 import type { InspectionResponse } from "@/types/inspection";
+import type { GeometrySetup } from "@/types/calibration";
 
-export async function inspectSnapshot(projectId: string, stepId: string, snapshot: Snapshot, signal: AbortSignal): Promise<InspectionResponse> {
+function appendGeometry(body: FormData, setup: GeometrySetup | null) {
+  if (!setup) return;
+  body.append("geometry_profile_id", setup.profile_id);
+  body.append("geometry_camera", JSON.stringify(setup.camera));
+  body.append("geometry_configuration_confirmed", "true");
+}
+
+export async function inspectSnapshot(projectId: string, stepId: string, snapshot: Snapshot, signal: AbortSignal, geometry: GeometrySetup | null = null): Promise<InspectionResponse> {
   const body = new FormData();
   body.append("image", snapshotFile(snapshot, "camera-snapshot.jpg"));
   body.append("project_id", projectId);
   body.append("step_id", stepId);
+  appendGeometry(body, geometry);
   const result = await apiRequest<unknown>("/api/inspect", {
     method: "POST", body, signal: AbortSignal.any([signal, AbortSignal.timeout(310000)]),
   });
@@ -31,11 +40,12 @@ export async function inspectSnapshot(projectId: string, stepId: string, snapsho
 }
 
 
-export async function verifySnapshot(projectId: string, previous: WorkflowInspection, snapshot: Snapshot, signal: AbortSignal): Promise<VerificationResponse> {
+export async function verifySnapshot(projectId: string, previous: WorkflowInspection, snapshot: Snapshot, signal: AbortSignal, geometry: GeometrySetup | null = null): Promise<VerificationResponse> {
   const body = new FormData();
   body.append("image", snapshotFile(snapshot, "verification-snapshot.jpg"));
   body.append("project_id", projectId); body.append("step_id", previous.step_id);
   body.append("previous_inspection_id", previous.inspection_id);
+  appendGeometry(body, geometry);
   const result = await apiRequest<unknown>("/api/verify", { method: "POST", body, signal: AbortSignal.any([signal, AbortSignal.timeout(310000)]) });
   if (!isVerificationResponse(result, previous)) throw new Error("Invalid verification evidence. No verification was accepted.");
   await validateSnapshotIdentity(result.inspection);

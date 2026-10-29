@@ -193,6 +193,43 @@ test("camera must be running; an initial correct diagnosis is not verified progr
   await expect(page.getByRole("button", { name: "Capture & Verify", exact: true })).toBeDisabled();
 });
 
+test("semantic correct cannot override measured geometric incorrect and overlay stays on its snapshot", async ({ page }) => {
+  await setup(page);
+  const result = await observation(page, "geometry-initial", "correct");
+  const target = Array.from({ length: 8 }, (_, index) => ({ block_id: "blue-block", role: "target" as const,
+    image: { x_px: 210 + (index % 4) * 20, y_px: 80 + Math.floor(index / 4) * 20 },
+    board: { x_mm: 66 + (index % 4) * 8, y_mm: 40 + Math.floor(index / 4) * 8, z_mm: 19.2 } }));
+  const reference = Array.from({ length: 8 }, (_, index) => ({ block_id: "yellow-block", role: "reference" as const,
+    image: { x_px: 110 + (index % 4) * 20, y_px: 80 + Math.floor(index / 4) * 20 },
+    board: { x_mm: 50 + (index % 4) * 8, y_mm: 40 + Math.floor(index / 4) * 8, z_mm: 9.6 } }));
+  result.geometry = {
+    schema_version: 1, step_id: result.step_id, constraint_id: "constraint-1",
+    measurement_status: "measured", geometry_status: "incorrect", constraint_type: "relative_stud_offset",
+    axis: "longitudinal", expected_studs: 2, observed_studs: 1, deviation_studs: -1,
+    uncertainty_studs: .1, stud_pitch_mm: 8, observed_mm: 8, deviation_mm: -8, tolerance_studs: .15,
+    evidence: { calibration_profile_id: "profile-1", snapshot_id: result.snapshot_id,
+      calibration_valid: true, board_pose_valid: true, target_feature_count: 8, reference_feature_count: 8,
+      features: [...target, ...reference], reference_axis: { origin: { x_mm: 62, y_mm: 44, z_mm: 9.6 }, unit_x: 1, unit_y: 0 },
+      reference_axis_image: { start: { x_px: 110, y_px: 90 }, end: { x_px: 170, y_px: 90 } } },
+    analyzed_snapshot: result.analyzed_snapshot,
+    guidance: "Move the blue target one stud toward board +X.",
+    limitations: ["Synthetic browser fixture; no physical accuracy claim."],
+  };
+  result.state = "correction_required";
+  result.correction_plan = [{ issue_id: null, block_id: "blue-block", kind: "geometry_adjust", instruction: result.geometry.guidance }];
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: result }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Correction Required", exact: true })).toBeVisible();
+  const geometry = page.getByRole("region", { name: "Geometric Verification" });
+  await expect(geometry).toContainText("incorrect");
+  await expect(geometry).toContainText("1.00 studs");
+  await expect(geometry.getByAltText("Exact snapshot used for geometric verification")).toHaveAttribute("src", result.analyzed_snapshot.data_url);
+  await expect(geometry.locator(".geometry-stud")).toHaveCount(16);
+  await expect(geometry.locator(".geometry-axis")).toHaveCount(1);
+  await expect(page.getByRole("region", { name: "Observation workspace" }).locator(".geometry-stud")).toHaveCount(0);
+});
+
 for (const fallback of [false, true]) test(`fresh verification preserves SAM ${fallback ? "fallback" : "mask provenance"} and Phase 4 findings`, async ({ page }) => {
   await setup(page);
   const initial = await observation(page, "sam-initial", "incorrect");

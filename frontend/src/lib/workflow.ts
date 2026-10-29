@@ -1,4 +1,5 @@
 import { isInspectionResponse, isValidBoundingBox } from "./diagnosis-validation";
+import { isGeometricVerification, validateGeometrySnapshot } from "./geometry-validation";
 import type { InspectionResponse } from "@/types/inspection";
 import type { VerificationResponse, WorkflowInspection, WorkflowState } from "@/types/workflow";
 
@@ -22,8 +23,14 @@ export function isWorkflowInspection(value: unknown, stepId: string): value is W
   if (!record(value) || !isInspectionResponse(value, stepId)) return false;
   const data = value as unknown as Record<string, unknown>;
   if (!text(data.inspection_id) || !hash(data.snapshot_id) || !hash(data.specification_id) || data.muse_call_count !== 1 || !Number.isInteger(data.meta_attempt_count) || Number(data.meta_attempt_count) < 1 || Number(data.meta_attempt_count) > 3 ||
-      !Array.isArray(data.tracked_issues) || data.tracked_issues.length > 200 || !Array.isArray(data.correction_plan) || data.correction_plan.length > 100) return false;
-  const states = value.status === "correct" ? ["correct", "verified"] : value.status === "incorrect" ? ["correction_required", "still_incorrect"] : ["uncertain"];
+      !Array.isArray(data.tracked_issues) || data.tracked_issues.length > 200 || !Array.isArray(data.correction_plan) || data.correction_plan.length > 100 ||
+      !(data.geometry === undefined || data.geometry === null || isGeometricVerification(data.geometry, stepId))) return false;
+  const geometry = data.geometry && isGeometricVerification(data.geometry, stepId) ? data.geometry : null;
+  let states = value.status === "correct" ? ["correct", "verified"] : value.status === "incorrect" ? ["correction_required", "still_incorrect"] : ["uncertain"];
+  if (value.status === "correct" && geometry?.constraint_id) {
+    states = geometry.geometry_status === "correct" ? ["correct", "verified"] :
+      geometry.geometry_status === "incorrect" ? ["correction_required", "still_incorrect"] : ["uncertain"];
+  }
   if (!states.includes(String(data.state))) return false;
   const tracks = data.tracked_issues;
   const ids = new Set<string>(); const indices = new Set<number>();
@@ -43,19 +50,27 @@ export function isWorkflowInspection(value: unknown, stepId: string): value is W
     }
     ids.add(item.issue_id); return true;
   }) || indices.size !== value.issues.length) return false;
-  if (value.status === "correct") return data.correction_plan.length === 0;
+  if (!data.correction_plan.every((action) => record(action) &&
+      ["adjust", "geometry_adjust", "capture"].includes(String(action.kind)) && text(action.instruction) &&
+      (action.issue_id === null || text(action.issue_id)) && (action.block_id === null || text(action.block_id)))) return false;
+  if (value.status === "correct" && !geometry?.constraint_id) return data.correction_plan.length === 0;
   if (value.status === "uncertain") {
     const action = data.correction_plan[0];
     return data.correction_plan.length === 1 && record(action) && action.kind === "capture" && action.issue_id === null && action.block_id === null && action.instruction === value.active_vision?.instruction;
   }
   const actionIds = new Set<string>();
-  return data.correction_plan.length === value.issues.length && data.correction_plan.every((action) => {
-    if (!record(action) || action.kind !== "adjust" || !text(action.issue_id) || actionIds.has(action.issue_id)) return false;
+  const semanticActions = data.correction_plan.filter((action) => record(action) && action.kind === "adjust");
+  if (semanticActions.length !== value.issues.length || !semanticActions.every((action) => {
+    if (!record(action) || !text(action.issue_id) || actionIds.has(action.issue_id)) return false;
     actionIds.add(action.issue_id);
     const track = tracks.find((item: unknown) => record(item) && item.issue_id === action.issue_id) as Record<string, unknown> | undefined;
     const issue = track && track.current_issue_index !== null ? value.issues[Number(track.current_issue_index)] : null;
     return !!issue && action.block_id === issue.block_id && action.instruction === issue.suggested_fix;
-  });
+  })) return false;
+  const geometryActions = data.correction_plan.filter((action) => record(action) && action.kind !== "adjust");
+  if (!geometry?.constraint_id || geometry.geometry_status === "correct") return geometryActions.length === 0;
+  return geometryActions.length === 1 && geometryActions[0].instruction === geometry.guidance &&
+    geometryActions[0].kind === (geometry.geometry_status === "incorrect" ? "geometry_adjust" : "capture");
 }
 
 export function isVerificationResponse(value: unknown, previous: WorkflowInspection): value is VerificationResponse {
@@ -80,4 +95,7 @@ export async function validateSnapshotIdentity(result: InspectionResponse & { sn
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   const identity = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   if (identity !== result.snapshot_id) throw new Error("Analyzed snapshot identity mismatch. No result was accepted.");
+  if ("geometry" in result && result.geometry && isGeometricVerification(result.geometry, result.step_id)) {
+    await validateGeometrySnapshot(result.geometry);
+  }
 }
