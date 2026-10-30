@@ -245,6 +245,16 @@ class AssemblyOrchestrator:
                 if not sam_consistent(face, segmentations, diagnosis, image):
                     face.status = "uncertain"
                     face.directional_evidence = False
+                    face.contours = [
+                        item.model_copy(
+                            update={
+                                "status": "unavailable",
+                                "paths": [],
+                                "message": "Unavailable: face and SAM target association disagree.",
+                            }
+                        )
+                        for item in face.contours
+                    ]
                     face.guidance = (
                         "Face and SAM object localization disagree. Capture a clear side view."
                     )

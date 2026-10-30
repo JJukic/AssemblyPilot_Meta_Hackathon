@@ -16,7 +16,7 @@ export function DiagnosisDetails({ result }: { result: InspectionResponse }) {
       <p>{result.active_vision.reason}</p><strong>{result.active_vision.instruction}</strong>
       <p>Keep the assembly unchanged, capture the requested view, then inspect again.</p>
     </aside>}
-    <DiagnosticOverlay key={result.analyzed_snapshot.data_url} snapshot={result.analyzed_snapshot} issues={result.issues} segmentations={result.segmentations} />
+    <DiagnosticOverlay key={result.analyzed_snapshot.data_url} snapshot={result.analyzed_snapshot} snapshotId={result.snapshot_id} issues={result.issues} segmentations={result.segmentations} />
     {result.segmentations && <p className="confidence-note">SAM localization: {(result.segmentations.reduce((sum, entry) => sum + entry.latency_ms, 0) / 1000).toFixed(2)} s. {result.segmentations.length === 0 ? "Not requested for this diagnosis." : "Masks locate visible parts; they do not verify correctness."}</p>}
     <h4>VISIBLE COMPONENTS</h4>
     {result.visible_blocks.length ? <ul className="diagnosis-list">{result.visible_blocks.map((block, index) => <li key={index}>{block.description}<span>{block.estimated_count === null ? "Count uncertain" : `Estimated count: ${block.estimated_count}`}</span></li>)}</ul> : <p className="muted">No components confidently identified.</p>}

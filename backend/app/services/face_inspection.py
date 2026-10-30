@@ -13,6 +13,7 @@ from app.db.tables import BlockFace, FaceReference, StepFaceConstraint
 from app.models.faces import FaceResult
 from app.services.calibration_store import CalibrationStore
 from app.services.charuco_vision import detect, estimate_pose
+from app.services.contour_service import face_edges, layer, reference_matches
 from app.services.inspection_errors import InspectionError
 from app.services.inspection_request import load_reference_image
 
@@ -98,7 +99,8 @@ def match_face(reference, scene, canny_sigma=0.33):
     correlation = float(cv2.matchTemplate(crop, reference, cv2.TM_CCOEFF_NORMED)[0, 0])
     if support < 0.7 or correlation < 0.7:
         return None
-    return min(float(selected.mean()), support, correlation), quad
+    projected = cv2.perspectiveTransform(src[selected][None], h)[0]
+    return min(float(selected.mean()), support, correlation), quad, projected, dst[selected]
 
 
 def direction_supported(face, quad, profile, pose, desired):
@@ -141,7 +143,19 @@ def inspect_faces(engine, settings, project_id, step_id, image, context):
 
     digest = hashlib.sha256(image.jpeg_bytes).hexdigest()
     result = FaceResult(
-        status="not_measured", snapshot_id=digest, guidance="This step has no required face."
+        status="not_measured",
+        snapshot_id=digest,
+        guidance="This step has no required face.",
+        contours=[
+            layer(
+                kind,
+                digest,
+                image.width,
+                image.height,
+                message="Unavailable: no unambiguous, supported printed-face ROI.",
+            )
+            for kind in ["canny_edges", "reference_match"]
+        ],
     )
     with Session(engine) as session:
         require_step(session, project_id, step_id)
@@ -173,7 +187,7 @@ def inspect_faces(engine, settings, project_id, step_id, image, context):
                 except (InspectionError, cv2.error, ValueError):
                     continue
                 if match:
-                    matches.append((match[0], face, link.image_id, match[1]))
+                    matches.append((match[0], face, link.image_id, match[1], match[2], match[3]))
         matches.sort(key=lambda item: item[0], reverse=True)
         if not matches:
             return result
@@ -191,6 +205,14 @@ def inspect_faces(engine, settings, project_id, step_id, image, context):
 
         result.analyzed_snapshot = _snapshot(image)[1]
         result.method = "orb_ransac_canny"
+        try:
+            result.contours = [
+                face_edges(scene, best[3], digest, settings.face_canny_sigma),
+                reference_matches(best[4], best[5], best[3], digest, image.width, image.height),
+            ]
+        except (ValueError, cv2.error):
+            # Optional visualization must not change or manufacture an inspection verdict.
+            pass
         result.guidance = (
             "Face identified; direction unresolved. Confirm calibration and a board-axis direction."
         )

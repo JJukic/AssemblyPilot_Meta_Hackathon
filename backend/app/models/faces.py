@@ -6,6 +6,7 @@ from pydantic import Field, model_validator
 
 from app.models.blocks import ImageRead
 from app.models.calibration import GeometryModel
+from app.models.contours import ContourLayer
 from app.models.diagnosis import AnalyzedSnapshot
 
 
@@ -52,11 +53,30 @@ class FaceResult(GeometryModel):
     directional_evidence: bool = False
     calibration_profile_id: str | None = None
     guidance: str
+    contours: list[ContourLayer] = Field(default_factory=list, max_length=2)
 
     @model_validator(mode="after")
     def supported_decision(self):
         import base64
         import hashlib
+
+        if len({layer.kind for layer in self.contours}) != len(self.contours):
+            raise ValueError("Duplicate face contour layer")
+        for layer in self.contours:
+            if layer.kind not in {"canny_edges", "reference_match"}:
+                raise ValueError("Unexpected face contour layer")
+            if layer.snapshot_id != self.snapshot_id:
+                raise ValueError("Face contours belong to another snapshot")
+            if layer.status == "available" and (
+                not self.analyzed_snapshot
+                or not self.matched_reference_image_id
+                or not self.quadrilateral
+                or self.method != "orb_ransac_canny"
+                or not layer.belongs_to(
+                    self.snapshot_id, self.analyzed_snapshot.width, self.analyzed_snapshot.height
+                )
+            ):
+                raise ValueError("Contours require supported face localization")
 
         if self.status == "not_measured" and self.expected_face_id:
             raise ValueError("A required face cannot be skipped")

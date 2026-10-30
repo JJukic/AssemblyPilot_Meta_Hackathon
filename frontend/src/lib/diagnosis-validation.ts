@@ -1,3 +1,4 @@
+import { validContour } from "./contours";
 import type { BoundingBox, InspectionResponse } from "@/types/inspection";
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -69,6 +70,10 @@ function validSegmentations(value: Record<string, unknown>): boolean {
         !text(entry.message) || !finite(entry.latency_ms) || entry.latency_ms < 0 ||
         !(entry.concept === null || text(entry.concept)) || ![null, "concept", "box"].includes(entry.prompt_kind as null | string)) return false;
     indices.add(Number(entry.issue_index));
+    if (entry.outline !== undefined && entry.outline !== null &&
+        (!validContour(entry.outline, { snapshot_id: String(value.snapshot_id), width: Number(snapshot.width), height: Number(snapshot.height) }) ||
+         entry.outline.kind !== "sam_outline" || (entry.outline.status === "available" && entry.status !== "matched"))) return false;
+
     if (entry.result === null) return entry.selected_instance_id === null && ["unavailable", "disabled", "skipped"].includes(String(entry.status));
     const result = entry.result;
     if (value.status !== "incorrect" || issues[Number(entry.issue_index)].type === "missing_part" ||

@@ -303,3 +303,112 @@ for (const invalid of ["hash", "coordinates", "score"] as const) test(`invalid f
   await expect(page.getByRole("region", { name: "Face orientation", exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Step Verified", exact: true })).toHaveCount(0);
 });
+
+async function contourObservation(page: Page) {
+  const result = await observation(page, "contours", "incorrect");
+  const mask = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = 120; canvas.height = 80;
+    canvas.getContext("2d")!.fillRect(0, 0, 120, 80);
+    return canvas.toDataURL("image/png");
+  });
+  result.segmentations = [{ issue_index: 0, status: "matched", concept: "blue building block", prompt_kind: "concept",
+    message: "Synthetic mask", latency_ms: 1, selected_instance_id: "part",
+    result: { snapshot_id: result.snapshot_id, width: 400, height: 200, model: "sam-3.1", instances: [
+      { instance_id: "part", left: 40, top: 40, mask: { encoding: "png", width: 120, height: 80, data_url: mask } },
+    ] }, outline: { kind: "sam_outline", status: "available", snapshot_id: result.snapshot_id,
+      width: 400, height: 200, message: "Synthetic selected mask boundary",
+      paths: [{ points: [[40, 40], [159, 40], [159, 119], [40, 119]], closed: true }] },
+  }];
+  result.face = { schema_version: 1, status: "uncertain", expected_face_id: "front", observed_face_id: "front",
+    matched_reference_image_id: "reference", matching_score: .9, method: "orb_ransac_canny", snapshot_id: result.snapshot_id,
+    analyzed_snapshot: result.analyzed_snapshot, quadrilateral: [[40,40],[300,40],[300,160],[40,160]],
+    directional_evidence: false, guidance: "Board direction remains unresolved.",
+    contours: ["canny_edges", "reference_match"].map((kind) => ({ kind: kind as "canny_edges" | "reference_match",
+      status: "available", snapshot_id: result.snapshot_id, width: 400, height: 200,
+      message: kind === "canny_edges" ? "Raw ROI edges" : "Verified reference correspondences",
+      paths: [{ points: [[80, 60], [100, 80]], closed: false }] })),
+  };
+  result.correction_plan.push({ issue_id: null, block_id: null, kind: "face_capture", instruction: result.face.guidance });
+  return result;
+}
+
+test("contour modes toggle independently, align responsively and clear on a fresh capture", async ({ page }) => {
+  await setup(page);
+  const result = await contourObservation(page);
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: result }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Meta AI inspection" });
+  const diagnostic = panel.locator(".diagnostic-overlay");
+  const face = panel.getByRole("region", { name: "Face orientation", exact: true });
+  await expect(face).toBeVisible();
+  await expect(panel.locator("[data-contour-kind]")).toHaveCount(0);
+  await diagnostic.getByRole("checkbox", { name: "SAM Outline", exact: true }).check();
+  await face.getByRole("checkbox", { name: "Canny Edges", exact: true }).check();
+  await face.getByRole("checkbox", { name: "Reference Match", exact: true }).check();
+  await expect(panel.locator("[data-contour-kind]")).toHaveCount(3);
+  await expect(face.locator('[data-contour-kind="canny_edges"] path')).toHaveAttribute("stroke-dasharray", "3 2");
+  await expect(face.locator('[data-contour-kind="reference_match"] path')).not.toHaveAttribute("stroke-dasharray");
+  await diagnostic.getByRole("checkbox", { name: "Bounding Box", exact: true }).uncheck();
+  await expect(diagnostic.locator("rect[data-source]")).toHaveCount(0);
+  await expect(diagnostic.locator('[data-contour-kind="sam_outline"]')).toHaveCount(1);
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const bounds = (await diagnostic.getByAltText("Analyzed snapshot").boundingBox())!;
+    // Test the geometric point, not the painted stroke's expanded bounding rectangle.
+    const outline = await diagnostic.locator('[data-contour-kind="sam_outline"] path').evaluate((node: SVGPathElement) => {
+      const point = node.getPointAtLength(0).matrixTransform(node.getScreenCTM()!);
+      return { x: point.x, y: point.y };
+    });
+    expect((outline.x - bounds.x) / bounds.width).toBeCloseTo(.1, 3);
+    expect((outline.y - bounds.y) / bounds.height).toBeCloseTo(.2, 3);
+    const faceBounds = (await face.getByAltText("Exact face inspection snapshot").boundingBox())!;
+    const edgeBounds = await face.locator('[data-contour-kind="canny_edges"] path').evaluate((node: SVGPathElement) => {
+      const point = node.getPointAtLength(0).matrixTransform(node.getScreenCTM()!);
+      return { x: point.x, y: point.y };
+    });
+    expect((edgeBounds.x - faceBounds.x) / faceBounds.width).toBeCloseTo(.2, 3);
+    expect((edgeBounds.y - faceBounds.y) / faceBounds.height).toBeCloseTo(.3, 3);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await face.getByRole("checkbox", { name: "Canny Edges", exact: true }).uncheck();
+  await expect(face.locator('[data-contour-kind="reference_match"]')).toHaveCount(1);
+  await expect(face.locator('[data-contour-kind="canny_edges"]')).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Observation workspace" }).locator(".contour-overlay")).toHaveCount(0);
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  await expect(panel.locator("[data-contour-kind]")).toHaveCount(0);
+});
+
+for (const invalid of ["snapshot", "bounds", "dimensions", "budget"] as const) test(`invalid contour ${invalid} rejected before display`, async ({ page }) => {
+  await setup(page);
+  const result = await contourObservation(page);
+  const layer = result.face!.contours![0];
+  if (invalid === "snapshot") layer.snapshot_id = "0".repeat(64);
+  if (invalid === "bounds") layer.paths[0].points[0][0] = -1;
+  if (invalid === "dimensions") layer.width = 800;
+  if (invalid === "budget") layer.paths = Array.from({ length: 65 }, () => layer.paths[0]);
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: result }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Meta AI inspection" });
+  await expect(panel.getByRole("alert")).toBeVisible();
+  await expect(panel.locator("[data-contour-kind]")).toHaveCount(0);
+});
+
+test("missing contour evidence stays unavailable without additional inference", async ({ page }) => {
+  await setup(page);
+  const result = await contourObservation(page);
+  result.segmentations = [];
+  result.face!.contours = [];
+  let calls = 0;
+  await page.route("**/api/inspect", (route) => { calls++; return route.fulfill({ json: result }); });
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Meta AI inspection" });
+  const face = panel.getByRole("region", { name: "Face orientation", exact: true });
+  for (const name of ["Canny Edges", "Reference Match", "SAM Outline"]) {
+    await expect(face.getByRole("checkbox", { name, exact: true })).toBeDisabled();
+    await expect(face.getByText(`${name} unavailable:`, { exact: false })).toBeVisible();
+  }
+  expect(calls).toBe(1);
+});

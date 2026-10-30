@@ -1,5 +1,29 @@
 # Validation results
 
+## Optional contour overlays — 2026-10-30
+
+Validated on the open Phase 4.1C feature branch / PR #9.
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 339 Python tests and TypeScript passed |
+| `make build` | Next.js production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | 57 Playwright tests passed |
+
+Thirteen added backend cases cover SAM crop offsets/holes, missing/empty/stale
+segmentation, ROI validation/background exclusion, geometry budgets, reference
+inlier filtering and exact-snapshot face output. Six added browser cases cover
+independent controls, disabled defaults, mobile/desktop SVG alignment, stale
+capture clearing, invalid layer hashes/bounds/dimensions/budgets and unavailable
+evidence. Alignment assertions measure transformed SVG points, excluding the
+painted non-scaling stroke's bounding-box expansion.
+
+Existing Muse, SAM, calibration, face-rule and fresh-verification tests remain
+passing. No new live inference or physical-image validation was performed. These
+results establish software contracts, not contour accuracy on actual blocks.
+See [visualization limits](contour-overlays.md#validation-and-limits).
+
 ## Phase 4.1C printed-face verification — 2026-10-30
 
 Validated on `feature/logo-face-orientation-verification`, based on main

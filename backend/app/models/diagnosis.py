@@ -138,6 +138,10 @@ class InspectionResponse(InspectionResult):
         if len(indices) != len(set(indices)):
             raise ValueError("Duplicate issue localization")
         for entry in self.segmentations:
+            if entry.outline and not entry.outline.belongs_to(
+                self.snapshot_id, self.analyzed_snapshot.width, self.analyzed_snapshot.height
+            ):
+                raise ValueError("Outline belongs to a different snapshot")
             if entry.issue_index >= len(self.issues):
                 raise ValueError("Unknown issue")
             if self.issues[entry.issue_index].type == "missing_part" and entry.result is not None:

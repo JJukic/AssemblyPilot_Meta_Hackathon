@@ -162,3 +162,7 @@ inconsistent target association without introducing another model call. Muse
 receives registered face context in its existing request and returns a validated
 nullable face ID. Face and geometry panels remain separate, each tied to its exact
 snapshot. Reference/specification edits invalidate prior progress.
+
+Optional [inspection contour overlays](contour-overlays.md) add independently selectable SAM
+boundaries, raw ROI Canny edges and verified reference feature pairs on their
+exact snapshots. New contours are disabled by default and make no additional AI calls.

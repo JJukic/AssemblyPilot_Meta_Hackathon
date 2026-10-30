@@ -188,3 +188,7 @@ HoloLens still needs an independently anchored workbench/operator frame, full
 block pose where required, device/world transforms, uncertainty propagation and
 hardware validation. No WebXR, depth processing, device integration or
 millimeter-accurate hologram registration is implemented here.
+
+Optional [inspection contour overlays](contour-overlays.md) add independently selectable SAM
+boundaries, raw ROI Canny edges and verified reference feature pairs on their
+exact snapshots. New contours are disabled by default and make no additional AI calls.

@@ -293,3 +293,7 @@ select a required face and board direction in the step editor. OpenCV matches th
 reference plane; calibrated pose must support its physical direction before a face
 passes. Muse identity alone cannot verify direction. See [face verification](docs/face-verification.md)
 for API/storage details, thresholds, limitations and the pending real tower experiment.
+
+Optional [inspection contour overlays](docs/contour-overlays.md) add independently selectable SAM
+boundaries, raw ROI Canny edges and verified reference feature pairs on their
+exact snapshots. New contours are disabled by default and make no additional AI calls.

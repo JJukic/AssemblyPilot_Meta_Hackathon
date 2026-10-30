@@ -7,6 +7,8 @@ from typing import Literal
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.models.contours import ContourLayer
+
 MAX_MASK_BYTES = 512 * 1024
 
 
@@ -76,9 +78,21 @@ class IssueSegmentation(BaseModel):
     latency_ms: float = Field(default=0, ge=0)
     selected_instance_id: str | None = None
     result: SegmentationResult | None = None
+    outline: ContourLayer | None = None
 
     @model_validator(mode="after")
     def consistent_selection(self):
+        if self.outline:
+            if self.outline.kind != "sam_outline":
+                raise ValueError("Expected a SAM outline")
+            if self.outline.status == "available" and (
+                self.status != "matched"
+                or not self.result
+                or not self.outline.belongs_to(
+                    self.result.snapshot_id, self.result.width, self.result.height
+                )
+            ):
+                raise ValueError("Outline requires matching segmentation evidence")
         ids = {item.instance_id for item in self.result.instances} if self.result else set()
         if self.status == "matched":
             if self.selected_instance_id is None or self.selected_instance_id not in ids:

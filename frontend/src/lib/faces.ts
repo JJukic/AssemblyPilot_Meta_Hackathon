@@ -1,7 +1,9 @@
+import { validContour, type ContourLayer } from "./contours";
 import type { AnalyzedSnapshot } from "@/types/inspection";
 
 export interface FaceResult {
   schema_version: 1;
+  contours?: ContourLayer[];
   status: "correct" | "incorrect" | "uncertain" | "not_measured";
   expected_face_id: string | null;
   observed_face_id: string | null;
@@ -37,6 +39,14 @@ export function validFace(value: unknown): value is FaceResult {
   if (face.status === "correct" && face.expected_face_id !== face.observed_face_id) return false;
   if (face.status === "incorrect" && face.expected_face_id === face.observed_face_id) return false;
   if (!Array.isArray(face.quadrilateral)) return false;
+  if (face.contours !== undefined && (!Array.isArray(face.contours) || face.contours.length > 2 ||
+      !face.contours.every((layer) => layer && validContour(layer, {
+        snapshot_id: face.snapshot_id, width: face.analyzed_snapshot?.width ?? layer.width,
+        height: face.analyzed_snapshot?.height ?? layer.height,
+      }) && ["canny_edges", "reference_match"].includes(layer.kind) &&
+        (layer.status === "unavailable" || (!!face.matched_reference_image_id && face.method === "orb_ransac_canny" && !!face.analyzed_snapshot))) ||
+      new Set(face.contours.map((layer) => layer.kind)).size !== face.contours.length)) return false;
+
   if (!face.analyzed_snapshot) return face.quadrilateral.length === 0;
   const image = face.analyzed_snapshot;
   return typeof image.data_url === "string" && /^data:image\/jpeg;base64,/.test(image.data_url) &&
