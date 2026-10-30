@@ -5,10 +5,11 @@ import json
 from datetime import UTC
 
 from fastapi import HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.db.tables import StepProgress, now
+from app.db.tables import BlockFace, StepProgress, now
 from app.models.workflow import StepProgressRead
+from app.services.face_registry import public_face
 from app.services.project_service import public_step, require_project, require_step
 
 
@@ -18,6 +19,15 @@ def specification_id(session: Session, project_id: str, step_id: str) -> str:
     # Includes step/block revisions, quantities, selected reference order and all photo IDs.
     # Reverting an edit cannot resurrect old verification because revision timestamps change.
     data = {"project": project.model_dump(mode="json"), "step": step.model_dump(mode="json")}
+    if step.face_constraint:
+        data["faces"] = [
+            public_face(session, face).model_dump(mode="json")
+            for face in session.exec(
+                select(BlockFace)
+                .where(BlockFace.block_id == step.face_constraint.target_block_id)
+                .order_by(BlockFace.id)
+            ).all()
+        ]
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 

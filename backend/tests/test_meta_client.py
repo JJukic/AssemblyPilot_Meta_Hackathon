@@ -450,3 +450,28 @@ def test_meta_uncertain_without_active_vision_is_not_fabricated(settings, inspec
     with pytest.raises(InspectionError) as error:
         run_meta(settings, request, lambda _: httpx.Response(200, json=completion(result)))
     assert error.value.code == "meta_invalid_response"
+
+
+def test_observed_face_must_be_registered_in_selected_step(inspection_case):
+    from app.models.faces import FaceRead
+
+    request, result = inspection_case
+    request.context.faces = [
+        FaceRead(
+            id="registered",
+            block_id=request.context.expected_blocks[0].id,
+            label="front",
+            name="Front",
+            width_mm=32,
+            height_mm=24,
+            references=[],
+        )
+    ]
+    result["observed_face_id"] = "invented"
+    with pytest.raises(InspectionError):
+        MetaClient.parse_response(json.dumps(completion(result)).encode(), request)
+    result["observed_face_id"] = "registered"
+    assert (
+        MetaClient.parse_response(json.dumps(completion(result)).encode(), request).observed_face_id
+        == "registered"
+    )

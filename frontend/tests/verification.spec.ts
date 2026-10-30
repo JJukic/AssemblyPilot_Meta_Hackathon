@@ -230,6 +230,25 @@ test("semantic correct cannot override measured geometric incorrect and overlay 
   await expect(page.getByRole("region", { name: "Observation workspace" }).locator(".geometry-stud")).toHaveCount(0);
 });
 
+for (const status of ["correct", "incorrect", "uncertain"] as const) test(`face ${status} is distinct from semantic correctness`, async ({ page }) => {
+  await setup(page);
+  const result = await observation(page, "face-initial", "correct");
+  result.face = { schema_version: 1, status, expected_face_id: "front", observed_face_id: status === "incorrect" ? "back" : "front",
+    matched_reference_image_id: "reference", matching_score: .9, method: "orb_ransac_canny", snapshot_id: result.snapshot_id,
+    analyzed_snapshot: result.analyzed_snapshot, quadrilateral: [[40,40],[300,40],[300,160],[40,160]],
+    directional_evidence: status !== "uncertain", guidance: status === "incorrect" ? "Turn the required face toward board negative Y." : "Review face direction evidence." };
+  result.state = status === "incorrect" ? "correction_required" : status;
+  if (status !== "correct") result.correction_plan = [{ issue_id: null, block_id: null, kind: status === "incorrect" ? "face_adjust" : "face_capture", instruction: result.face.guidance }];
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: result }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  const face = page.getByRole("region", { name: "Face orientation", exact: true });
+  await expect(face).toContainText(`Face orientation: ${status}`);
+  await expect(face.locator("polygon")).toHaveCount(1);
+  await expect(page.getByRole("region", { name: "Observation workspace" }).locator("polygon")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Step Verified", exact: true })).toHaveCount(0);
+});
+
 for (const fallback of [false, true]) test(`fresh verification preserves SAM ${fallback ? "fallback" : "mask provenance"} and Phase 4 findings`, async ({ page }) => {
   await setup(page);
   const initial = await observation(page, "sam-initial", "incorrect");
@@ -267,4 +286,20 @@ for (const fallback of [false, true]) test(`fresh verification preserves SAM ${f
   await expect(panel.getByText("unresolved · misplaced part", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Observation workspace" }).locator(".segmentation-mask")).toHaveCount(0);
   await expect(page.getByText("Step progress: not started", { exact: true })).toBeVisible();
+});
+
+for (const invalid of ["hash", "coordinates", "score"] as const) test(`invalid face ${invalid} cannot render or verify`, async ({ page }) => {
+  await setup(page);
+  const result = await observation(page, "invalid-face", "correct");
+  result.face = { schema_version: 1, status: "correct", expected_face_id: "front", observed_face_id: "front",
+    matched_reference_image_id: "reference", matching_score: invalid === "score" ? 2 : .9, method: "orb_ransac_canny",
+    snapshot_id: invalid === "hash" ? "0".repeat(64) : result.snapshot_id, analyzed_snapshot: result.analyzed_snapshot,
+    quadrilateral: [[invalid === "coordinates" ? -1 : 40, 40], [300, 40], [300, 160], [40, 160]],
+    directional_evidence: true, guidance: "Synthetic face evidence" };
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: result }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Meta AI inspection" }).getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Face orientation", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Step Verified", exact: true })).toHaveCount(0);
 });

@@ -661,6 +661,7 @@ def test_verification_sam_uses_only_new_snapshot_and_cannot_override_muse(flow, 
             self.images.append(image)
             if sam_failure:
                 from app.services.inspection_errors import InspectionError
+
                 raise InspectionError("sam_unavailable", "Test-only SAM outage")
             return SegmentationResult(
                 snapshot_id=snapshot_identity(image),
@@ -688,3 +689,66 @@ def test_verification_sam_uses_only_new_snapshot_and_cannot_override_muse(flow, 
         assert localization["result"]["snapshot_id"] == after["snapshot_id"]
         assert localization["status"] == "no_match"
     assert after["state"] == "still_incorrect" and flow.progress()["status"] == "in_progress"
+
+
+@pytest.mark.parametrize("face_status", ["incorrect", "uncertain", "correct"])
+def test_face_gate_controls_fresh_verification(flow, monkeypatch, face_status):
+    from app.models.faces import FaceResult
+    from app.services.geometric_verification import _snapshot
+
+    def face_check(engine, settings, project_id, step_id, image, context):
+        digest, snapshot = _snapshot(image)
+        return FaceResult(
+            status=face_status,
+            expected_face_id="front",
+            observed_face_id="back" if face_status == "incorrect" else "front",
+            matched_reference_image_id="photo",
+            matching_score=0.9,
+            method="orb_ransac_canny",
+            snapshot_id=digest,
+            analyzed_snapshot=snapshot,
+            quadrilateral=[[1, 1], [60, 1], [60, 50], [1, 50]],
+            directional_evidence=face_status != "uncertain",
+            guidance="Face-specific guidance",
+        )
+
+    monkeypatch.setattr("app.services.assembly_orchestrator.inspect_faces", face_check)
+    before = flow.start().json()
+    response = flow.verify(before["inspection_id"])
+    assert response.status_code == 200, response.text
+    expected = {"incorrect": "still_incorrect", "uncertain": "uncertain", "correct": "verified"}
+    assert response.json()["status"] == expected[face_status]
+    assert flow.progress()["status"] == ("verified" if face_status == "correct" else "in_progress")
+    assert len(flow.calls) == 2
+
+
+def test_face_edit_then_revert_invalidates_pending_verification(flow):
+    root = f"/api/blocks/{flow.block['id']}/faces"
+    definition = {
+        "label": "front",
+        "name": "Original",
+        "description": "Artwork",
+        "width_mm": 32,
+        "height_mm": 24,
+    }
+    face = flow.client.post(root, json=definition).json()
+    step_url = f"/api/projects/{flow.project['id']}/steps/{flow.step['id']}"
+    payload = {
+        **flow.step_data,
+        "face_constraint": {
+            "target_block_id": flow.block["id"],
+            "required_face_id": face["id"],
+            "facing_direction": "board_negative_y",
+        },
+    }
+    assert flow.client.put(step_url, json=payload).status_code == 200
+    before = flow.start().json()
+    assert (
+        flow.client.put(f"{root}/{face['id']}", json=definition | {"name": "Changed"}).status_code
+        == 200
+    )
+    assert flow.client.put(f"{root}/{face['id']}", json=definition).status_code == 200
+    response = flow.verify(before["inspection_id"])
+    assert response.status_code == 409
+    assert len(flow.calls) == 1
+    assert flow.progress()["status"] != "verified"

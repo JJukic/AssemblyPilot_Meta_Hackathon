@@ -215,6 +215,10 @@ class MetaClient:
             if message.get("refusal") or message.get("tool_calls"):
                 raise ValueError("No diagnostic answer")
             result = InspectionResult.model_validate_json(message["content"])
+            if result.observed_face_id is not None and result.observed_face_id not in {
+                face.id for face in request.context.faces
+            }:
+                raise ValueError("Unknown registered face ID")
             if result.step_id != request.context.step_id:
                 raise ValueError("Mismatched step")
             allowed = {block.id for block in request.context.expected_blocks}

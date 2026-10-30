@@ -51,6 +51,11 @@ occlusion ask for a view exposing the hidden area. If an assembled reference is 
 that another angle alone may not settle the expected arrangement. Never fabricate a request
 from a transport error. For correct/incorrect use active_vision=null. No automatic camera action.
 Return only the requested JSON object; no markdown, prose wrappers or tool calls.
+When registered_faces are supplied, compare visible artwork/text to their labelled reference
+photos and descriptions. Return observed_face_id only from that list when clearly readable;
+otherwise null. Never infer operator direction from the camera. A recognized face alone
+does not establish its physical facing direction. Use wrong_orientation for supported
+face defects and request a clear side view for unreadable, small or occluded print.
 """
 
 
@@ -63,6 +68,10 @@ def inspection_task_data(request: MultimodalInspectionRequest) -> str:
         "step_position": context.position,
         "title": context.title,
         "instruction": context.instruction,
+        "face_constraint": context.face_constraint.model_dump()
+        if context.face_constraint
+        else None,
+        "registered_faces": [face.model_dump(mode="json") for face in context.faces],
         "quantity_semantics": "Blocks assigned to this step, not necessarily the complete assembly",
         "expected_blocks": [
             block.model_dump(exclude={"reference_images"}) for block in context.expected_blocks

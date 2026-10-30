@@ -114,3 +114,8 @@ successful inspection responses with localization-unavailable information, not a
 replacement diagnosis or a new top-level HTTP error. Correct/uncertain results have
 an empty localization list. See [segmentation.md](segmentation.md) for the complete
 contract, routing, association, fallbacks and resource limits.
+
+## Phase 4.1C extension
+
+See [printed-face API and evidence contracts](face-verification.md#fusion-and-storage)
+for the additive face registry, optional step rule and workflow face result.

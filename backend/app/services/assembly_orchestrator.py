@@ -19,12 +19,14 @@ from app.core.config import Settings
 from app.models.diagnosis import AnalyzedSnapshot, InspectionResult
 from app.models.geometry import GeometryFormContext
 from app.models.workflow import (
+    CorrectionAction,
     TrackedIssue,
     VerificationResponse,
     WorkflowInspectionResponse,
     transition,
 )
 from app.services.correction_planner import plan_corrections
+from app.services.face_inspection import inspect_faces
 from app.services.geometric_verification import GeometricVerifier
 from app.services.image_processor import ProcessedImage
 from app.services.inspection_request import build_multimodal_request
@@ -204,6 +206,29 @@ class AssemblyOrchestrator:
             latency = (perf_counter() - started) * 1000
             tracks = track_issues(evidence, revision, snapshot_id, previous)
             state = fused_state(evidence.status, geometry, previous is not None)
+            face = await run_in_threadpool(
+                inspect_faces,
+                self.engine,
+                self.settings,
+                project_id,
+                step_id,
+                geometry_image or image,
+                geometry_context or GeometryFormContext(),
+            )
+            if face.status == "incorrect":
+                state = "still_incorrect" if previous else "correction_required"
+            elif face.status == "uncertain" and state in {"correct", "verified"}:
+                state = "uncertain"
+            if (
+                face.status == "uncertain"
+                and not face.observed_face_id
+                and evidence.observed_face_id
+            ):
+                face.observed_face_id = evidence.observed_face_id
+                face.guidance += (
+                    " Muse identified this face semantically; "
+                    "physical direction remains unresolved."
+                )
             transition("verifying" if previous else transition("idle", "inspecting"), state)
             if previous and previous.expires_at <= self.sessions.clock():
                 raise HTTPException(
@@ -214,6 +239,18 @@ class AssemblyOrchestrator:
                 evidence.model_dump(exclude={"issue_assessments"})
             )
             segmentations = await localize_issues(self.sam, request, diagnosis)
+            if face.quadrilateral:
+                from app.services.face_inspection import sam_consistent
+
+                if not sam_consistent(face, segmentations, diagnosis, image):
+                    face.status = "uncertain"
+                    face.directional_evidence = False
+                    face.guidance = (
+                        "Face and SAM object localization disagree. Capture a clear side view."
+                    )
+                    state = fused_state(evidence.status, geometry, previous is not None)
+                    if state in {"correct", "verified"}:
+                        state = "uncertain"
             if previous and previous.expires_at <= self.sessions.clock():
                 raise HTTPException(410, "Inspection session expired. Inspect again.")
             response = WorkflowInspectionResponse(
@@ -227,6 +264,7 @@ class AssemblyOrchestrator:
                 tracked_issues=tracks,
                 correction_plan=plan_corrections(diagnosis, tracks, geometry),
                 geometry=geometry,
+                face=face,
                 analyzed_snapshot=AnalyzedSnapshot(
                     data_url="data:image/jpeg;base64,"
                     + base64.b64encode(image.jpeg_bytes).decode("ascii"),
@@ -237,6 +275,15 @@ class AssemblyOrchestrator:
                 model_latency_ms=latency,
                 inspected_at=datetime.now(UTC),
             )
+            if face.status in {"incorrect", "uncertain"}:
+                response.correction_plan.append(
+                    CorrectionAction(
+                        issue_id=None,
+                        block_id=None,
+                        kind="face_adjust" if face.status == "incorrect" else "face_capture",
+                        instruction=face.guidance,
+                    )
+                )
             await run_in_threadpool(
                 self.commit_result, project_id, step_id, revision, fingerprint, state == "verified"
             )

@@ -49,14 +49,20 @@ def build_multimodal_request(
 ) -> MultimodalInspectionRequest:
     context = build_inspection_context(session, project_id, step_id)
     images = [InspectionImage(role="current_snapshot", image=snapshot)]
-    # One assembled-step view, then one identifying photo per assigned block. Deterministic order.
+    # Required-face references first, then assembly/block context, under the existing cap.
     candidates = []
+    for face in context.faces:
+        if face.references:
+            candidates.append((face.references[0], face.block_id, None))
     if context.step_reference_images:
         candidates.append((context.step_reference_images[0], None, step_id))
     for block in context.expected_blocks:
         if block.reference_images:
             candidates.append((block.reference_images[0], block.id, None))
-    for reference, block_id, owner_step_id in candidates[: settings.meta_max_reference_images]:
+    unique_candidates = list({item[0].id: item for item in candidates}.values())
+    for reference, block_id, owner_step_id in unique_candidates[
+        : settings.meta_max_reference_images
+    ]:
         image = load_reference_image(
             session, settings, reference.id, block_id=block_id, step_id=owner_step_id
         )
@@ -68,11 +74,13 @@ def build_multimodal_request(
                 block_id=block_id,
             )
         )
-    available_count = len(context.step_reference_images) + sum(
-        len(block.reference_images) for block in context.expected_blocks
+    available_ids = {photo.id for face in context.faces for photo in face.references}
+    available_ids.update(photo.id for photo in context.step_reference_images)
+    available_ids.update(
+        photo.id for block in context.expected_blocks for photo in block.reference_images
     )
     return MultimodalInspectionRequest(
         context=context,
         images=tuple(images),
-        omitted_reference_count=available_count - (len(images) - 1),
+        omitted_reference_count=len(available_ids) - (len(images) - 1),
     )

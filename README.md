@@ -2,7 +2,9 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
-Phase 4.1B adds a narrow **perspective-aware stud-offset check** on top of the
+Phase 4.1C adds optional **printed-face recognition and board-relative facing rules**,
+including a face registry, snapshot overlays and a conservative verification gate.
+It preserves Phase 4.1B’s **perspective-aware stud-offset check** on top of the
 OpenCV ChArUco calibration and merged Phase 4 correction workflow. Muse Spark remains
 the semantic inspection model, with optional Meta SAM 3.1 localization and fallback
 overlays. Select a registered project and step, capture a frame, and choose **Inspect
@@ -283,3 +285,11 @@ The executed cloud validation results and remaining hardware limitations are rec
 - Reference photos must be supplied by the user; navigation remains manual. The selected step photo (or oldest photo if no choice was saved) and first photo per assigned block are included, up to the configured reference cap; omitted counts are included in the prompt.
 - Registry limitations remain: no pagination, multi-user conflict resolution, migrations or cloud sync. Full-field edits use last-write-wins semantics.
 - Physical webcam/iPhone compatibility needs local hardware validation. Offline transport tests establish request/response handling, not model recognition quality or your account's live access.
+
+## Printed-face verification (Phase 4.1C)
+
+Register distinct physical faces and cropped photographs in the block library, then
+select a required face and board direction in the step editor. OpenCV matches the
+reference plane; calibrated pose must support its physical direction before a face
+passes. Muse identity alone cannot verify direction. See [face verification](docs/face-verification.md)
+for API/storage details, thresholds, limitations and the pending real tower experiment.

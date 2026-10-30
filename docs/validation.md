@@ -1,5 +1,34 @@
 # Validation results
 
+## Phase 4.1C printed-face verification — 2026-10-30
+
+Validated on `feature/logo-face-orientation-verification`, based on main
+`37e2088` (merged Phase 4.1B / PR #8).
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 326 Python tests passed; strict TypeScript passed |
+| `make build` | Next.js production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | 51 Playwright tests passed against isolated FastAPI/SQLite |
+| Live Meta inference | Not executed for this change; no new successful inference claim |
+| Real printed-face/tower experiment | Not performed; reference/test photographs and physical measurements unavailable |
+
+New coverage includes additive startup over a prior schema, face CRUD/ownership,
+reference edits/deletion, specification invalidation after edit/revert, invalid model
+face IDs, planar matching under rotation/perspective, different or ambiguous artwork,
+low texture/darkness/occlusion, unresolved calibration/operator frame, correct and
+wrong face decisions with mocked pose acquisition, unsupported success and stale
+snapshot rejection, SAM association disagreement and fresh verification gating.
+Browser tests exercise registry editing/upload/deletion, constraints, face status,
+static overlays and invalid hashes/coordinates/scores. Existing Muse/SAM/calibration
+and correction workflow regressions remain green. Python emitted one existing
+Starlette/httpx deprecation warning.
+
+Synthetic fixtures and injected model/pose responses establish software behavior;
+they are not physical accuracy or live model-validation evidence. See the
+[manual experiment and limitations](face-verification.md#four-block-color-tower-manual-experiment-protocol).
+
 ## Phase 4.1B stud-level geometry — 2026-10-29
 
 Validated on `feature/stud-geometric-verification`, based on merged Phase 4.1A main

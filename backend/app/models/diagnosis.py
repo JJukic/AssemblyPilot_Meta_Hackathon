@@ -71,6 +71,16 @@ class ActiveVision(StrictOutput):
 class InspectionResult(StrictOutput):
     # Transport-owned, excluded from both the model schema and serialized diagnoses.
     _meta_attempt_count: int = PrivateAttr(default=0)
+    observed_face_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        schema = handler(core_schema)
+        schema = handler.resolve_ref_schema(schema)
+        schema["required"] = list(schema.get("properties", {}))
+        for prop in schema.get("properties", {}).values():
+            prop.pop("default", None)
+        return schema
 
     step_id: str = Field(min_length=1, max_length=100)
     status: Literal["correct", "incorrect", "uncertain"]

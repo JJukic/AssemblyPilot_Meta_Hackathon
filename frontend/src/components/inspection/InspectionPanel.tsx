@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, ScanLine } from "lucide-react";
 import { DiagnosisDetails } from "./DiagnosisDetails";
 import { GeometricVerificationPanel } from "./GeometricVerificationPanel";
+import { FaceResultPanel } from "./FaceResultPanel";
 import { useInspectionSession } from "./InspectionSession";
 import { inspectSnapshot, verifySnapshot } from "@/lib/inspection";
 import { isWorkflowInspection, transition } from "@/lib/workflow";
@@ -114,6 +115,7 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
         {error && <p className="muted">Last completed diagnosis below; this retry did not verify the assembly.</p>}
         <DiagnosisDetails result={result} />
         {workflow?.geometry && <GeometricVerificationPanel result={workflow.geometry} />}
+        {workflow?.face && <FaceResultPanel result={workflow.face} />}
         {workflow && workflow.tracked_issues.length > 0 && <details className="finding-history"><summary>Finding history ({workflow.tracked_issues.length})</summary>
           <ul>{workflow.tracked_issues.map((item) => <li key={item.issue_id}><strong>{item.resolution} · {item.original.type.replaceAll("_", " ")}</strong><p>{item.original.description}</p><p>{item.evidence}</p></li>)}</ul>
           <p className="muted">Finding associations use block/category evidence. They do not establish physical object tracking across camera views.</p>

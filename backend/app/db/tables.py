@@ -148,3 +148,29 @@ class StepSpatialConstraint(SQLModel, table=True):
     tolerance_studs: float
     reference_surface_height_mm: float
     target_surface_height_mm: float
+
+
+class BlockFace(SQLModel, table=True):
+    __tablename__ = "block_faces"
+    __table_args__ = (UniqueConstraint("block_id", "label"),)
+    id: str = Field(default_factory=new_id, primary_key=True)
+    block_id: str = Field(foreign_key="building_blocks.id", ondelete="CASCADE", index=True)
+    label: str
+    name: str
+    description: str = ""
+    width_mm: float
+    height_mm: float
+
+
+class FaceReference(SQLModel, table=True):
+    __tablename__ = "face_references"
+    image_id: str = Field(primary_key=True, foreign_key="reference_images.id", ondelete="CASCADE")
+    face_id: str = Field(foreign_key="block_faces.id", ondelete="CASCADE", index=True)
+
+
+class StepFaceConstraint(SQLModel, table=True):
+    __tablename__ = "step_face_constraints"
+    step_id: str = Field(primary_key=True, foreign_key="assembly_steps.id", ondelete="CASCADE")
+    target_block_id: str = Field(foreign_key="building_blocks.id", ondelete="RESTRICT")
+    required_face_id: str = Field(foreign_key="block_faces.id", ondelete="RESTRICT")
+    facing_direction: str

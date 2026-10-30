@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.blocks import BlockRead, ImageRead, Name
+from app.models.faces import FaceConstraint
 from app.models.geometry import StudOffsetConstraintInput, StudOffsetConstraintRead
 
 
@@ -36,6 +37,7 @@ class StepInput(BaseModel):
     position: int | None = Field(default=None, gt=0)
     required_blocks: list[StepBlockInput] = Field(default_factory=list, max_length=200)
     spatial_constraint: StudOffsetConstraintInput | None = None
+    face_constraint: FaceConstraint | None = None
 
     @model_validator(mode="after")
     def validate_step(self) -> "StepInput":
@@ -43,6 +45,8 @@ class StepInput(BaseModel):
         if not self.instruction:
             raise ValueError("Instruction cannot be empty")
         ids = [block.block_id for block in self.required_blocks]
+        if self.face_constraint and self.face_constraint.target_block_id not in ids:
+            raise ValueError("Face target must be assigned to this step")
         if len(ids) != len(set(ids)):
             raise ValueError("Assign each block only once; adjust its quantity instead")
         if self.spatial_constraint:
@@ -71,6 +75,7 @@ class StepRead(BaseModel):
     required_blocks: list[StepBlockRead]
     reference_images: list[ImageRead]
     spatial_constraint: StudOffsetConstraintRead | None
+    face_constraint: FaceConstraint | None = None
 
 
 class ProjectDetail(ProjectRead):
