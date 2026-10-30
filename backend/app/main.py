@@ -3,7 +3,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import blocks, calibration, faces, geometry, health, inspection, media, projects, steps
+from app.api import (
+    blocks,
+    calibration,
+    edge_debug,
+    faces,
+    geometry,
+    health,
+    inspection,
+    media,
+    projects,
+    steps,
+)
 from app.core.config import Settings, get_settings
 from app.db.database import database_engine
 from app.services.assembly_orchestrator import InspectionSessions
@@ -38,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(calibration.router)
     application.include_router(geometry.router)
     application.include_router(faces.router)
+    application.include_router(edge_debug.router)
     for router in (blocks.router, projects.router, steps.router, media.router):
         application.include_router(router)
     return application

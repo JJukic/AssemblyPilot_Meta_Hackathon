@@ -4,6 +4,7 @@ import { ArrowUpRight, Boxes, CircleHelp, Eye, ScanLine } from "lucide-react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Navigation } from "@/components/ui/Navigation";
+import { EdgeDebugPanel } from "@/components/inspection/EdgeDebugPanel";
 import { InspectionHistory } from "@/components/inspection/InspectionHistory";
 import { CustomAssembly } from "@/components/assembly/CustomAssembly";
 import { useResource } from "@/hooks/useResource";
@@ -61,6 +62,7 @@ export function Dashboard({ assembly, initialProjectId = "" }: { assembly: Assem
         </div>
         <div className="workspace-grid"><CameraView camera={camera} />{selectedProject ? <CustomAssembly key={selectedProject} projectId={selectedProject} snapshot={camera.snapshot} captureFresh={() => camera.capture(false)} cameraReady={camera.status === "connected"} geometrySetup={geometrySetup} /> : <AssemblyPanel assembly={assembly} />}</div>
         <CalibrationPanel key={`${camera.deviceId}:${camera.status}`} camera={camera} onSelectionChange={setGeometrySetup} />
+        <EdgeDebugPanel key={`${camera.deviceId}:${camera.snapshot?.capturedAt ?? "none"}`} snapshot={camera.snapshot} />
         <InspectionHistory />
         <section className="pipeline-panel" aria-label="AI inspection availability">
           <div className="pipeline-icon"><ScanLine size={22} /></div>

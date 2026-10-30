@@ -1,5 +1,30 @@
 # Validation results
 
+## Independent Canny debug — 2026-10-30
+
+Validated on `feature/logo-face-orientation-verification` / PR #9.
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 352 Python tests and TypeScript passed |
+| `make build` | Next.js production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | 63 Playwright tests passed |
+
+Thirteen new backend cases verify no-key/no-project operation, exact original
+JPEG bytes, native resolution above the normal resize limit, default full-image
+and explicit ROI behavior, actual threshold/blur effects, invalid controls,
+stale hashes, extraction/busy errors and valid empty results. Six browser cases
+cover direct ROI selection, controls, side-by-side output, optional overlays,
+responsive alignment, late responses after capture/settings changes, failure
+handling and preservation of the current correction workflow. The calibration
+test now selects its confirmation checkbox by accessible name because the
+dashboard has an additional independent debug checkbox.
+
+No paid inference or physical camera benchmark was run. Existing model-based
+inspection, printed-face rules, SAM, calibration and fresh verification regressions
+remain passing. See [independent edge debugging](edge-debug.md) for contracts and limits.
+
 ## Optional contour overlays — 2026-10-30
 
 Validated on the open Phase 4.1C feature branch / PR #9.

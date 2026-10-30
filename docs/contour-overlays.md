@@ -85,3 +85,8 @@ Reference pairs are sparse correspondence evidence, not a dense contour match or
 an accuracy probability. No real-image benchmark or live Meta inference was
 performed for this overlay change. Existing physical validation limitations and
 the manual tower protocol in [face-verification.md](face-verification.md) apply.
+
+[Independent Edge Detection Debug Mode](edge-debug.md) analyzes the captured camera
+JPEG without AI or matching prerequisites. It adds direct rectangular ROI selection,
+manual Gaussian/Canny controls, a full-resolution edge image and an optional raw
+overlay while preserving existing inspection results.

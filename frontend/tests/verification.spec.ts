@@ -412,3 +412,16 @@ test("missing contour evidence stays unavailable without additional inference", 
   }
   expect(calls).toBe(1);
 });
+
+test("independent edge debugging preserves the current correction workflow", async ({ page }) => {
+  await setup(page);
+  const initial = await observation(page, "edge-preserved", "incorrect");
+  await begin(page, initial);
+  const debug = page.getByRole("region", { name: "Edge Detection Debug Mode" });
+  await debug.getByRole("checkbox", { name: "Enable edge debug mode" }).check();
+  await debug.getByRole("button", { name: "Detect edges", exact: true }).click();
+  await expect(debug.getByAltText("Detected Canny edge image")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ready to Verify", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Meta AI inspection" }).getByAltText("Analyzed snapshot")).toHaveAttribute("src", initial.analyzed_snapshot.data_url);
+  await expect(page.getByRole("heading", { name: "Step Verified", exact: true })).toHaveCount(0);
+});

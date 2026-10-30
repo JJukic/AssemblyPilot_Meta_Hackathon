@@ -166,3 +166,8 @@ snapshot. Reference/specification edits invalidate prior progress.
 Optional [inspection contour overlays](contour-overlays.md) add independently selectable SAM
 boundaries, raw ROI Canny edges and verified reference feature pairs on their
 exact snapshots. New contours are disabled by default and make no additional AI calls.
+
+[Independent Edge Detection Debug Mode](edge-debug.md) analyzes the captured camera
+JPEG without AI or matching prerequisites. It adds direct rectangular ROI selection,
+manual Gaussian/Canny controls, a full-resolution edge image and an optional raw
+overlay while preserving existing inspection results.
