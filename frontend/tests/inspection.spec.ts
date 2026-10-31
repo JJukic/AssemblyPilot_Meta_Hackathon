@@ -322,3 +322,191 @@ test("SAM snapshot identity, mask dimensions and ambiguous selection are rejecte
     await expect(page.locator(".history-entry")).toHaveCount(0);
   }
 });
+
+async function inspectForEdges(page: Page) {
+  analyzedSnapshot = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = 400; canvas.height = 200;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "white"; context.fillRect(0, 0, 400, 200);
+    context.fillStyle = "black"; context.fillRect(100, 40, 160, 100);
+    return { data_url: canvas.toDataURL("image/jpeg"), width: 400, height: 200 };
+  });
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: inspectionResponse() }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  const overlay = page.getByRole("region", { name: "Meta AI inspection" }).locator(".diagnostic-overlay");
+  await expect(overlay.getByRole("button", { name: "Detect Canny edges", exact: true })).toBeEnabled();
+  return overlay;
+}
+
+test("Canny edges render directly on the analyzed JPEG without another AI request", async ({ page }) => {
+  const overlay = await inspectForEdges(page);
+  let aiCalls = 0;
+  page.on("request", (request) => { if (/\/api\/(inspect|verify|segment)$/.test(request.url())) aiCalls++; });
+  await expect(overlay.getByLabel("Canny Edges", { exact: true })).toBeDisabled();
+  const response = page.waitForResponse("**/api/vision/edges");
+  await overlay.getByRole("button", { name: "Detect Canny edges", exact: true }).click();
+  const edges = await (await response).json();
+  expect(edges.analyzed_snapshot).toEqual(analyzedSnapshot);
+  expect(edges.edge_pixel_count).toBeGreaterThan(0);
+  const toggle = overlay.getByLabel("Canny Edges", { exact: true });
+  await expect(toggle).toBeChecked();
+  const paths = overlay.locator('[data-contour-kind="canny_edges"] path');
+  await expect(paths.first()).toBeVisible();
+  await expect(overlay.getByAltText("Analyzed snapshot")).toHaveAttribute("src", analyzedSnapshot.data_url);
+  for (const viewport of [{ width: 1600, height: 1000 }, { width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const image = (await overlay.getByAltText("Analyzed snapshot").boundingBox())!;
+    const point = await paths.first().evaluate((path: SVGPathElement) => {
+      const p = path.getPointAtLength(0).matrixTransform(path.getScreenCTM()!);
+      return { x: p.x, y: p.y };
+    });
+    const [x, y] = edges.contours.paths[0].points[0];
+    expect((point.x - image.x) / image.width).toBeCloseTo(x / 400, 3);
+    expect((point.y - image.y) / image.height).toBeCloseTo(y / 200, 3);
+    await expect(overlay.getByRole("region", { name: "Detections and overlays" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole("region", { name: "Meta AI inspection" }).locator(".diagnosis").screenshot({ path: `test-results/detection-overview-${viewport.width}.png` });
+  }
+  await overlay.getByRole("button", { name: "Show original", exact: true }).click();
+  await expect(paths).toHaveCount(0);
+  await overlay.getByRole("button", { name: "Show annotated", exact: true }).click();
+  await expect(paths.first()).toBeVisible();
+  await toggle.uncheck();
+  await expect(paths).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Incorrect", exact: true })).toBeVisible();
+  expect(aiCalls).toBe(0);
+});
+
+test("a late Canny response cannot attach to a new inspection capture", async ({ page }) => {
+  let entered!: () => void, release!: () => void, completed!: () => void;
+  const received = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const finished = new Promise<void>((resolve) => { completed = resolve; });
+  await page.route("**/api/vision/edges", async (route) => {
+    const response = await route.fetch(); entered(); await gate;
+    await route.fulfill({ response }).catch(() => {}); completed();
+  });
+  const overlay = await inspectForEdges(page);
+  await overlay.getByRole("button", { name: "Detect Canny edges", exact: true }).click();
+  await received;
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  release(); await finished;
+  await expect(overlay).toHaveCount(0);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  await expect(overlay.getByLabel("Canny Edges", { exact: true })).toBeDisabled();
+  await expect(overlay.locator('[data-contour-kind="canny_edges"]')).toHaveCount(0);
+});
+
+for (const fault of ["backend", "identity"] as const) test(`analyzed-image Canny ${fault} error preserves the diagnosis`, async ({ page }) => {
+  await page.route("**/api/vision/edges", async (route) => {
+    if (fault === "backend") return route.fulfill({ status: 422, json: { detail: "OpenCV edge extraction failed." } });
+    const response = await route.fetch();
+    const result = await response.json(); result.snapshot_id = "0".repeat(64);
+    return route.fulfill({ json: result });
+  });
+  const overlay = await inspectForEdges(page);
+  await overlay.getByRole("button", { name: "Detect Canny edges", exact: true }).click();
+  await expect(overlay.getByRole("alert")).toContainText(fault === "backend" ? "extraction failed" : "does not match");
+  await expect(overlay.locator('[data-contour-kind="canny_edges"]')).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Incorrect", exact: true })).toBeVisible();
+});
+
+async function objectReply(page: Page) {
+  const source = await samResponse(page) as unknown as { segmentations: import("../src/types/inspection").IssueSegmentation[] };
+  const result = source.segmentations[0].result!;
+  return { concept: "building block", latency_ms: 125, result, outlines: [{ instance_id: "2", outline: {
+    kind: "sam_outline", status: "available", message: "Synthetic returned mask boundary", snapshot_id: result.snapshot_id,
+    width: 400, height: 200, paths: [{ closed: true, points: [[50, 50], [169, 50], [169, 129], [50, 129]] }],
+  } }] };
+}
+async function inspectWithoutIssues(page: Page) {
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: inspectionResponse({ status: "correct", issues: [], comparison_reference_id: "reference-test" }) }));
+  await page.route("**/api/media/reference-test", (route) => route.fulfill({ contentType: "image/jpeg", body: Buffer.from(analyzedSnapshot.data_url.split(",")[1], "base64") }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Meta AI inspection" });
+  await expect(panel.getByRole("heading", { name: "Correct", exact: true })).toBeVisible();
+  return panel;
+}
+
+test("manual SAM finds objects without diagnosed issues and exposes the actual comparison reference", async ({ page }) => {
+  const reply = await objectReply(page);
+  let calls = 0, museCalls = 0;
+  page.on("request", (request) => { if (/\/api\/(inspect|verify)$/.test(request.url())) museCalls++; });
+  await page.route("**/api/vision/objects", (route) => {
+    calls++;
+    const body = route.request().postDataBuffer()!;
+    const jpeg = body.subarray(body.indexOf(Buffer.from([255, 216])), body.lastIndexOf(Buffer.from([255, 217])) + 2);
+    expect(jpeg).toEqual(Buffer.from(analyzedSnapshot.data_url.split(",")[1], "base64"));
+    return route.fulfill({ json: reply });
+  });
+  const panel = await inspectWithoutIssues(page);
+  const overlay = panel.locator(".diagnostic-overlay");
+  expect(calls).toBe(0);
+  await expect(overlay.getByLabel("Bounding Box", { exact: true })).toBeDisabled();
+  await panel.getByText("Step reference used for this inspection", { exact: true }).click();
+  await expect(panel.getByAltText("Step reference sent to Meta")).toHaveAttribute("src", /\/api\/media\/reference-test$/);
+  await overlay.getByRole("button", { name: "Segment objects with SAM", exact: true }).click();
+  await expect(overlay.getByAltText("SAM object candidate 1")).toBeVisible();
+  await expect(overlay.getByLabel("Bounding Box", { exact: true })).toBeChecked();
+  await expect(overlay.getByLabel("Show Segmentation", { exact: true })).toBeChecked();
+  await expect(overlay.getByLabel("SAM Outline", { exact: true })).toBeChecked();
+  await expect(overlay.getByLabel("Reference Match", { exact: true })).toBeDisabled();
+  await expect(overlay.getByText("1 visible object candidates", { exact: false })).toBeVisible();
+  for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const image = (await overlay.getByAltText("Analyzed snapshot").boundingBox())!;
+    const box = await overlay.locator('[data-source="sam-object"]').evaluate((element) => {
+      const rect = element as SVGGraphicsElement;
+      const bounds = rect.getBBox(), matrix = rect.getScreenCTM()!;
+      const start = new DOMPoint(bounds.x, bounds.y).matrixTransform(matrix);
+      const end = new DOMPoint(bounds.x + bounds.width, bounds.y + bounds.height).matrixTransform(matrix);
+      return { x: start.x, width: end.x - start.x };
+    });
+    expect((box.x - image.x) / image.width).toBeCloseTo(50 / 400, 2);
+    expect(box.width / image.width).toBeCloseTo(120 / 400, 2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/manual-sam-${viewport.width}.png`, fullPage: true });
+  }
+  await expect(panel.getByRole("heading", { name: "Correct", exact: true })).toBeVisible();
+  expect(calls).toBe(1); expect(museCalls).toBe(1);
+  await overlay.getByLabel("Object to localize").fill("blue building block");
+  await expect(overlay.getByAltText("SAM object candidate 1")).toHaveCount(0);
+  await expect(overlay.getByLabel("SAM Outline", { exact: true })).toBeDisabled();
+});
+
+for (const fault of ["backend", "identity", "bounds", "empty"] as const) test(`manual SAM ${fault} preserves the diagnosis without invented overlays`, async ({ page }) => {
+  const reply = await objectReply(page);
+  if (fault === "identity") reply.result.snapshot_id = "0".repeat(64);
+  if (fault === "bounds") reply.result.instances[0].left = 999;
+  if (fault === "empty") { reply.result.instances = []; reply.outlines = []; }
+  await page.route("**/api/vision/objects", (route) => fault === "backend" ? route.fulfill({ status: 503, json: { detail: "Segmentation is disabled." } }) : route.fulfill({ json: reply }));
+  const panel = await inspectWithoutIssues(page);
+  const overlay = panel.locator(".diagnostic-overlay");
+  await overlay.getByRole("button", { name: "Segment objects with SAM", exact: true }).click();
+  if (fault === "empty") await expect(overlay.getByRole("status")).toContainText("no matching visible objects");
+  else await expect(overlay.getByRole("alert")).toBeVisible();
+  await expect(overlay.getByLabel("Bounding Box", { exact: true })).toBeDisabled();
+  await expect(overlay.getByAltText("SAM object candidate 1")).toHaveCount(0);
+  await expect(panel.getByRole("heading", { name: "Correct", exact: true })).toBeVisible();
+});
+
+for (const change of ["capture", "concept"] as const) test(`late manual SAM output is discarded after ${change} changes`, async ({ page }) => {
+  const reply = await objectReply(page);
+  let entered!: () => void, release!: () => void, finished!: () => void;
+  const received = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const completed = new Promise<void>((resolve) => { finished = resolve; });
+  await page.route("**/api/vision/objects", async (route) => {
+    entered(); await gate; await route.fulfill({ json: reply }).catch(() => {}); finished();
+  });
+  const panel = await inspectWithoutIssues(page);
+  await panel.getByRole("button", { name: "Segment objects with SAM", exact: true }).click();
+  await received;
+  if (change === "capture") await page.getByRole("button", { name: "Capture", exact: true }).click();
+  else await panel.getByLabel("Object to localize").fill("red building block");
+  release(); await completed;
+  await expect(panel.getByAltText("SAM object candidate 1")).toHaveCount(0);
+  await expect(panel.locator('[data-source="sam-object"]')).toHaveCount(0);
+});

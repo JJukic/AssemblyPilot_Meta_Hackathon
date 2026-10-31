@@ -1,5 +1,83 @@
 # Validation results
 
+## Independent Canny debug — 2026-10-30
+
+Validated on `feature/logo-face-orientation-verification` / PR #9.
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 352 Python tests and TypeScript passed |
+| `make build` | Next.js production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | 63 Playwright tests passed |
+
+Thirteen new backend cases verify no-key/no-project operation, exact original
+JPEG bytes, native resolution above the normal resize limit, default full-image
+and explicit ROI behavior, actual threshold/blur effects, invalid controls,
+stale hashes, extraction/busy errors and valid empty results. Six browser cases
+cover direct ROI selection, controls, side-by-side output, optional overlays,
+responsive alignment, late responses after capture/settings changes, failure
+handling and preservation of the current correction workflow. The calibration
+test now selects its confirmation checkbox by accessible name because the
+dashboard has an additional independent debug checkbox.
+
+No paid inference or physical camera benchmark was run. Existing model-based
+inspection, printed-face rules, SAM, calibration and fresh verification regressions
+remain passing. See [independent edge debugging](edge-debug.md) for contracts and limits.
+
+## Optional contour overlays — 2026-10-30
+
+Validated on the open Phase 4.1C feature branch / PR #9.
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 339 Python tests and TypeScript passed |
+| `make build` | Next.js production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | 57 Playwright tests passed |
+
+Thirteen added backend cases cover SAM crop offsets/holes, missing/empty/stale
+segmentation, ROI validation/background exclusion, geometry budgets, reference
+inlier filtering and exact-snapshot face output. Six added browser cases cover
+independent controls, disabled defaults, mobile/desktop SVG alignment, stale
+capture clearing, invalid layer hashes/bounds/dimensions/budgets and unavailable
+evidence. Alignment assertions measure transformed SVG points, excluding the
+painted non-scaling stroke's bounding-box expansion.
+
+Existing Muse, SAM, calibration, face-rule and fresh-verification tests remain
+passing. No new live inference or physical-image validation was performed. These
+results establish software contracts, not contour accuracy on actual blocks.
+See [visualization limits](contour-overlays.md#validation-and-limits).
+
+## Phase 4.1C printed-face verification — 2026-10-30
+
+Validated on `feature/logo-face-orientation-verification`, based on main
+`37e2088` (merged Phase 4.1B / PR #8).
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff and ESLint passed |
+| `make test` | 326 Python tests passed; strict TypeScript passed |
+| `make build` | Next.js production build passed |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` | 51 Playwright tests passed against isolated FastAPI/SQLite |
+| Live Meta inference | Not executed for this change; no new successful inference claim |
+| Real printed-face/tower experiment | Not performed; reference/test photographs and physical measurements unavailable |
+
+New coverage includes additive startup over a prior schema, face CRUD/ownership,
+reference edits/deletion, specification invalidation after edit/revert, invalid model
+face IDs, planar matching under rotation/perspective, different or ambiguous artwork,
+low texture/darkness/occlusion, unresolved calibration/operator frame, correct and
+wrong face decisions with mocked pose acquisition, unsupported success and stale
+snapshot rejection, SAM association disagreement and fresh verification gating.
+Browser tests exercise registry editing/upload/deletion, constraints, face status,
+static overlays and invalid hashes/coordinates/scores. Existing Muse/SAM/calibration
+and correction workflow regressions remain green. Python emitted one existing
+Starlette/httpx deprecation warning.
+
+Synthetic fixtures and injected model/pose responses establish software behavior;
+they are not physical accuracy or live model-validation evidence. See the
+[manual experiment and limitations](face-verification.md#four-block-color-tower-manual-experiment-protocol).
+
 ## Phase 4.1B stud-level geometry — 2026-10-29
 
 Validated on `feature/stud-geometric-verification`, based on merged Phase 4.1A main
@@ -253,3 +331,95 @@ The Playwright bundled-browser download was blocked by the environment network p
 Non-failing dependency notices: ESLint 9 is marked deprecated by npm; the current Next.js lint stack passes. Starlette emits one deprecation warning for its httpx-based TestClient; all 28 tests execute and pass. No checks were disabled to avoid these notices.
 
 No Meta credentials or inference calls were used. Muse Spark API/model compatibility remains unverified and is deferred to the documented Phase 2 integration work. Physical camera checks remain a local acceptance step.
+
+## Phase 4.1E — automated validation, 2026-10-31
+
+Integrated on PR #9's unmerged printed-side / contour / independent Canny branch.
+
+- `make lint`: Ruff and ESLint passed.
+- `make test`: 390 backend tests passed; frontend typecheck passed.
+- `make build`: production Next.js build passed.
+- `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser`: 69 passed,
+  including six new browser cases for configuration without photos, recognition
+  states, responsive alignment and stale print evidence.
+- 38 new backend cases cover print configuration and additive compatibility,
+  text/reference/contour/hybrid modes, supported crops and direction association,
+  SAM conflicts, provider failure, fresh verification and invalid evidence.
+- Existing FastAPI/Starlette test-client deprecation warning remains non-fatal.
+
+Only synthetic images and mocked Meta inference were used. No Phase 4.1E live
+request was sent, no real-image print accuracy or latency was measured, and no
+new model provider or automatic inference loop was introduced. The actual yellow
+block experiment and its pending A–G records are in [print-recognition.md](print-recognition.md).
+
+## Direct analyzed-image Canny overlay — 2026-10-31
+
+`Detect Canny edges` now computes and displays raw edges directly on the inspected
+JPEG using the existing local endpoint. No new inference or verdict change.
+`make lint`, `make test` (390 backend tests and TypeScript), `make build`, and
+`make test-browser` (73 tests with system Chromium) passed. Four added browser
+cases cover exact analyzed-image transport and desktop/mobile alignment, toggles,
+stale captures, backend failure and mismatched image identity.
+
+## Rejected Meta response diagnostics — 2026-10-31
+
+`make lint` and `make test` passed (399 backend tests and frontend TypeScript).
+Nine new cases verify safe rejection categories, token truncation, malformed JSON,
+print-rule evidence and removal of untrusted values/keys from messages and logs.
+Validation rules remain strict; no live inference or extra retry was performed.
+The reported three failures occurred locally outside this workspace, so their
+specific historical cause is not known. A conflicting legacy prompt instruction
+was clarified; a new local attempt can now expose the bounded rejection reason.
+
+## Structured detection overview — 2026-10-31
+
+`make lint`, `make test` (399 backend tests and TypeScript), `make build` and
+`make test-browser` (73 passed with system Chromium) passed. The existing Canny
+browser scenario additionally checks exact contour alignment and no horizontal
+overflow at 1600, 1280 and 390 px. Desktop/mobile screenshots with synthetic
+fixtures were visually reviewed. This change reorganizes presentation only.
+
+## Independent SAM object search and assembly reference visibility — 2026-10-31
+
+`make lint`, `make test` (411 backend tests and frontend TypeScript), `make build`
+and `make test-browser` (80 passed with system Chromium) passed. Twelve added
+backend cases cover exact JPEG identity, image validation, multiple/empty masks,
+provider failures, disabled/unconfigured SAM and assembled-step reference priority
+under the image cap. Seven added browser cases cover explicit localization with
+no diagnosed issues, original JPEG transport, actual reference display, responsive
+alignment, failure/missing evidence and stale capture/concept changes. Mobile
+rendering was also visually reviewed using a synthetic fixture.
+
+Browser assertions were corrected to measure SVG geometry without its stroke and
+to address the specific retained-diagnosis fallback notice now that the reason is
+also exposed in the overlay cards. All 80 cases pass after those corrections.
+
+No new live Meta request was sent. Synthetic images and mocked provider replies
+verify the integration, not real-photo accuracy. The user's locally stored reference
+and historical inference result are not accessible here. Visible printed content
+differs between the supplied blue-block images; prompt changes have not yet been
+validated by live inference on those photographs. SAM object masks locate visible
+regions without changing the verdict or claiming a correct assembly. Reference
+Match remains unavailable without accepted planar-face matching evidence.
+
+## Active print-rule response contract — 2026-10-31
+
+A local report of `[print_rule_evidence]` revealed that the outgoing shared schema
+allowed null print evidence even when the active rule required an observation.
+The request schema now reflects the rule; partial/unreadable observations remain
+valid and uncertain. Fixed error subcategories distinguish missing evidence from
+wrong target/side IDs, unclear or unsupported side assignments and contradictory
+transcribed text. Validation remains strict and does not retry automatically.
+
+`make lint` and `make test` passed (424 backend tests and frontend TypeScript).
+`make test-browser` passed all 80 browser cases with system Chromium, including
+its production Next.js build. Thirteen added backend cases cover all recognition
+modes' outgoing contracts, classified rejection/redaction and no extra inference
+or verified progress after rejection. Existing text mismatch, uncertainty,
+correction and fresh-verification tests continue to pass. One existing non-fatal
+Starlette/httpx deprecation warning remains.
+
+These are offline tests with synthetic images and mocked Meta responses. No new
+live Meta request was sent. The exact rejected field in the user's previous local
+answer cannot be recovered from the former aggregate error code. The schema
+inconsistency is confirmed in code; its role in that individual failure is not.

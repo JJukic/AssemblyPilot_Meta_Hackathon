@@ -15,6 +15,7 @@ export interface StepInput {
   position?: number;
   required_blocks: StepBlockInput[];
   spatial_constraint?: Omit<StudOffsetConstraint, "id"> | null;
+  face_constraint?: { target_block_id: string; required_face_id: string; facing_direction: string } | null;
 }
 export interface ProjectStep extends StepInput {
   id: string;

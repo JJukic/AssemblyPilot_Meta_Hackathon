@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     meta_vision_model: str = "muse-spark-1.3"
     meta_sam_model: Literal["sam-3.1"] = "sam-3.1"
     sam_enabled: bool = True
+    face_canny_sigma: float = Field(default=0.33, ge=0.1, le=0.6)
     sam_request_timeout: float = Field(default=60, gt=0, le=60)
     sam_max_concepts_per_inspection: int = Field(default=2, ge=0, le=2)
     meta_request_timeout: float = Field(default=60, gt=0, le=180)

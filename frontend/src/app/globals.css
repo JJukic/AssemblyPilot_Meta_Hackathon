@@ -307,3 +307,78 @@ a.brand, a.button { text-decoration: none; }
 #geometry-arrow path { fill: #ffd171; }
 .geometry-overlay figcaption { color: var(--muted); font-size: 10px; line-height: 1.6; margin-top: 8px; }
 @media (max-width: 520px) { .geometry-measurements { grid-template-columns: 1fr; } }
+
+/* Contours share the exact snapshot stage; they never receive camera/video coordinates. */
+.contour-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.contour-controls { display: grid; gap: 0.4rem; margin: 0.65rem 0; }
+.contour-controls label { display: flex; align-items: center; gap: 0.35rem; }
+.contour-controls small { display: block; opacity: 0.75; overflow-wrap: anywhere; }
+.contour-controls p { font-size: 0.8rem; }
+
+.edge-debug-panel { padding: 20px; margin-top: 20px; }
+.edge-settings { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 14px 0; }
+.edge-settings .field { min-width: 130px; flex: 1; }
+.edge-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+.edge-comparison figure { margin: 0; min-width: 0; }
+.edge-comparison figcaption { margin-bottom: 8px; }
+.edge-image-stage { position: relative; line-height: 0; touch-action: none; cursor: crosshair; }
+.edge-image-stage img, .edge-bitmap { display: block; width: 100%; height: auto; }
+.edge-image-stage svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+@media (max-width: 640px) { .edge-comparison { grid-template-columns: minmax(0, 1fr); } }
+
+/* Inspection evidence: image first, controls grouped by detection type. */
+.diagnosis { container-type: inline-size; }
+.detection-eyebrow { color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-size: 10px; margin-bottom: 8px; }
+.diagnosis-meta { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 12px 0; }
+.diagnosis-meta .confidence-note { margin: 0; }
+.detection-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+.detection-summary > div { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: #0d1623; }
+.detection-summary dt { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.detection-summary dd { margin: 6px 0 0; font-size: 23px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.detection-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.detection-toolbar h4, .detection-settings-heading h4 { margin: 0; font-size: 13px; color: var(--text); }
+.detection-toolbar span { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
+.detection-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
+.detection-preview { min-width: 0; }
+.detection-preview > .muted { margin-top: 10px; font-size: 11px; }
+.detection-settings { display: grid; gap: 8px; min-width: 0; padding: 14px; background: #0c1522; border: 1px solid var(--border); border-radius: 9px; }
+.detection-settings-heading { margin-bottom: 4px; }
+.detection-settings-heading p { font-size: 11px; color: var(--muted); margin-top: 5px; }
+.detection-settings .contour-controls { margin: 0; }
+.contour-controls { gap: 8px; }
+.overlay-option { border: 1px solid #2b3c53; background: #131e2e; border-radius: 7px; padding: 12px; min-width: 0; }
+.overlay-option-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.overlay-option-heading label { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
+.overlay-option input { width: 15px; height: 15px; margin: 0; accent-color: #80b7ff; }
+.overlay-option input:focus-visible { outline: 2px solid #8bb7ff; outline-offset: 3px; }
+.overlay-swatch { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.overlay-availability { font-size: 9px; color: #89e4c0; border: 1px solid #315c4d; background: #142a28; padding: 3px 6px; border-radius: 4px; }
+.is-unavailable .overlay-availability { color: #9aaac0; background: #1a2432; border-color: #344155; }
+.overlay-option.is-unavailable { background: #101a27; }
+.overlay-description, .contour-controls .overlay-description { font-size: 11px; line-height: 1.5; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
+.canny-action { display: grid; justify-items: start; gap: 8px; margin-top: 12px; }
+.canny-action .button { width: 100%; }
+.canny-action small { font-size: 10px; color: var(--muted); line-height: 1.5; }
+.overlay-note, .overlay-view-note { font-size: 11px; line-height: 1.6; color: var(--muted); }
+.overlay-view-note { padding: 10px; background: #192537; border-radius: 6px; color: #c2d7f7; }
+.detection-findings { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 18px; }
+.detection-findings > section { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; }
+.detection-findings h4 { margin: 0 0 12px; font-size: 11px; color: #b6cae6; letter-spacing: .06em; }
+@container (min-width: 850px) {
+  .detection-workspace { grid-template-columns: minmax(0, 1fr) 300px; }
+  .detection-findings { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+@container (max-width: 380px) {
+  .detection-summary { gap: 6px; }
+  .detection-summary > div { padding: 10px 8px; }
+  .detection-summary dt { font-size: 10px; }
+}
+.object-localization-controls { display: grid; gap: 10px; margin-top: 12px; }
+.object-localization-controls .field { min-width: 0; margin: 0; }
+.object-localization-controls input { width: 100%; height: auto; margin-top: 6px; }
+.object-localization-controls small, .object-localization-controls p { font-size: 11px; line-height: 1.6; color: var(--muted); }
+.object-localization-controls [role="alert"] { color: #ffb7a5; }
+.diagnostic-boxes rect[data-source="sam-object"] { stroke: #69d5ff; fill: none; }
+.comparison-reference { margin: 16px 0; padding: 12px; border: 1px solid var(--border); border-radius: 7px; }
+.comparison-reference p { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 12px 0; }
+.comparison-reference img { display: block; max-width: 100%; max-height: 360px; height: auto; }

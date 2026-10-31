@@ -2,7 +2,12 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
-Phase 4.1B adds a narrow **perspective-aware stud-offset check** on top of the
+Phase 4.1E adds **Meta-first printed-text and logo recognition** to the printed-face
+registry, contour overlays and independent Canny debug tools in PR #9. Configure
+expected text without a reference photo, inspect it in the existing Muse call, and
+review recognition separately from physical direction and geometric placement.
+See [setup, contracts and manual experiment](docs/print-recognition.md).
+It preserves Phase 4.1B’s **perspective-aware stud-offset check** on top of the
 OpenCV ChArUco calibration and merged Phase 4 correction workflow. Muse Spark remains
 the semantic inspection model, with optional Meta SAM 3.1 localization and fallback
 overlays. Select a registered project and step, capture a frame, and choose **Inspect
@@ -283,3 +288,20 @@ The executed cloud validation results and remaining hardware limitations are rec
 - Reference photos must be supplied by the user; navigation remains manual. The selected step photo (or oldest photo if no choice was saved) and first photo per assigned block are included, up to the configured reference cap; omitted counts are included in the prompt.
 - Registry limitations remain: no pagination, multi-user conflict resolution, migrations or cloud sync. Full-field edits use last-write-wins semantics.
 - Physical webcam/iPhone compatibility needs local hardware validation. Offline transport tests establish request/response handling, not model recognition quality or your account's live access.
+
+## Printed-face verification (Phase 4.1C)
+
+Register distinct physical faces and cropped photographs in the block library, then
+select a required face and board direction in the step editor. OpenCV matches the
+reference plane; calibrated pose must support its physical direction before a face
+passes. Muse identity alone cannot verify direction. See [face verification](docs/face-verification.md)
+for API/storage details, thresholds, limitations and the pending real tower experiment.
+
+Optional [inspection contour overlays](docs/contour-overlays.md) add independently selectable SAM
+boundaries, raw ROI Canny edges and verified reference feature pairs on their
+exact snapshots. New contours are disabled by default and make no additional AI calls.
+
+[Independent Edge Detection Debug Mode](docs/edge-debug.md) analyzes the captured camera
+JPEG without AI or matching prerequisites. It adds direct rectangular ROI selection,
+manual Gaussian/Canny controls, a full-resolution edge image and an optional raw
+overlay while preserving existing inspection results.

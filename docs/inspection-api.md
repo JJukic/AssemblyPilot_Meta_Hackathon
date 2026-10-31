@@ -20,12 +20,29 @@ HTTP 200 returns `InspectionResponse` (the diagnostic fields remain at the top l
 | `model` | Configured Meta model ID, supplied by backend |
 | `model_latency_ms` | Backend monotonic duration of the adapter call, including retries/backoff, excluding context/image preparation; not provider-only compute time |
 | `inspected_at` | Backend UTC timestamp after successful validation |
+| `comparison_reference_id` | Workflow-owned ID of the assembled-step photo actually included in the Muse request, or null; optional for older stored responses |
 
 Issue types: `missing_part`, `misplaced_part`, `wrong_color`, `wrong_orientation`, `unexpected_part`, `unknown`. Boxes are null or `{x,y,width,height}` in camera-image coordinates 0–1, with positive dimensions and `x+width <= 1`, `y+height <= 1`. No default boxes are generated. `missing_part` must use null: an absent component has no observed location. All five discrepancy categories carry distinct expected and observed text. A correct diagnosis cannot contain issues; incorrect must contain at least one. IDs must be among the supplied current-step blocks, or null. Geometric/schema validation cannot prove visual accuracy.
 
 Active Vision view values are `top_down`, `front`, `back`, `left_side`, `right_side`, `close_up`, `other`. The nonempty reason and instruction must explain the missing evidence and a concrete camera move/region to reveal. The prompt asks for unchanged assembly and distinguishes missing reference information from evidence another view can supply. An uncertain response without this request is invalid upstream output, not a reason to fabricate one in Python.
 
 The model receives only the `InspectionResult` JSON schema; the server adds provenance fields after inference. The browser validates the response shape and coordinates again before saving it to history. An image decode/dimension mismatch hides all boxes. Deploy backend/frontend together: Phase 3B adds required structured fields, so a newer frontend rejects a Phase 3A-only backend rather than drawing unverified overlays.
+
+The selected assembled-step photo takes priority over additional component photos
+under the configured reference-image cap. The UI exposes the actual included step
+photo; registering a photo alone does not prove it was included in an earlier
+request. A zero reference limit still deliberately excludes all reference photos.
+
+## Independent object localization
+
+`POST /api/vision/objects` accepts multipart `image`, `snapshot_id` (SHA-256 of
+the exact JPEG bytes) and `concept` (1–80 nonblank characters). It performs one
+explicit Meta SAM request on an upright analyzed JPEG, independent of a Muse
+diagnosis. It requires enabled/configured SAM. The response contains the concept,
+latency, validated segmentation instances and simplified per-instance outlines.
+There is no diagnosis, correction-state update or progress write. Empty masks and
+provider errors never become invented boxes or a correctness verdict. See
+[segmentation.md](segmentation.md) for bounds, provenance and rendering details.
 
 ## Failures
 
@@ -114,3 +131,56 @@ successful inspection responses with localization-unavailable information, not a
 replacement diagnosis or a new top-level HTTP error. Correct/uncertain results have
 an empty localization list. See [segmentation.md](segmentation.md) for the complete
 contract, routing, association, fallbacks and resource limits.
+
+## Phase 4.1C extension
+
+See [printed-face API and evidence contracts](face-verification.md#fusion-and-storage)
+for the additive face registry, optional step rule and workflow face result.
+
+
+## Optional printed-side recognition (Phase 4.1E)
+
+The existing `/api/inspect` and `/api/verify` multipart inputs are unchanged.
+When the required face has `print_rule`, the existing Muse response includes
+validated `print_observation`. The server adds versioned `print_recognition` to
+the workflow response with expected/observed print, identity, method, quality,
+exact snapshot ID, optional normalized region, independent direction evidence
+and `gate_status`. Null/absent configuration is `not_applicable`; partial or
+unreadable print is `uncertain`. No extra inference endpoint or model call.
+See [complete contract, reference policy and gate rules](print-recognition.md).
+
+### Diagnosing rejected model answers
+
+A `meta_invalid_response` error means the backend rejected Meta's response; it does
+not establish that the uploaded image was blurred. The previous generic instruction
+to capture a clearer view hid several distinct failures. Messages now include a
+bounded reason such as `output_limit`, `diagnosis_json`, `diagnosis_schema`,
+`print_missing`, `print_side_text_conflict`, `step_id_mismatch`, `unknown_face_id`
+or `unknown_block_id`.
+For schema failures, only schema-owned field names are included. The backend logs
+`Rejected Meta diagnosis: reason=... fields=...`; it never logs raw provider
+answers, unrecognized field names, image data, credentials or validation values.
+
+If running locally, update the feature branch, restart the backend and repeat the
+inspection once. Share that reason/field line to diagnose the specific failure;
+old requests cannot be reconstructed from the former catch-all message. Correct
+prompt instructions or investigate the indicated response constraint before
+assuming another photograph will fix it. Rejection remains HTTP 502 and never
+produces a fabricated diagnosis or verified progress. No additional inference
+retry was added. Print-only defects are kept separate from the semantic issue
+list so the prompt no longer asks simultaneously for incompatible representations.
+
+The old `print_rule_evidence` category combined missing observations, wrong target
+IDs, unsupported/unclear registered-side assignments, conflicting side identities
+and side IDs that contradicted transcribed text. These now have separate bounded
+`print_*` reasons. The old message alone cannot identify which occurred locally.
+
+The outgoing strict schema now requires a non-null `print_observation` object for
+Meta Auto, Meta + References and Hybrid print rules. With no active rule or in
+Contour mode it requests null. This removes a mismatch where the shared nullable
+schema permitted an answer that active-rule validation subsequently rejected.
+Unreadable/partial evidence is still a valid structured observation and stays
+uncertain. Observed text and side IDs may be null; the schema does not force a
+reading, box, known side or successful verdict. A side ID is the observed identity,
+not the desired side: mismatching text may validly have no registered side ID.
+Cross-field validation remains strict even if the provider ignores the schema.

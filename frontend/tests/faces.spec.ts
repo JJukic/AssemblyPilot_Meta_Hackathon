@@ -1,0 +1,88 @@
+import { test, expect } from "@playwright/test";
+
+test("register physical faces and select a required board direction", async ({ page, request }) => {
+  const block = await (await request.post("http://localhost:8000/api/blocks", { data: { name: "Face browser block" } })).json();
+  await page.goto("/blocks");
+  await page.getByRole("button", { name: `Edit ${block.name}` }).click();
+  const editor = page.getByRole("region", { name: "Printed faces" });
+  await editor.getByLabel("Face name", { exact: true }).fill("Printed front");
+  await editor.getByLabel("Printed text or logo description").fill("Test artwork");
+  await editor.getByLabel("Face width (mm)").fill("32");
+  await editor.getByLabel("Face height (mm)").fill("24");
+  await editor.getByRole("button", { name: "Register face" }).click();
+  await expect(editor.getByText("Printed front · front", { exact: true })).toBeVisible();
+  await editor.getByText("Printed front · front", { exact: true }).click();
+  await editor.getByLabel("Registered print description").fill("Revised artwork description");
+  await editor.getByRole("button", { name: "Save face description" }).click();
+  await expect(editor.getByText("Revised artwork description", { exact: true })).toBeVisible();
+  const imageBase64 = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = 100; canvas.height = 80;
+    const context = canvas.getContext("2d")!; context.fillStyle = "#2266bb"; context.fillRect(0, 0, 100, 80);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await editor.getByLabel("Upload reference photo").setInputFiles({
+    name: "face-fixture.png", mimeType: "image/png", buffer: Buffer.from(imageBase64, "base64"),
+  });
+  await expect(editor.getByAltText("face-fixture.png", { exact: true })).toBeVisible();
+  const project = await (await request.post("http://localhost:8000/api/projects", { data: { name: "Face browser project" } })).json();
+  await page.goto(`/projects/${project.id}`);
+  await page.getByRole("button", { name: "Add step", exact: true }).click();
+  await page.getByLabel("Step title").fill("Printed layer");
+  await page.getByLabel("Instruction", { exact: false }).fill("Required face toward board -Y");
+  await page.getByLabel("Face browser block", { exact: false }).first().check();
+  await page.getByLabel("Face target block").selectOption(block.id);
+  await page.getByLabel("Required printed face").selectOption({ label: "Printed front · front" });
+  await page.getByLabel("Required physical facing direction").selectOption("board_negative_y");
+  await page.getByRole("button", { name: "Save step", exact: true }).click();
+  await expect(page.getByText("Step saved. Manage reference photographs below.")).toBeVisible();
+  const saved = await (await request.get(`http://localhost:8000/api/projects/${project.id}`)).json();
+  expect(saved.steps[0].face_constraint.facing_direction).toBe("board_negative_y");
+  const progressUrl = `http://localhost:8000/api/projects/${project.id}/progress`;
+  const before = (await (await request.get(progressUrl)).json())[0].specification_id;
+  await page.goto("/blocks");
+  await page.getByRole("button", { name: `Edit ${block.name}` }).click();
+  await editor.getByText("Printed front · front", { exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await editor.getByRole("button", { name: "Delete photo face-fixture.png" }).click();
+  await expect(editor.getByAltText("face-fixture.png", { exact: true })).toHaveCount(0);
+  const after = (await (await request.get(progressUrl)).json())[0].specification_id;
+  expect(after).not.toBe(before);
+  await request.delete(`http://localhost:8000/api/projects/${project.id}`);
+  await request.delete(`http://localhost:8000/api/blocks/${block.id}`);
+});
+
+test("configure Meta Auto text without references and use print identity only", async ({ page, request }) => {
+  const block = await (await request.post("http://localhost:8000/api/blocks", { data: { name: "Zero shot yellow block" } })).json();
+  await page.goto("/blocks");
+  await page.getByRole("button", { name: `Edit ${block.name}` }).click();
+  const editor = page.getByRole("region", { name: "Printed faces" });
+  await editor.getByLabel("Face name", { exact: true }).fill("Involve Me side");
+  await editor.getByLabel("Face width (mm)").fill("32");
+  await editor.getByLabel("Face height (mm)").fill("24");
+  await editor.getByLabel("Enable automatic print recognition").check();
+  await expect(editor.getByLabel("Recognition mode")).toHaveValue("meta_auto");
+  await editor.getByLabel("Expected printed text").fill("Involve Me");
+  await editor.getByLabel("Known alternatives (one per line)").fill("insights");
+  await editor.getByRole("button", { name: "Register face" }).click();
+  await expect(editor.getByText("Involve Me side · front", { exact: true })).toBeVisible();
+  const faces = await (await request.get(`http://localhost:8000/api/blocks/${block.id}/faces`)).json();
+  expect(faces[0].references).toEqual([]);
+  expect(faces[0].print_rule.expected_text).toBe("Involve Me");
+  expect(faces[0].print_rule.alternative_texts).toEqual(["insights"]);
+  const project = await (await request.post("http://localhost:8000/api/projects", { data: { name: "Zero shot project" } })).json();
+  await page.goto(`/projects/${project.id}`);
+  await page.getByRole("button", { name: "Add step", exact: true }).click();
+  await page.getByLabel("Step title").fill("Read yellow print");
+  await page.getByLabel("Instruction", { exact: false }).fill("Inspect visible print");
+  await page.getByLabel(block.name, { exact: false }).first().check();
+  await page.getByLabel("Face target block").selectOption(block.id);
+  await page.getByLabel("Required printed face").selectOption(faces[0].id);
+  await expect(page.getByLabel("Required physical facing direction")).toHaveValue("not_required");
+  await page.getByRole("button", { name: "Save step", exact: true }).click();
+  await expect(page.getByText("Step saved. Manage reference photographs below.")).toBeVisible();
+  await page.reload();
+  const saved = await (await request.get(`http://localhost:8000/api/projects/${project.id}`)).json();
+  expect(saved.steps[0].face_constraint.facing_direction).toBe("not_required");
+  await request.delete(`http://localhost:8000/api/projects/${project.id}`);
+  await request.delete(`http://localhost:8000/api/blocks/${block.id}`);
+});

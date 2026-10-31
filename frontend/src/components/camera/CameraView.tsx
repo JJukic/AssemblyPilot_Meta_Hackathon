@@ -56,7 +56,7 @@ export function CameraView({ camera }: { camera: Camera }) {
         onStart={() => void start(deviceId)} onStop={stop}
         onCapture={capture} onDeviceChange={selectDevice}
       />
-      <div className="privacy-note"><ShieldCheck size={14} /> Frames stay in this browser until you explicitly request AI inspection or calibration analysis. Nothing is uploaded automatically.</div>
+      <div className="privacy-note"><ShieldCheck size={14} /> Frames stay in this browser until you explicitly request AI inspection, calibration analysis or edge debugging. Nothing is uploaded automatically.</div>
     </section>
   );
 }

@@ -7,6 +7,7 @@ import { errorMessage } from "@/lib/api";
 import { ImageManager } from "@/components/ui/ImageManager";
 import { BlockCard } from "./BlockCard";
 import { BlockForm } from "./BlockForm";
+import { FaceEditor } from "./FaceEditor";
 
 export function BlockLibrary() {
   const { data, error, reload } = useResource(registry.blocks);
@@ -50,6 +51,7 @@ export function BlockLibrary() {
             reload(); setEditing(saved.id); setNotice("Block saved. You can now add reference photographs.");
           }} />
           {selected && <ImageManager key={`images:${selected.id}`} images={selected.reference_images} endpoint={`/api/blocks/${selected.id}/images`} onChange={reload} />}
+          {selected && <FaceEditor key={`faces:${selected.id}`} blockId={selected.id} />}
         </> : <p className="empty-state">Loading saved block…</p>}
       </aside>}
     </div>

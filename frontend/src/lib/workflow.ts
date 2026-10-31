@@ -1,4 +1,6 @@
+import { validPrint } from "./prints";
 import { isInspectionResponse, isValidBoundingBox } from "./diagnosis-validation";
+import { validFace } from "./faces";
 import { isGeometricVerification, validateGeometrySnapshot } from "./geometry-validation";
 import type { InspectionResponse } from "@/types/inspection";
 import type { VerificationResponse, WorkflowInspection, WorkflowState } from "@/types/workflow";
@@ -21,17 +23,38 @@ function index(value: unknown, count: number) { return value === null || (Number
 
 export function isWorkflowInspection(value: unknown, stepId: string): value is WorkflowInspection {
   if (!record(value) || !isInspectionResponse(value, stepId)) return false;
-  const data = value as unknown as Record<string, unknown>;
+  const data = { ...value } as unknown as Record<string, unknown>;
   if (!text(data.inspection_id) || !hash(data.snapshot_id) || !hash(data.specification_id) || data.muse_call_count !== 1 || !Number.isInteger(data.meta_attempt_count) || Number(data.meta_attempt_count) < 1 || Number(data.meta_attempt_count) > 3 ||
       !Array.isArray(data.tracked_issues) || data.tracked_issues.length > 200 || !Array.isArray(data.correction_plan) || data.correction_plan.length > 100 ||
       !(data.geometry === undefined || data.geometry === null || isGeometricVerification(data.geometry, stepId))) return false;
   const geometry = data.geometry && isGeometricVerification(data.geometry, stepId) ? data.geometry : null;
+  if (data.face !== undefined && data.face !== null && !validFace(data.face)) return false;
+  const face = validFace(data.face) ? data.face : null;
+  if (data.print_recognition !== undefined && data.print_recognition !== null && !validPrint(data.print_recognition, String(data.snapshot_id))) return false;
+  const print = validPrint(data.print_recognition, String(data.snapshot_id)) ? data.print_recognition : null;
   let states = value.status === "correct" ? ["correct", "verified"] : value.status === "incorrect" ? ["correction_required", "still_incorrect"] : ["uncertain"];
   if (value.status === "correct" && geometry?.constraint_id) {
     states = geometry.geometry_status === "correct" ? ["correct", "verified"] :
       geometry.geometry_status === "incorrect" ? ["correction_required", "still_incorrect"] : ["uncertain"];
   }
+  if (face?.status === "incorrect") states = ["correction_required", "still_incorrect"];
+  else if (face?.status === "uncertain" && states.includes("correct")) states = ["uncertain"];
+  if (print?.gate_status === "fail") states = ["correction_required", "still_incorrect"];
+  else if (print?.gate_status === "uncertain" && states.includes("correct")) states = ["uncertain"];
   if (!states.includes(String(data.state))) return false;
+  const faceActions = data.correction_plan.filter((action) => record(action) && ["face_adjust", "face_capture"].includes(String(action.kind)));
+  if (face && ["incorrect", "uncertain"].includes(face.status)) {
+    if (faceActions.length !== 1 || !record(faceActions[0]) || faceActions[0].instruction !== face.guidance) return false;
+  } else if (faceActions.length) return false;
+  const printActions = data.correction_plan.filter((action) => record(action) && ["print_adjust", "print_capture"].includes(String(action.kind)));
+  if (print && ["fail", "uncertain"].includes(print.gate_status)) {
+    if (printActions.length !== 1 || !record(printActions[0]) || printActions[0].instruction !== print.suggested_action ||
+        printActions[0].block_id !== print.target_block_id || printActions[0].issue_id !== null ||
+        printActions[0].kind !== (print.gate_status === "fail" ? "print_adjust" : "print_capture")) return false;
+  } else if (printActions.length) return false;
+  // Validate remaining semantic/geometric actions against their original contracts.
+  data.correction_plan = data.correction_plan.filter((action) => !faceActions.includes(action) && !printActions.includes(action));
+  if (!Array.isArray(data.correction_plan)) return false;
   const tracks = data.tracked_issues;
   const ids = new Set<string>(); const indices = new Set<number>();
   if (!data.tracked_issues.every((item) => {
@@ -95,6 +118,10 @@ export async function validateSnapshotIdentity(result: InspectionResponse & { sn
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   const identity = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   if (identity !== result.snapshot_id) throw new Error("Analyzed snapshot identity mismatch. No result was accepted.");
+  if ("face" in result && validFace(result.face) && result.face.analyzed_snapshot) {
+    await validateSnapshotIdentity({ ...result, face: undefined, geometry: undefined,
+      analyzed_snapshot: result.face.analyzed_snapshot, snapshot_id: result.face.snapshot_id } as InspectionResponse & { snapshot_id: string });
+  }
   if ("geometry" in result && result.geometry && isGeometricVerification(result.geometry, result.step_id)) {
     await validateGeometrySnapshot(result.geometry);
   }

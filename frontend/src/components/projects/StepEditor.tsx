@@ -4,12 +4,15 @@ import { useState } from "react";
 import type { BuildingBlock } from "@/types/blocks";
 import type { ProjectStep, StepInput } from "@/types/projects";
 import { errorMessage } from "@/lib/api";
+import { FaceConstraintEditor } from "./FaceConstraintEditor";
 
 export function StepEditor({ step, blocks, onSave, onCancel }: {
   step?: ProjectStep; blocks: BuildingBlock[]; onSave: (data: StepInput) => Promise<void>; onCancel: () => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(step?.required_blocks.map((item) => item.block_id)));
   const existing = step?.spatial_constraint;
+  const [faceConstraint, setFaceConstraint] = useState<StepInput["face_constraint"]>(step?.face_constraint ?? null);
+  const [faceBlockId, setFaceBlockId] = useState(step?.face_constraint?.target_block_id ?? "");
   const [geometryEnabled, setGeometryEnabled] = useState(!!existing);
   const [targetId, setTargetId] = useState(existing?.target_block_id ?? "");
   const [referenceId, setReferenceId] = useState(existing?.reference_block_id ?? "");
@@ -49,7 +52,7 @@ export function StepEditor({ step, blocks, onSave, onCancel }: {
     }
     setBusy(true); setError(null);
     try {
-      await onSave({ title, instruction, required_blocks: assignments, spatial_constraint: spatialConstraint });
+      await onSave({ title, instruction, required_blocks: assignments, spatial_constraint: spatialConstraint, face_constraint: faceConstraint });
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
@@ -78,6 +81,9 @@ export function StepEditor({ step, blocks, onSave, onCancel }: {
         </div>
       </>}
     </section>
+    <h3 className="form-subtitle">Printed face orientation</h3>
+    <label className="field">Face target block<select value={faceBlockId} onChange={(e) => { setFaceBlockId(e.target.value); setFaceConstraint(null); }}><option value="">No face check</option>{blocks.filter((block) => selected.has(block.id)).map((block) => <option key={block.id} value={block.id}>{block.name}</option>)}</select></label>
+    {faceBlockId && <FaceConstraintEditor key={faceBlockId} blockId={faceBlockId} value={faceConstraint} onChange={setFaceConstraint} />}
     {error && <p role="alert" className="form-error">{error}</p>}
     <div className="form-actions"><button type="button" className="button secondary" onClick={onCancel}>Close editor</button><button type="submit" className="button primary">{busy ? "Saving…" : "Save step"}</button></div>
     {!step && <p className="muted">Save the step, then upload a photograph of the correct construction.</p>}

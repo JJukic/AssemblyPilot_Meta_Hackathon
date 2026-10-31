@@ -86,3 +86,8 @@ is used. Changing the selection retains all photos.
 GET context returns project and step identity, title/instruction, the current step's expected blocks with physical definitions and required quantities, their reference metadata, and current step reference metadata/URLs. Unrelated blocks/projects are excluded. `snapshot` and `previous_context` are null on GET.
 
 For optional intermediate context, Python can call `build_inspection_context(session, project_id, step_id, snapshot, previous_context)`. The snapshot is a validated `ProcessedImage`, converted into a typed in-memory `CameraFrame` containing JPEG base64 and dimensions. It is never stored. `PreviousInspection` accepts a previous step ID and bounded notes. The resulting Pydantic schema is an intermediate representation, not a prompt containing ORM objects. Phase 3A uses the metadata resolver plus `build_multimodal_request` to load only permitted reference bytes. `/api/inspect` accepts the camera image and both IDs, then calls Meta; see [inspection API](inspection-api.md).
+
+## Phase 4.1C extension
+
+See [printed-face API and evidence contracts](face-verification.md#fusion-and-storage)
+for the additive face registry, optional step rule and workflow face result.

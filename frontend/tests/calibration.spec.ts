@@ -62,7 +62,7 @@ test("collects samples, rejects duplicates, requires measurements and saves prof
   await expect(calibrate).toBeDisabled();
   await page.getByLabel("Measured pattern width (mm)").fill("140");
   await page.getByLabel("Measured pattern height (mm)").fill("100");
-  await page.getByRole("checkbox").check();
+  await page.getByRole("checkbox", { name: /I confirm the camera/ }).check();
   let calibrationCalls = 0;
   await page.route("**/api/calibration/calibrate", async (route) => {
     calibrationCalls++;
@@ -81,7 +81,7 @@ test("collects samples, rejects duplicates, requires measurements and saves prof
   expect(calibrationCalls).toBe(1);
   await page.getByRole("button", { name: "Precision Capture", exact: true }).click();
   await expect(page.getByLabel("Calibration profile")).toHaveValue("synthetic-profile");
-  await expect(page.getByRole("checkbox")).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: /I confirm the camera/ })).not.toBeChecked();
 });
 
 test("precision guidance uses exact snapshot corners, never live video, and stays readable on mobile", async ({ page }) => {

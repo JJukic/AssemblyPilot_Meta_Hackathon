@@ -1,3 +1,4 @@
+import { validContour } from "./contours";
 import type { BoundingBox, InspectionResponse } from "@/types/inspection";
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -32,6 +33,8 @@ export function isInspectionResponse(value: unknown, stepId: string): value is I
       id(issue.block_id) && text(issue.description) && text(issue.expected) && text(issue.observed) && text(issue.suggested_fix) &&
       (issue.bounding_box === null || (issue.type !== "missing_part" && isValidBoundingBox(issue.bounding_box))))) return false;
   if ((value.status === "correct" && value.issues.length > 0) || (value.status === "incorrect" && !value.issues.length)) return false;
+  if (value.comparison_reference_id !== undefined && value.comparison_reference_id !== null &&
+      (typeof value.comparison_reference_id !== "string" || !/^[a-zA-Z0-9-]{1,100}$/.test(value.comparison_reference_id))) return false;
   if (!validSegmentations(value)) return false;
   if (value.status !== "uncertain") return value.active_vision === null;
   const vision = value.active_vision;
@@ -40,7 +43,7 @@ export function isInspectionResponse(value: unknown, stepId: string): value is I
 }
 
 
-function validMask(mask: unknown): boolean {
+export function validMask(mask: unknown): boolean {
   if (!record(mask) || mask.encoding !== "png" || !Number.isInteger(mask.width) || !Number.isInteger(mask.height) ||
       Number(mask.width) <= 0 || Number(mask.height) <= 0 || Number(mask.width) > 1600 || Number(mask.height) > 1600 ||
       !text(mask.data_url) || mask.data_url.length > 700000 || !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(mask.data_url)) return false;
@@ -69,6 +72,10 @@ function validSegmentations(value: Record<string, unknown>): boolean {
         !text(entry.message) || !finite(entry.latency_ms) || entry.latency_ms < 0 ||
         !(entry.concept === null || text(entry.concept)) || ![null, "concept", "box"].includes(entry.prompt_kind as null | string)) return false;
     indices.add(Number(entry.issue_index));
+    if (entry.outline !== undefined && entry.outline !== null &&
+        (!validContour(entry.outline, { snapshot_id: String(value.snapshot_id), width: Number(snapshot.width), height: Number(snapshot.height) }) ||
+         entry.outline.kind !== "sam_outline" || (entry.outline.status === "available" && entry.status !== "matched"))) return false;
+
     if (entry.result === null) return entry.selected_instance_id === null && ["unavailable", "disabled", "skipped"].includes(String(entry.status));
     const result = entry.result;
     if (value.status !== "incorrect" || issues[Number(entry.issue_index)].type === "missing_part" ||

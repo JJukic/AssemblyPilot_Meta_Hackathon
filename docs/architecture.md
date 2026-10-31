@@ -1,4 +1,4 @@
-# AssemblyPilot architecture — Phase 4.1B
+# AssemblyPilot architecture — Phase 4.1C
 
 ## Components
 
@@ -63,7 +63,7 @@ Successful HTTP status is insufficient: the adapter requires a completed single 
 
 Issues now separate expected specification from observed evidence. `uncertain` results require a non-null Active Vision reason, requested view and specific instruction; other statuses require null. No default camera request is manufactured when the model fails this contract. New angles remain separate, explicitly triggered inspections, not an automatic multi-view fusion loop.
 
-The image-only legacy route still validates and returns 501; context-aware requests use the real adapter. Phase 1 correction/verification/orchestration interfaces remain unimplemented and are not invoked by Phase 3B. Future verification needs a new post-repair frame. See [inspection API](inspection-api.md) for protocol sources and errors.
+The image-only legacy route still validates and returns 501; context-aware requests use the real adapter and the Phase 4 orchestrator. Fresh post-repair frames drive explicit verification. See [inspection API](inspection-api.md) for protocol sources and errors.
 
 ## Testing and local operation
 
@@ -148,3 +148,39 @@ steps remain `not_measured` and keep their previous semantic behavior. See
 [calibration.md](calibration.md) for calibration and
 [geometric-verification.md](geometric-verification.md) for frames, thresholds,
 API fields, tests and the unperformed physical experiment.
+
+## Printed-face identity and physical direction
+
+The [Phase 4.1C pipeline](face-verification.md) adds block-local face definitions,
+reference links and optional step constraints through three additive SQLite tables.
+Face references reuse existing media ownership and cleanup. `face_registry.py`
+provides shared serialization; `face_inspection.py` uses ORB/MAGSAC, planar
+rectification, Canny support, template correlation and calibrated face/board pose.
+The orchestrator combines semantic, geometric and face evidence; unresolved
+required faces block successful verification. Existing SAM masks can reject an
+inconsistent target association without introducing another model call. Muse
+receives registered face context in its existing request and returns a validated
+nullable face ID. Face and geometry panels remain separate, each tied to its exact
+snapshot. Reference/specification edits invalidate prior progress.
+
+Optional [inspection contour overlays](contour-overlays.md) add independently selectable SAM
+boundaries, raw ROI Canny edges and verified reference feature pairs on their
+exact snapshots. New contours are disabled by default and make no additional AI calls.
+
+[Independent Edge Detection Debug Mode](edge-debug.md) analyzes the captured camera
+JPEG without AI or matching prerequisites. It adds direct rectangular ROI selection,
+manual Gaussian/Canny controls, a full-resolution edge image and an optional raw
+overlay while preserving existing inspection results.
+
+
+## Meta-first print recognition
+
+[Phase 4.1E](print-recognition.md) adds one optional JSON configuration table linked
+to existing physical faces. `print_recognition.py` evaluates validated Muse
+observations against registered text or reusable references. Physical direction
+and geometric placement keep independent gates. `print_crop.py` may add one
+supported planar crop to the same Muse request; it never infers a plane from an
+object mask or starts another model call. The existing correction and fresh-image
+verification flow incorporates `print_adjust`/`print_capture` actions. The frontend
+shows versioned recognition and its exact-snapshot region alongside the existing
+face, geometry, SAM, contour and Canny tools. No non-Meta provider is added.

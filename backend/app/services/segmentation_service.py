@@ -2,9 +2,12 @@
 
 from time import perf_counter
 
+from starlette.concurrency import run_in_threadpool
+
 from app.models.diagnosis import BoundingBox, InspectionResult
 from app.models.multimodal import MultimodalInspectionRequest
 from app.models.segmentation import IssueSegmentation, SegmentationInstance, SegmentationResult
+from app.services.contour_service import sam_outline
 from app.services.inspection_errors import InspectionError
 from app.services.sam_client import SamClient, snapshot_identity
 
@@ -107,4 +110,8 @@ async def localize_issues(
             entry.message = f"Segmentation unavailable: {exc} Muse diagnosis is retained."
         finally:
             entry.latency_ms = (perf_counter() - started) * 1000
+    for entry in localizations:
+        entry.outline = await run_in_threadpool(
+            sam_outline, entry, snapshot_identity(image), image.width, image.height
+        )
     return localizations

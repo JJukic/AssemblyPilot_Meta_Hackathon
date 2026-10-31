@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.models.blocks import BlockInput, ImageRead
+from app.models.faces import FaceConstraint, FaceRead
 from app.models.geometry import StudOffsetConstraintRead
 
 
@@ -37,5 +38,7 @@ class InspectionContext(BaseModel):
     step_reference_images: list[ImageRead]
     step_reference_image: str | None
     spatial_constraint: StudOffsetConstraintRead | None = None
+    face_constraint: FaceConstraint | None = None
+    faces: list[FaceRead] = Field(default_factory=list)
     snapshot: CameraFrame | None = None
     previous_context: PreviousInspection | None = None

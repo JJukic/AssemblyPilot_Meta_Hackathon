@@ -1,13 +1,15 @@
 import base64
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
+from app.db.tables import BlockFace
 from app.models.inspection_context import (
     CameraFrame,
     ExpectedBlock,
     InspectionContext,
     PreviousInspection,
 )
+from app.services.face_registry import public_face
 from app.services.image_processor import ProcessedImage
 from app.services.project_service import public_step, require_project, require_step
 
@@ -38,6 +40,17 @@ def build_inspection_context(
         step_reference_images=step.reference_images,
         step_reference_image=step.reference_images[0].url if step.reference_images else None,
         spatial_constraint=step.spatial_constraint,
+        face_constraint=step.face_constraint,
+        faces=[
+            public_face(session, face)
+            for face in session.exec(
+                select(BlockFace)
+                .where(BlockFace.block_id == step.face_constraint.target_block_id)
+                .order_by(BlockFace.label)
+            ).all()
+        ]
+        if step.face_constraint
+        else [],
         snapshot=CameraFrame(
             width=snapshot.width,
             height=snapshot.height,

@@ -82,7 +82,11 @@ class VerificationClient(MetaClient):
             envelope["choices"][0]["message"]["content"] = json.dumps(
                 result.model_dump(exclude={"issue_assessments"})
             )
-            MetaClient.parse_response(json.dumps(envelope).encode(), request)
+            sanitized = MetaClient.parse_response(json.dumps(envelope).encode(), request)
+            # Keep any discarded printed-side claim from the validated copy;
+            # the locally parsed evidence still holds the raw model claim.
+            result.print_observation = sanitized.print_observation
+            result.observed_face_id = sanitized.observed_face_id
             previous = {item.issue_id: item for item in self.previous}
             ids = [item.previous_issue_id for item in result.issue_assessments]
             if len(ids) != len(set(ids)) or set(ids) != set(previous):
@@ -103,5 +107,6 @@ class VerificationClient(MetaClient):
             raise InspectionError(
                 "meta_invalid_verification",
                 "Meta did not return valid verification evidence. "
-                "Capture a clearer view and retry.",
+                "Its response was incomplete, malformed or inconsistent with prior findings. "
+                "Retry verification; this does not establish poor image quality.",
             ) from None

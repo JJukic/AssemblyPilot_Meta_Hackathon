@@ -7,10 +7,14 @@ from app.services.image_processor import ProcessedImage
 
 @dataclass(frozen=True)
 class InspectionImage:
-    role: Literal["current_snapshot", "assembled_step_reference", "block_reference"]
+    role: Literal[
+        "current_snapshot", "assembled_step_reference", "block_reference", "current_print_crop"
+    ]
     image: ProcessedImage
     reference_id: str | None = None
     block_id: str | None = None
+    source_snapshot_id: str | None = None
+    source_quad: list[list[float]] | None = None
 
 
 @dataclass(frozen=True)

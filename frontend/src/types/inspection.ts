@@ -1,3 +1,4 @@
+import type { ContourLayer } from "@/lib/contours";
 export interface BoundingBox { x: number; y: number; width: number; height: number }
 export interface InspectionIssue {
   type: "missing_part" | "misplaced_part" | "wrong_color" | "wrong_orientation" | "unexpected_part" | "unknown";
@@ -24,6 +25,7 @@ export interface InspectionResult {
 }
 export interface AnalyzedSnapshot { data_url: string; width: number; height: number }
 export interface InspectionResponse extends InspectionResult {
+  comparison_reference_id?: string | null;
   analyzed_snapshot: AnalyzedSnapshot;
   inspection_id?: string;
   snapshot_id?: string;
@@ -47,6 +49,7 @@ export interface SegmentationInstance {
   mask: { encoding: "png"; width: number; height: number; data_url: string };
 }
 export interface IssueSegmentation {
+  outline?: ContourLayer | null;
   issue_index: number;
   status: "matched" | "ambiguous" | "no_match" | "unavailable" | "disabled" | "skipped";
   concept: string | null;

@@ -450,3 +450,102 @@ def test_meta_uncertain_without_active_vision_is_not_fabricated(settings, inspec
     with pytest.raises(InspectionError) as error:
         run_meta(settings, request, lambda _: httpx.Response(200, json=completion(result)))
     assert error.value.code == "meta_invalid_response"
+
+
+def test_observed_face_must_be_registered_in_selected_step(inspection_case):
+    from app.models.faces import FaceRead
+
+    request, result = inspection_case
+    request.context.faces = [
+        FaceRead(
+            id="registered",
+            block_id=request.context.expected_blocks[0].id,
+            label="front",
+            name="Front",
+            width_mm=32,
+            height_mm=24,
+            references=[],
+        )
+    ]
+    result["observed_face_id"] = "invented"
+    with pytest.raises(InspectionError):
+        MetaClient.parse_response(json.dumps(completion(result)).encode(), request)
+    result["observed_face_id"] = "registered"
+    assert (
+        MetaClient.parse_response(json.dumps(completion(result)).encode(), request).observed_face_id
+        == "registered"
+    )
+
+
+@pytest.mark.parametrize(
+    "change,reason,field",
+    [
+        ({"step_id": "wrong-step"}, "step_id_mismatch", None),
+        ({"observed_face_id": "unknown-side"}, "unknown_face_id", None),
+        (
+            {
+                "visible_blocks": [
+                    {"block_id": "unknown-block", "description": "Test", "estimated_count": 1}
+                ]
+            },
+            "unknown_block_id",
+            None,
+        ),
+        (
+            {"status": "incorrect", "issues": [], "active_vision": None},
+            "diagnosis_schema",
+            "diagnosis_consistency",
+        ),
+        ({"confidence": "not-a-number"}, "diagnosis_schema", "confidence"),
+    ],
+)
+def test_rejection_reason_identifies_contract_failure_without_blame(
+    settings, inspection_case, caplog, change, reason, field
+):
+    request, result = inspection_case
+    with pytest.raises(InspectionError) as caught:
+        run_meta(
+            settings, request, lambda _: httpx.Response(200, json=completion({**result, **change}))
+        )
+    assert caught.value.code == "meta_invalid_response"
+    assert f"[{reason}]" in str(caught.value)
+    assert f"reason={reason}" in caplog.text
+    assert "Capture a clearer view" not in str(caught.value)
+    if field:
+        assert field in str(caught.value) and field in caplog.text
+
+
+def test_truncated_response_has_its_own_reason(settings, inspection_case, caplog):
+    response = {
+        "choices": [
+            {"finish_reason": "length", "message": {"content": "private incomplete answer"}}
+        ]
+    }
+    with pytest.raises(InspectionError) as caught:
+        run_meta(settings, inspection_case[0], lambda _: httpx.Response(200, json=response))
+    assert "[output_limit]" in str(caught.value)
+    assert "token limit" in str(caught.value)
+    assert "private incomplete answer" not in str(caught.value) + caplog.text
+
+
+def test_schema_diagnostics_never_echo_values_extra_keys_or_provider_content(
+    settings, inspection_case, caplog
+):
+    request, result = inspection_case
+    private = "private-provider-input-must-not-leak"
+    body = completion({**result, private: private, "confidence": private})
+    with pytest.raises(InspectionError) as caught:
+        run_meta(settings, request, lambda _: httpx.Response(200, json=body))
+    assert "confidence" in str(caught.value)
+    assert "unknown_field" in caplog.text
+    assert private not in str(caught.value) + caplog.text
+    assert "test-only-not-a-real-key" not in caplog.text
+
+
+def test_non_json_diagnosis_is_not_reported_as_poor_image_quality(settings, inspection_case):
+    response = completion({})
+    response['choices'][0]['message']['content'] = 'not diagnostic JSON'
+    with pytest.raises(InspectionError) as caught:
+        run_meta(settings, inspection_case[0], lambda _: httpx.Response(200, json=response))
+    assert '[diagnosis_json]' in str(caught.value)
+    assert 'diagnosis_consistency' not in str(caught.value)

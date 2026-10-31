@@ -5,10 +5,13 @@ from app.db.tables import (
     AssemblyProject,
     AssemblyStep,
     AssemblyStepBlock,
+    BlockFace,
     BuildingBlock,
+    StepFaceConstraint,
     StepSpatialConstraint,
     now,
 )
+from app.models.faces import FaceConstraint
 from app.models.geometry import StudOffsetConstraintRead
 from app.models.projects import ProjectRead, StepBlockRead, StepInput, StepRead
 from app.services.block_service import public_block, require_block
@@ -55,6 +58,9 @@ def public_step(session: Session, step: AssemblyStep) -> StepRead:
     ).first()
     return StepRead(
         **step.model_dump(),
+        face_constraint=FaceConstraint.model_validate(face.model_dump(exclude={"step_id"}))
+        if (face := session.get(StepFaceConstraint, step.id))
+        else None,
         required_blocks=[
             StepBlockRead(
                 block_id=item.block_id,
@@ -77,6 +83,32 @@ def replace_blocks(session: Session, step: AssemblyStep, data: StepInput):
     blocks = {item.block_id: require_block(session, item.block_id) for item in data.required_blocks}
     if data.spatial_constraint:
         validate_spatial_constraint(blocks, data.spatial_constraint)
+    face_rule = session.get(StepFaceConstraint, step.id)
+    if data.face_constraint:
+        face = session.get(BlockFace, data.face_constraint.required_face_id)
+        if face is None or face.block_id != data.face_constraint.target_block_id:
+            raise HTTPException(422, "Required face must belong to the target block")
+        if data.face_constraint.facing_direction == "not_required":
+            from app.db.tables import PrintedSideRule
+
+            if session.get(PrintedSideRule, face.id) is None:
+                raise HTTPException(422, "Print-only inspection requires a configured print rule")
+        if (
+            next(
+                item.required_quantity
+                for item in data.required_blocks
+                if item.block_id == face.block_id
+            )
+            != 1
+        ):
+            raise HTTPException(422, "Face inspection requires one target instance")
+        if face_rule:
+            face_rule.sqlmodel_update(data.face_constraint.model_dump())
+        else:
+            face_rule = StepFaceConstraint(step_id=step.id, **data.face_constraint.model_dump())
+        session.add(face_rule)
+    elif face_rule:
+        session.delete(face_rule)
     existing = session.exec(
         select(AssemblyStepBlock).where(AssemblyStepBlock.step_id == step.id)
     ).all()
