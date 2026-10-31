@@ -450,3 +450,13 @@ def test_legacy_faces_keep_their_serialized_fingerprint_shape(flow):
     face, _, _ = configure(flow)
     face.pop("print_rule")
     assert FaceRead.model_validate(face).model_dump() == face
+
+
+def test_missing_print_observation_reports_contract_problem_not_bad_image(flow, caplog):
+    configure(flow)
+    flow.base["print_observation"] = None
+    response = flow.start()
+    assert response.status_code == 502
+    assert "[print_rule_evidence]" in response.json()["detail"]["message"]
+    assert "reason=print_rule_evidence" in caplog.text
+    assert flow.progress()["status"] != "verified"

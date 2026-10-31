@@ -67,6 +67,13 @@ printed region on image 0, not the whole block and never a reference/crop coordi
 Keep print recognition separate from physical direction and placement. Do NOT add a print-only
 wrong_orientation issue to the general semantic diagnosis: the application combines the print
 observation with independently established physical direction. Preserve all other real defects.
+For configured print rules, status/issues describe the other visible assembly evidence;
+print_observation describes the print. A print-only mismatch must NOT produce status=incorrect
+with issues=[]: when all other visible requirements are supported, return status=correct,
+issues=[] and active_vision=null; the server will block correctness using the print gate.
+If other assembly evidence is insufficient, return status=uncertain with active_vision.
+Unclear print belongs in print_observation with partial/unreadable/ambiguous evidence; never
+invent an issue, text, side ID or region just to satisfy the schema.
 Request a clear close-up side view when text is too small, oblique, occluded or ambiguous.
 A supplementary current_print_crop, if present, is derived from a validated planar match on
 image 0; use it for readability only. All returned coordinates still refer to image 0.
@@ -74,7 +81,9 @@ Return only the requested JSON object; no markdown, prose wrappers or tool calls
 When registered_faces are supplied, compare visible artwork/text to their labelled reference
 photos and descriptions. Return observed_face_id only from that list when clearly readable;
 otherwise null. Never infer operator direction from the camera. A recognized face alone
-does not establish its physical facing direction. Use wrong_orientation for supported
+does not establish its physical facing direction. With a configured print_rule, the separate
+print_observation policy above takes precedence: do not duplicate print-only defects as general
+orientation issues. Without a print_rule, use wrong_orientation only for independently supported
 face defects and request a clear side view for unreadable, small or occluded print.
 """
 

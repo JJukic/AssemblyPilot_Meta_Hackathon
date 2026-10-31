@@ -131,3 +131,23 @@ exact snapshot ID, optional normalized region, independent direction evidence
 and `gate_status`. Null/absent configuration is `not_applicable`; partial or
 unreadable print is `uncertain`. No extra inference endpoint or model call.
 See [complete contract, reference policy and gate rules](print-recognition.md).
+
+### Diagnosing rejected model answers
+
+A `meta_invalid_response` error means the backend rejected Meta's response; it does
+not establish that the uploaded image was blurred. The previous generic instruction
+to capture a clearer view hid several distinct failures. Messages now include a
+bounded reason such as `output_limit`, `diagnosis_json`, `diagnosis_schema`,
+`print_rule_evidence`, `step_id_mismatch`, `unknown_face_id` or `unknown_block_id`.
+For schema failures, only schema-owned field names are included. The backend logs
+`Rejected Meta diagnosis: reason=... fields=...`; it never logs raw provider
+answers, unrecognized field names, image data, credentials or validation values.
+
+If running locally, update the feature branch, restart the backend and repeat the
+inspection once. Share that reason/field line to diagnose the specific failure;
+old requests cannot be reconstructed from the former catch-all message. Correct
+prompt instructions or investigate the indicated response constraint before
+assuming another photograph will fix it. Rejection remains HTTP 502 and never
+produces a fabricated diagnosis or verified progress. No additional inference
+retry was added. Print-only defects are kept separate from the semantic issue
+list so the prompt no longer asks simultaneously for incompatible representations.

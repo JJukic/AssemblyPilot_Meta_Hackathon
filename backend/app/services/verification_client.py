@@ -103,5 +103,6 @@ class VerificationClient(MetaClient):
             raise InspectionError(
                 "meta_invalid_verification",
                 "Meta did not return valid verification evidence. "
-                "Capture a clearer view and retry.",
+                "Its response was incomplete, malformed or inconsistent with prior findings. "
+                "Retry verification; this does not establish poor image quality.",
             ) from None

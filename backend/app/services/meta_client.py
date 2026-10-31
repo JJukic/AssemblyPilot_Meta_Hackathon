@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import logging
 import math
 import random
 from datetime import UTC, datetime
@@ -19,6 +20,8 @@ from app.models.multimodal import MultimodalInspectionRequest
 from app.prompts.inspection import INSPECTION_POLICY, inspection_task_data
 from app.services.image_processor import ProcessedImage
 from app.services.inspection_errors import InspectionError
+
+logger = logging.getLogger(__name__)
 
 MAX_RESPONSE_BYTES = 1024 * 1024
 
@@ -206,36 +209,86 @@ class MetaClient:
 
     @staticmethod
     def parse_response(data: bytes, request: MultimodalInspectionRequest) -> InspectionResult:
+        reason = "response_envelope"
+        explanation = "Meta returned an unreadable response envelope."
+        fields = ""
         try:
             envelope = json.loads(data)
             choices = envelope["choices"]
-            if len(choices) != 1 or choices[0]["finish_reason"] != "stop":
+            if len(choices) != 1:
+                raise ValueError("Expected one answer")
+            reason = "incomplete_completion"
+            explanation = "Meta did not finish its diagnosis."
+            if choices[0]["finish_reason"] == "length":
+                reason = "output_limit"
+                explanation = "Meta stopped at the response token limit before finishing."
+            if choices[0]["finish_reason"] != "stop":
                 raise ValueError("Incomplete completion")
+            reason = "answer_envelope"
+            explanation = "Meta did not provide a readable diagnostic answer."
             message = choices[0]["message"]
             if message.get("refusal") or message.get("tool_calls"):
+                reason = "no_diagnostic_answer"
+                explanation = "Meta declined the diagnosis or returned an unsupported tool request."
                 raise ValueError("No diagnostic answer")
+            reason = "diagnosis_schema"
+            explanation = "Meta's diagnosis has missing, invalid or contradictory fields."
             result = InspectionResult.model_validate_json(message["content"])
+            reason = "unknown_face_id"
+            explanation = "Meta returned a printed-side ID that is not registered for this step."
             if result.observed_face_id is not None and result.observed_face_id not in {
                 face.id for face in request.context.faces
             }:
                 raise ValueError("Unknown registered face ID")
             from app.services.print_recognition import validate_print_observation
 
+            reason = "print_rule_evidence"
+            explanation = (
+                "Meta's printed-side evidence is missing or conflicts with the print rule."
+            )
             validate_print_observation(result, request)
+            reason = "step_id_mismatch"
+            explanation = "Meta returned a diagnosis for a different step ID."
             if result.step_id != request.context.step_id:
                 raise ValueError("Mismatched step")
             allowed = {block.id for block in request.context.expected_blocks}
+            reason = "unknown_block_id"
+            explanation = "Meta returned a block ID that is not registered for this step."
             if any(
                 item.block_id is not None and item.block_id not in allowed
                 for item in [*result.visible_blocks, *result.issues]
             ):
                 raise ValueError("Unknown block")
             return result
-        except (ValueError, TypeError, KeyError, IndexError, AttributeError, ValidationError):
-            # Never echo provider bodies, validation inputs, credentials or image bytes.
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError) as exc:
+            if isinstance(exc, ValidationError):
+                # Only schema-owned field names, never model values, extra keys or messages.
+                schema = InspectionResult.model_json_schema()
+                known = set(schema["properties"])
+                for definition in schema.get("$defs", {}).values():
+                    known.update(definition.get("properties", {}))
+                errors = exc.errors(include_input=False, include_context=False, include_url=False)
+                locations = {
+                    ".".join(
+                        part if part in known else "unknown_field"
+                        for part in error["loc"]
+                        if isinstance(part, str)
+                    )
+                    or "diagnosis_consistency"
+                    for error in errors
+                }
+                fields = ", ".join(sorted(locations)[:6])[:240]
+                if any(error["type"] == "json_invalid" for error in errors):
+                    reason = "diagnosis_json"
+                    explanation = "Meta's diagnostic answer is not valid JSON."
+                    fields = ""
+            logger.warning("Rejected Meta diagnosis: reason=%s fields=%s", reason, fields or "-")
+            detail = f" Fields: {fields}." if fields else ""
             raise InspectionError(
                 "meta_invalid_response",
-                "Meta did not return a valid diagnosis. Capture a clearer view and retry.",
+                f"{explanation}{detail} Retry inspection. "
+                "This is a response-validation error, not a confirmed image-quality problem. "
+                f"[{reason}]",
             ) from None
 
     async def diagnose(self, image: ProcessedImage, instruction: str) -> Diagnosis:

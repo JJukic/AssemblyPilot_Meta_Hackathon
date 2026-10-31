@@ -360,3 +360,13 @@ JPEG using the existing local endpoint. No new inference or verdict change.
 `make test-browser` (73 tests with system Chromium) passed. Four added browser
 cases cover exact analyzed-image transport and desktop/mobile alignment, toggles,
 stale captures, backend failure and mismatched image identity.
+
+## Rejected Meta response diagnostics — 2026-10-31
+
+`make lint` and `make test` passed (399 backend tests and frontend TypeScript).
+Nine new cases verify safe rejection categories, token truncation, malformed JSON,
+print-rule evidence and removal of untrusted values/keys from messages and logs.
+Validation rules remain strict; no live inference or extra retry was performed.
+The reported three failures occurred locally outside this workspace, so their
+specific historical cause is not known. A conflicting legacy prompt instruction
+was clarified; a new local attempt can now expose the bounded rejection reason.
