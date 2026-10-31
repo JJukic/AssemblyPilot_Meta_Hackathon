@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "@/lib/api";
 import { detectEdges, type EdgeDebugResult } from "@/lib/edge-debug";
 import { validContour } from "@/lib/contours";
-import { ContourControls, ContourPaths, emptyContours } from "./ContourOverlay";
+import { ContourControls, ContourPaths, emptyContours, OverlayOption } from "./ContourOverlay";
 import { isValidBoundingBox } from "@/lib/diagnosis-validation";
 import type { AnalyzedSnapshot, InspectionIssue, IssueSegmentation } from "@/types/inspection";
 
@@ -60,18 +60,12 @@ export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapsh
     matches.some((match) => match.index === entry.issue_index) ? [entry.outline] : []);
   if (edges?.analyzed_snapshot.data_url === snapshot.data_url) layers.push(edges.contours);
   return <figure className="diagnostic-overlay">
-    <div className="segmentation-controls">
-      <button type="button" className="secondary-button" aria-pressed={!annotated} onClick={() => setAnnotated(!annotated)}>{annotated ? "Show original" : "Show annotated"}</button>
-      <label><input type="checkbox" checked={showSegmentation} onChange={(event) => setShowSegmentation(event.target.checked)} disabled={!matches.length} /> Show Segmentation</label>
+    <div className="detection-toolbar">
+      <div><h4>Analyzed image</h4><span>{snapshot.width} × {snapshot.height} px · {annotated ? "Overlay view" : "Original view"}</span></div>
+      <button type="button" className="button secondary" aria-pressed={!annotated} onClick={() => setAnnotated(!annotated)}>{annotated ? "Show original" : "Show annotated"}</button>
     </div>
-    <label><input type="checkbox" checked={showBoxes} disabled={!boxes.length} onChange={(event) => setShowBoxes(event.target.checked)} /> Bounding Box</label>
-    <button type="button" className="button secondary" disabled={!ready || edgeBusy} onClick={() => void showEdges()}>
-      {edgeBusy ? "Detecting Canny edges…" : "Detect Canny edges"}
-    </button>
-    <p className="muted">Detect raw edges directly on this analyzed image using local OpenCV. Uses the full image; no additional AI request or change to the diagnosis.</p>
-    {edgeBusy && <p role="status">Extracting edges from the analyzed snapshot…</p>}
-    {edgeError && <p role="alert" className="form-error">{edgeError}</p>}
-    <ContourControls layers={layers} enabled={contours} onChange={(kind, checked) => setContours({ ...contours, [kind]: checked })} />
+    <div className="detection-workspace">
+    <div className="detection-preview">
     <div className="diagnostic-image-stage">
       <img src={snapshot.data_url} width={snapshot.width} height={snapshot.height} alt="Analyzed snapshot"
         onLoad={(event) => setLoaded({ url: snapshot.data_url, width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
@@ -91,9 +85,30 @@ export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapsh
         style={{ left: `min(${box.x * 100}%, calc(100% - 28px))`, top: `min(${box.y * 100}%, calc(100% - 22px))` }}>{index + 1}</span>)}</>}
       {ready && annotated && <ContourPaths layers={layers} enabled={contours} width={snapshot.width} height={snapshot.height} />}
     </div>
-    <figcaption>Analyzed snapshot · {snapshot.width} × {snapshot.height} px. Numbers match the issues below.</figcaption>
     {invalidMasks.length > 0 && <p role="alert">A segmentation mask could not be verified. Muse localization is retained.</p>}
     {ready && boxes.length === 0 && <p className="muted">No reliable locations were reported. No boxes are drawn.</p>}
+    </div>
+    <section className="detection-settings" aria-label="Detections and overlays">
+      <div className="detection-settings-heading"><h4>Detections &amp; overlays</h4><p>Choose what to show on this image.</p></div>
+      {!annotated && <p className="overlay-view-note">Original view: overlays are hidden. Select Show annotated to display your selections.</p>}
+      <OverlayOption label="Bounding Box" available={boxes.length > 0} checked={showBoxes} onChange={setShowBoxes}
+        description={boxes.length ? `${boxes.length} localized issue${boxes.length === 1 ? "" : "s"} · numbers match the findings below.` : "No reliably localized issues in this result."} />
+      <OverlayOption label="Show Segmentation" available={matches.length > 0} checked={showSegmentation} onChange={setShowSegmentation}
+        description={matches.length ? `${matches.length} selected SAM object mask${matches.length === 1 ? "" : "s"}.` : "No selected SAM object masks in this result."} />
+      <ContourControls layers={layers} enabled={contours} onChange={(kind, checked) => setContours({ ...contours, [kind]: checked })}
+        cannyAction={<div className="canny-action">
+          <button type="button" className="button secondary" disabled={!ready || edgeBusy} onClick={() => void showEdges()}>
+            {edgeBusy ? "Detecting Canny edges…" : "Detect Canny edges"}
+          </button>
+          <small>Full image · local edge detection · no AI request</small>
+          {edges && <small>{edges.edge_pixel_count.toLocaleString()} edge pixels · {edges.processing_ms.toFixed(0)} ms</small>}
+          {edgeBusy && <p role="status">Extracting edges from the analyzed snapshot…</p>}
+          {edgeError && <p role="alert" className="form-error">{edgeError}</p>}
+        </div>} />
+      <p className="overlay-note">Overlays visualize evidence. Raw edges do not change the inspection verdict.</p>
+    </section>
+    </div>
+    <figcaption>Analyzed snapshot · {snapshot.width} × {snapshot.height} px. Numbers match the issues below.</figcaption>
     {(failedUrl === snapshot.data_url || (loaded?.url === snapshot.data_url && !ready)) && <p role="alert" className="form-error">The analyzed image could not be verified for display. Boxes are hidden.</p>}
   </figure>;
 }

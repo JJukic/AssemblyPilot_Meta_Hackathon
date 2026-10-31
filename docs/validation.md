@@ -370,3 +370,11 @@ Validation rules remain strict; no live inference or extra retry was performed.
 The reported three failures occurred locally outside this workspace, so their
 specific historical cause is not known. A conflicting legacy prompt instruction
 was clarified; a new local attempt can now expose the bounded rejection reason.
+
+## Structured detection overview — 2026-10-31
+
+`make lint`, `make test` (399 backend tests and TypeScript), `make build` and
+`make test-browser` (73 passed with system Chromium) passed. The existing Canny
+browser scenario additionally checks exact contour alignment and no horizontal
+overflow at 1600, 1280 and 390 px. Desktop/mobile screenshots with synthetic
+fixtures were visually reviewed. This change reorganizes presentation only.

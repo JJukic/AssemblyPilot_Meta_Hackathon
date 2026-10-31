@@ -1,4 +1,5 @@
 "use client";
+import type { ReactNode } from "react";
 import type { ContourKind, ContourLayer } from "@/lib/contours";
 
 export const contourLabels: Record<ContourKind, string> = {
@@ -11,21 +12,41 @@ const colors: Record<ContourKind, string> = {
   sam_outline: "#69d5ff", canny_edges: "#ffcf70", reference_match: "#64f7a5",
 };
 
-export function ContourControls({ layers, enabled, onChange }: {
-  layers: ContourLayer[]; enabled: Record<ContourKind, boolean>;
-  onChange: (kind: ContourKind, checked: boolean) => void;
+export function OverlayOption({ label, available, checked, onChange, description, color, children }: {
+  label: string; available: boolean; checked: boolean; onChange: (checked: boolean) => void;
+  description: string; color?: string; children?: ReactNode;
 }) {
+  return <div className={`overlay-option ${available ? "is-available" : "is-unavailable"}`}>
+    <div className="overlay-option-heading">
+      <label><input type="checkbox" checked={available && checked} disabled={!available}
+        onChange={(event) => onChange(event.target.checked)} />
+        {color && <span className="overlay-swatch" style={{ background: color }} aria-hidden="true" />}{label}</label>
+      <span className="overlay-availability">{available ? "Available" : "Unavailable"}</span>
+    </div>
+    <p className="overlay-description">{description}</p>
+    {children}
+  </div>;
+}
+
+export function ContourControls({ layers, enabled, onChange, cannyAction }: {
+  layers: ContourLayer[]; enabled: Record<ContourKind, boolean>;
+  onChange: (kind: ContourKind, checked: boolean) => void; cannyAction?: ReactNode;
+}) {
+  const descriptions: Record<ContourKind, string> = {
+    sam_outline: "Object boundaries from SAM segmentation.",
+    canny_edges: "Raw detected edges · not a verified match.",
+    reference_match: "Geometrically verified reference feature pairs.",
+  };
   return <div className="contour-controls">
     {(Object.keys(contourLabels) as ContourKind[]).map((kind) => {
       const available = layers.some((layer) => layer.kind === kind && layer.status === "available");
       const message = layers.find((layer) => layer.kind === kind)?.message ?? "No supported evidence on this snapshot.";
-      return <div key={kind}>
-        <label><input type="checkbox" checked={available && enabled[kind]} disabled={!available}
-          onChange={(event) => onChange(kind, event.target.checked)} /> {contourLabels[kind]}</label>
-        {!available && <small>{contourLabels[kind]} unavailable: {message}</small>}
-      </div>;
+      return <OverlayOption key={kind} label={contourLabels[kind]} color={colors[kind]}
+        available={available} checked={enabled[kind]} onChange={(checked) => onChange(kind, checked)}
+        description={available ? descriptions[kind] : `${contourLabels[kind]} unavailable: ${message}`}>
+        {kind === "canny_edges" && cannyAction}
+      </OverlayOption>;
     })}
-    <p className="muted">Amber: raw ROI edges. Green: verified reference feature pairs. Blue: SAM mask boundary. None certifies assembly correctness.</p>
   </div>;
 }
 

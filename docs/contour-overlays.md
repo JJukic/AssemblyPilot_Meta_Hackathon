@@ -90,3 +90,19 @@ the manual tower protocol in [face-verification.md](face-verification.md) apply.
 JPEG without AI or matching prerequisites. It adds direct rectangular ROI selection,
 manual Gaussian/Canny controls, a full-resolution edge image and an optional raw
 overlay while preserving existing inspection results.
+
+## Structured detection overview
+
+The inspection view now groups the semantic assessment, component-group count,
+reported-issue count and SAM-match count above the analyzed image. Component groups
+count entries in the model response, not a guaranteed number of physical bricks.
+The image precedes its overlay controls; wide panels place those controls beside
+it and narrower panels stack them below.
+
+Each detection has its own card with availability and an independent visibility
+checkbox. Unavailable evidence is unchecked and disabled. Canny extraction and
+its pixel count/processing time sit in the Canny card. Raw edges and geometrically
+verified reference matches keep distinct labels and colors. Original view hides
+all overlays without discarding selections. Visible components and identified
+issues are grouped separately below the image. These are presentation changes;
+no detection logic, coordinates, inference calls or correctness gates change.

@@ -354,7 +354,7 @@ test("Canny edges render directly on the analyzed JPEG without another AI reques
   const paths = overlay.locator('[data-contour-kind="canny_edges"] path');
   await expect(paths.first()).toBeVisible();
   await expect(overlay.getByAltText("Analyzed snapshot")).toHaveAttribute("src", analyzedSnapshot.data_url);
-  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+  for (const viewport of [{ width: 1600, height: 1000 }, { width: 1280, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     const image = (await overlay.getByAltText("Analyzed snapshot").boundingBox())!;
     const point = await paths.first().evaluate((path: SVGPathElement) => {
@@ -364,6 +364,9 @@ test("Canny edges render directly on the analyzed JPEG without another AI reques
     const [x, y] = edges.contours.paths[0].points[0];
     expect((point.x - image.x) / image.width).toBeCloseTo(x / 400, 3);
     expect((point.y - image.y) / image.height).toBeCloseTo(y / 200, 3);
+    await expect(overlay.getByRole("region", { name: "Detections and overlays" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole("region", { name: "Meta AI inspection" }).locator(".diagnosis").screenshot({ path: `test-results/detection-overview-${viewport.width}.png` });
   }
   await overlay.getByRole("button", { name: "Show original", exact: true }).click();
   await expect(paths).toHaveCount(0);
