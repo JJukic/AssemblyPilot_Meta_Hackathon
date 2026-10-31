@@ -331,3 +331,23 @@ The Playwright bundled-browser download was blocked by the environment network p
 Non-failing dependency notices: ESLint 9 is marked deprecated by npm; the current Next.js lint stack passes. Starlette emits one deprecation warning for its httpx-based TestClient; all 28 tests execute and pass. No checks were disabled to avoid these notices.
 
 No Meta credentials or inference calls were used. Muse Spark API/model compatibility remains unverified and is deferred to the documented Phase 2 integration work. Physical camera checks remain a local acceptance step.
+
+## Phase 4.1E — automated validation, 2026-10-31
+
+Integrated on PR #9's unmerged printed-side / contour / independent Canny branch.
+
+- `make lint`: Ruff and ESLint passed.
+- `make test`: 390 backend tests passed; frontend typecheck passed.
+- `make build`: production Next.js build passed.
+- `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser`: 69 passed,
+  including six new browser cases for configuration without photos, recognition
+  states, responsive alignment and stale print evidence.
+- 38 new backend cases cover print configuration and additive compatibility,
+  text/reference/contour/hybrid modes, supported crops and direction association,
+  SAM conflicts, provider failure, fresh verification and invalid evidence.
+- Existing FastAPI/Starlette test-client deprecation warning remains non-fatal.
+
+Only synthetic images and mocked Meta inference were used. No Phase 4.1E live
+request was sent, no real-image print accuracy or latency was measured, and no
+new model provider or automatic inference loop was introduced. The actual yellow
+block experiment and its pending A–G records are in [print-recognition.md](print-recognition.md).

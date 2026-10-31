@@ -8,9 +8,11 @@ from app.models.blocks import ImageRead
 from app.models.calibration import GeometryModel
 from app.models.contours import ContourLayer
 from app.models.diagnosis import AnalyzedSnapshot
+from app.models.print_config import PrintConfig
 
 
 class FaceInput(GeometryModel):
+    print_rule: PrintConfig | None = Field(default=None, exclude_if=lambda value: value is None)
     label: Literal["front", "back", "left", "right", "top", "bottom"]
     name: str = Field(min_length=1, max_length=160)
     description: str = Field(default="", max_length=1000)
@@ -33,6 +35,7 @@ class FaceConstraint(GeometryModel):
         "board_positive_y",
         "board_negative_y",
         "operator_front",
+        "not_required",
     ]
 
 

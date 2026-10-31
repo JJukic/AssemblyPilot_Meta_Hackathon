@@ -1,3 +1,4 @@
+import { validPrint } from "./prints";
 import { isInspectionResponse, isValidBoundingBox } from "./diagnosis-validation";
 import { validFace } from "./faces";
 import { isGeometricVerification, validateGeometrySnapshot } from "./geometry-validation";
@@ -29,6 +30,8 @@ export function isWorkflowInspection(value: unknown, stepId: string): value is W
   const geometry = data.geometry && isGeometricVerification(data.geometry, stepId) ? data.geometry : null;
   if (data.face !== undefined && data.face !== null && !validFace(data.face)) return false;
   const face = validFace(data.face) ? data.face : null;
+  if (data.print_recognition !== undefined && data.print_recognition !== null && !validPrint(data.print_recognition, String(data.snapshot_id))) return false;
+  const print = validPrint(data.print_recognition, String(data.snapshot_id)) ? data.print_recognition : null;
   let states = value.status === "correct" ? ["correct", "verified"] : value.status === "incorrect" ? ["correction_required", "still_incorrect"] : ["uncertain"];
   if (value.status === "correct" && geometry?.constraint_id) {
     states = geometry.geometry_status === "correct" ? ["correct", "verified"] :
@@ -36,13 +39,21 @@ export function isWorkflowInspection(value: unknown, stepId: string): value is W
   }
   if (face?.status === "incorrect") states = ["correction_required", "still_incorrect"];
   else if (face?.status === "uncertain" && states.includes("correct")) states = ["uncertain"];
+  if (print?.gate_status === "fail") states = ["correction_required", "still_incorrect"];
+  else if (print?.gate_status === "uncertain" && states.includes("correct")) states = ["uncertain"];
   if (!states.includes(String(data.state))) return false;
   const faceActions = data.correction_plan.filter((action) => record(action) && ["face_adjust", "face_capture"].includes(String(action.kind)));
   if (face && ["incorrect", "uncertain"].includes(face.status)) {
     if (faceActions.length !== 1 || !record(faceActions[0]) || faceActions[0].instruction !== face.guidance) return false;
   } else if (faceActions.length) return false;
+  const printActions = data.correction_plan.filter((action) => record(action) && ["print_adjust", "print_capture"].includes(String(action.kind)));
+  if (print && ["fail", "uncertain"].includes(print.gate_status)) {
+    if (printActions.length !== 1 || !record(printActions[0]) || printActions[0].instruction !== print.suggested_action ||
+        printActions[0].block_id !== print.target_block_id || printActions[0].issue_id !== null ||
+        printActions[0].kind !== (print.gate_status === "fail" ? "print_adjust" : "print_capture")) return false;
+  } else if (printActions.length) return false;
   // Validate remaining semantic/geometric actions against their original contracts.
-  data.correction_plan = data.correction_plan.filter((action) => !faceActions.includes(action));
+  data.correction_plan = data.correction_plan.filter((action) => !faceActions.includes(action) && !printActions.includes(action));
   if (!Array.isArray(data.correction_plan)) return false;
   const tracks = data.tracked_issues;
   const ids = new Set<string>(); const indices = new Set<number>();

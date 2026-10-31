@@ -1,5 +1,9 @@
 # Printed-face verification — Phase 4.1C
 
+For reference-free text and reference-guided logos, see the integrated
+[Phase 4.1E recognition workflow](print-recognition.md). The deterministic
+matching and physical-direction rules below remain available.
+
 Phase 4.1C extends the merged Phase 4.1B baseline (PR #8) with an optional
 printed-face rule. Existing projects, stud constraints, calibration profiles,
 Muse inspection, SAM overlays and fresh-capture verification remain in place.

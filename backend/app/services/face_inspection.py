@@ -162,14 +162,19 @@ def inspect_faces(engine, settings, project_id, step_id, image, context):
         rule = session.get(StepFaceConstraint, step_id)
         if not rule:
             return result
-        result.expected_face_id = rule.required_face_id
+        no_direction = rule.facing_direction == "not_required"
+        result.expected_face_id = None if no_direction else rule.required_face_id
         result.target_block_id = rule.target_block_id
         expected_face = session.get(BlockFace, rule.required_face_id)
         result.expected_face_name = expected_face.name if expected_face else None
-        result.status = "uncertain"
+        result.status = "not_measured" if no_direction else "uncertain"
         result.guidance = (
             "Capture the complete printed side sharply, with the ChArUco board visible."
         )
+        if no_direction:
+            result.guidance = (
+                "No physical direction required; print recognition is evaluated separately."
+            )
         scene = gray(image)
         matches = []
         faces = session.exec(
@@ -216,6 +221,12 @@ def inspect_faces(engine, settings, project_id, step_id, image, context):
         result.guidance = (
             "Face identified; direction unresolved. Confirm calibration and a board-axis direction."
         )
+        if no_direction:
+            result.guidance = (
+                "Physical direction is not required; "
+                "reference identity does not measure orientation."
+            )
+            return result
         if not context.profile_id or not context.camera or not context.configuration_confirmed:
             return result
         directions = {

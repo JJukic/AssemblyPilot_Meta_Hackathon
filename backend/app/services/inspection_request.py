@@ -51,7 +51,10 @@ def build_multimodal_request(
     images = [InspectionImage(role="current_snapshot", image=snapshot)]
     # Required-face references first, then assembly/block context, under the existing cap.
     candidates = []
-    for face in context.faces:
+    face_order = sorted(
+        context.faces, key=lambda face: face.id != context.face_constraint.required_face_id
+    )
+    for face in face_order:
         if face.references:
             candidates.append((face.references[0], face.block_id, None))
     if context.step_reference_images:

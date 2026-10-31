@@ -2,8 +2,11 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
-Phase 4.1C adds optional **printed-face recognition and board-relative facing rules**,
-including a face registry, snapshot overlays and a conservative verification gate.
+Phase 4.1E adds **Meta-first printed-text and logo recognition** to the printed-face
+registry, contour overlays and independent Canny debug tools in PR #9. Configure
+expected text without a reference photo, inspect it in the existing Muse call, and
+review recognition separately from physical direction and geometric placement.
+See [setup, contracts and manual experiment](docs/print-recognition.md).
 It preserves Phase 4.1B’s **perspective-aware stud-offset check** on top of the
 OpenCV ChArUco calibration and merged Phase 4 correction workflow. Muse Spark remains
 the semantic inspection model, with optional Meta SAM 3.1 localization and fallback

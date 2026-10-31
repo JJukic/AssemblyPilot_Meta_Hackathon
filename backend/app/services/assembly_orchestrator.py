@@ -31,6 +31,8 @@ from app.services.geometric_verification import GeometricVerifier
 from app.services.image_processor import ProcessedImage
 from app.services.inspection_request import build_multimodal_request
 from app.services.meta_client import MetaClient
+from app.services.print_crop import add_print_crop
+from app.services.print_recognition import recognize_print
 from app.services.progress_service import begin_progress, complete_progress
 from app.services.sam_client import SamClient
 from app.services.segmentation_service import localize_issues
@@ -193,6 +195,16 @@ class AssemblyOrchestrator:
             request, fingerprint = await run_in_threadpool(
                 self.prepare, project_id, step_id, image, revision, previous
             )
+            face = await run_in_threadpool(
+                inspect_faces,
+                self.engine,
+                self.settings,
+                project_id,
+                step_id,
+                geometry_image or image,
+                geometry_context or GeometryFormContext(),
+            )
+            request = await run_in_threadpool(add_print_crop, request, face)
             client = VerificationClient(self.meta, previous.tracks) if previous else self.meta
             started = perf_counter()
             geometry_task = run_in_threadpool(
@@ -206,15 +218,6 @@ class AssemblyOrchestrator:
             latency = (perf_counter() - started) * 1000
             tracks = track_issues(evidence, revision, snapshot_id, previous)
             state = fused_state(evidence.status, geometry, previous is not None)
-            face = await run_in_threadpool(
-                inspect_faces,
-                self.engine,
-                self.settings,
-                project_id,
-                step_id,
-                geometry_image or image,
-                geometry_context or GeometryFormContext(),
-            )
             if face.status == "incorrect":
                 state = "still_incorrect" if previous else "correction_required"
             elif face.status == "uncertain" and state in {"correct", "verified"}:
@@ -243,7 +246,7 @@ class AssemblyOrchestrator:
                 from app.services.face_inspection import sam_consistent
 
                 if not sam_consistent(face, segmentations, diagnosis, image):
-                    face.status = "uncertain"
+                    face.status = "uncertain" if face.expected_face_id else "not_measured"
                     face.directional_evidence = False
                     face.contours = [
                         item.model_copy(
@@ -259,10 +262,17 @@ class AssemblyOrchestrator:
                         "Face and SAM object localization disagree. Capture a clear side view."
                     )
                     state = fused_state(evidence.status, geometry, previous is not None)
-                    if state in {"correct", "verified"}:
+                    if face.expected_face_id and state in {"correct", "verified"}:
                         state = "uncertain"
             if previous and previous.expires_at <= self.sessions.clock():
                 raise HTTPException(410, "Inspection session expired. Inspect again.")
+            print_result = await run_in_threadpool(
+                recognize_print, request, diagnosis, face, segmentations
+            )
+            if print_result.gate_status == "fail":
+                state = "still_incorrect" if previous else "correction_required"
+            elif print_result.gate_status == "uncertain" and state in {"correct", "verified"}:
+                state = "uncertain"
             response = WorkflowInspectionResponse(
                 segmentations=segmentations,
                 **diagnosis.model_dump(),
@@ -275,6 +285,7 @@ class AssemblyOrchestrator:
                 correction_plan=plan_corrections(diagnosis, tracks, geometry),
                 geometry=geometry,
                 face=face,
+                print_recognition=print_result,
                 analyzed_snapshot=AnalyzedSnapshot(
                     data_url="data:image/jpeg;base64,"
                     + base64.b64encode(image.jpeg_bytes).decode("ascii"),
@@ -292,6 +303,17 @@ class AssemblyOrchestrator:
                         block_id=None,
                         kind="face_adjust" if face.status == "incorrect" else "face_capture",
                         instruction=face.guidance,
+                    )
+                )
+            if print_result.gate_status in {"fail", "uncertain"}:
+                response.correction_plan.append(
+                    CorrectionAction(
+                        issue_id=None,
+                        block_id=print_result.target_block_id,
+                        kind="print_adjust"
+                        if print_result.gate_status == "fail"
+                        else "print_capture",
+                        instruction=print_result.suggested_action,
                     )
                 )
             await run_in_threadpool(

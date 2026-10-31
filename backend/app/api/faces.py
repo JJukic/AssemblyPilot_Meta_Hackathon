@@ -8,7 +8,7 @@ from app.db.database import ReadSession, WriteSession
 from app.db.tables import BlockFace, FaceReference, now
 from app.models.faces import FaceInput, FaceRead
 from app.services.block_service import require_block
-from app.services.face_registry import public_face, require_face
+from app.services.face_registry import public_face, require_face, save_print_rule
 from app.services.media_service import store_image
 
 router = APIRouter(prefix="/api/blocks/{block_id}/faces", tags=["faces"])
@@ -34,9 +34,10 @@ def list_faces(block_id: str, session: ReadSession):
 @router.post("", response_model=FaceRead, status_code=201)
 def create_face(block_id: str, data: FaceInput, session: WriteSession):
     touch_block(session, block_id)
-    face = BlockFace(block_id=block_id, **data.model_dump())
+    face = BlockFace(block_id=block_id, **data.model_dump(exclude={"print_rule"}))
     session.add(face)
     session.flush()
+    save_print_rule(session, face.id, data)
     return public_face(session, face)
 
 
@@ -44,9 +45,10 @@ def create_face(block_id: str, data: FaceInput, session: WriteSession):
 def update_face(block_id: str, face_id: str, data: FaceInput, session: WriteSession):
     face = require_face(session, block_id, face_id)
     touch_block(session, block_id)
-    face.sqlmodel_update(data.model_dump())
+    face.sqlmodel_update(data.model_dump(exclude={"print_rule"}))
     session.add(face)
     session.flush()
+    save_print_rule(session, face.id, data)
     return public_face(session, face)
 
 

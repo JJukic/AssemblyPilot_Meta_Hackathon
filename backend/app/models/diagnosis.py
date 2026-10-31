@@ -68,10 +68,40 @@ class ActiveVision(StrictOutput):
     )
 
 
+class PrintObservation(StrictOutput):
+    """Model-owned visible evidence. Correctness and physical direction are server-gated."""
+
+    target_block_id: str | None
+    target_identified: bool
+    observed_text: str | None = Field(max_length=500)
+    observed_logo: str | None = Field(max_length=1000)
+    observed_registered_side_id: str | None
+    evidence_quality: Literal["clear", "partial", "unreadable", "ambiguous"]
+    logo_comparison: Literal["match", "mismatch", "uncertain"] | None
+    bounding_box: BoundingBox | None
+    description: str = Field(min_length=1, max_length=2000)
+    suggested_action: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def supported_observation(self):
+        if self.target_identified != (self.target_block_id is not None):
+            raise ValueError("Target identity contradicts its ID")
+        if not self.target_identified and (self.bounding_box or self.observed_registered_side_id):
+            raise ValueError(
+                "Unidentified targets cannot have associated print locations or side IDs"
+            )
+        if self.evidence_quality == "clear" and not (self.observed_text or self.observed_logo):
+            raise ValueError("Clear print evidence requires visible text or logo observations")
+        return self
+
+
 class InspectionResult(StrictOutput):
     # Transport-owned, excluded from both the model schema and serialized diagnoses.
     _meta_attempt_count: int = PrivateAttr(default=0)
     observed_face_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    print_observation: PrintObservation | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema, handler):

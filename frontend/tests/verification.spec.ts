@@ -425,3 +425,70 @@ test("independent edge debugging preserves the current correction workflow", asy
   await expect(page.getByRole("region", { name: "Meta AI inspection" }).getByAltText("Analyzed snapshot")).toHaveAttribute("src", initial.analyzed_snapshot.data_url);
   await expect(page.getByRole("heading", { name: "Step Verified", exact: true })).toHaveCount(0);
 });
+
+for (const kind of ["match", "mismatch", "uncertain", "direction"] as const) {
+  test(`printed recognition ${kind} remains separate from the final gate and exact image`, async ({ page }) => {
+    await setup(page);
+    const result = await observation(page, "print-test", "correct");
+    const uncertain = kind === "uncertain" || kind === "direction";
+    result.print_recognition = {
+      schema_version: 1, target_block_id: "yellow", expected_print: "Involve Me",
+      observed_print: kind === "mismatch" ? "insights" : kind === "uncertain" ? null : "Involve Me",
+      observed_logo: null, observed_registered_side_id: null, observed_registered_side_name: null,
+      recognition_status: kind === "direction" ? "match" : kind,
+      recognition_method: "meta_zero_shot", evidence_quality: kind === "uncertain" ? "unreadable" : "clear",
+      known_alternative: kind === "mismatch", description: "Synthetic printed evidence.",
+      suggested_action: "Capture the printed side in diffuse light.", snapshot_id: result.snapshot_id,
+      bounding_box: kind === "uncertain" ? null : { x: .2, y: .3, width: .4, height: .2 },
+      reference_image_id: null, direction_required: kind === "direction", direction_supported: false,
+      gate_status: uncertain ? "uncertain" : kind === "match" ? "pass" : "fail",
+    };
+    result.state = uncertain ? "uncertain" : kind === "match" ? "correct" : "correction_required";
+    if (kind !== "match") result.correction_plan.push({ issue_id: null, block_id: "yellow", kind: uncertain ? "print_capture" : "print_adjust", instruction: result.print_recognition.suggested_action });
+    let calls = 0;
+    await page.route("**/api/inspect", (route) => { calls++; return route.fulfill({ json: result }); });
+    await capture(page);
+    await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+    const panel = page.getByRole("region", { name: "Printed Text & Logo Inspection" });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Expected: Involve Me");
+    await expect(panel).toContainText(`Print Recognition: ${result.print_recognition.recognition_status}`);
+    await expect(panel.getByAltText("Exact print inspection snapshot")).toHaveAttribute("src", result.analyzed_snapshot.data_url);
+    if (kind === "direction") await expect(panel).toContainText("Physical direction: Uncertain");
+    if (kind === "uncertain") {
+      await expect(panel).toContainText("No reliable printed region");
+      await expect(panel.locator("svg")).toHaveCount(0);
+    } else {
+      const box = panel.locator("svg rect");
+      await expect(box).toHaveAttribute("x", "200");
+      await expect(box).toHaveAttribute("width", "400");
+      await page.setViewportSize({ width: 390, height: 844 });
+      const imageBounds = await panel.getByAltText("Exact print inspection snapshot").boundingBox();
+      const svgBounds = await panel.locator("svg").boundingBox();
+      expect(svgBounds!.width).toBeCloseTo(imageBounds!.width, 1);
+      expect(svgBounds!.height).toBeCloseTo(imageBounds!.height, 1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+    await page.getByRole("button", { name: "Capture", exact: true }).click();
+    await expect(panel).toHaveCount(0);
+    expect(calls).toBe(1);
+  });
+}
+
+test("stale printed result hash is rejected before drawing its region", async ({ page }) => {
+  await setup(page);
+  const result = await observation(page, "print-stale", "correct");
+  result.print_recognition = {
+    schema_version: 1, target_block_id: "yellow", expected_print: "Involve Me", observed_print: "Involve Me",
+    observed_logo: null, observed_registered_side_id: null, observed_registered_side_name: null,
+    recognition_status: "match", recognition_method: "meta_zero_shot", evidence_quality: "clear", known_alternative: false,
+    description: "Synthetic stale evidence", suggested_action: "Review", snapshot_id: "0".repeat(64),
+    bounding_box: { x: .2, y: .2, width: .2, height: .2 }, reference_image_id: null,
+    direction_required: false, direction_supported: false, gate_status: "pass",
+  };
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: result }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Meta AI inspection" }).getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Printed Text & Logo Inspection" })).toHaveCount(0);
+});

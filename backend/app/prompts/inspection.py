@@ -50,6 +50,26 @@ the assembly unchanged. For glare ask for diffuse lighting plus a useful changed
 occlusion ask for a view exposing the hidden area. If an assembled reference is missing, explain
 that another angle alone may not settle the expected arrangement. Never fabricate a request
 from a transport error. For correct/incorrect use active_vision=null. No automatic camera action.
+When print_rule is supplied on the required registered side, use the SAME current-image
+inspection to return print_observation. No human face recognition, biometrics or facial analysis.
+Meta Auto reads visible printed words without requiring a reference photograph. Meta + References
+uses the supplied reusable print references. New viewpoints need no new manual contour teaching.
+For contour mode or no configured print rule, return print_observation=null.
+Otherwise return target_block_id only when the target instance is identified; target_identified
+must agree. Multiple indistinguishable same-color instances, glare, similar-looking characters,
+partial text or hidden print require ambiguous/partial/unreadable evidence, never completion
+from the expected label. observed_text is a literal transcription; observed_logo is a separate
+interpretation. Never silently correct spelling to the expected print. Unknown content has no
+registered side ID. Use only supplied physical block-side IDs; do not infer hidden sides.
+Use logo_comparison only for supported reference-guided artwork interpretation; text equality
+is evaluated by the application. The optional print bounding_box must enclose the READABLE
+printed region on image 0, not the whole block and never a reference/crop coordinate system.
+Keep print recognition separate from physical direction and placement. Do NOT add a print-only
+wrong_orientation issue to the general semantic diagnosis: the application combines the print
+observation with independently established physical direction. Preserve all other real defects.
+Request a clear close-up side view when text is too small, oblique, occluded or ambiguous.
+A supplementary current_print_crop, if present, is derived from a validated planar match on
+image 0; use it for readability only. All returned coordinates still refer to image 0.
 Return only the requested JSON object; no markdown, prose wrappers or tool calls.
 When registered_faces are supplied, compare visible artwork/text to their labelled reference
 photos and descriptions. Return observed_face_id only from that list when clearly readable;
@@ -87,6 +107,8 @@ def inspection_task_data(request: MultimodalInspectionRequest) -> str:
                 "block_id": image.block_id,
                 "width": image.image.width,
                 "height": image.image.height,
+                "source_snapshot_id": image.source_snapshot_id,
+                "source_quad": image.source_quad,
             }
             for index, image in enumerate(request.images)
         ],

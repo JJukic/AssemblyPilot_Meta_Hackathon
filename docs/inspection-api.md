@@ -119,3 +119,15 @@ contract, routing, association, fallbacks and resource limits.
 
 See [printed-face API and evidence contracts](face-verification.md#fusion-and-storage)
 for the additive face registry, optional step rule and workflow face result.
+
+
+## Optional printed-side recognition (Phase 4.1E)
+
+The existing `/api/inspect` and `/api/verify` multipart inputs are unchanged.
+When the required face has `print_rule`, the existing Muse response includes
+validated `print_observation`. The server adds versioned `print_recognition` to
+the workflow response with expected/observed print, identity, method, quality,
+exact snapshot ID, optional normalized region, independent direction evidence
+and `gate_status`. Null/absent configuration is `not_applicable`; partial or
+unreadable print is `uncertain`. No extra inference endpoint or model call.
+See [complete contract, reference policy and gate rules](print-recognition.md).

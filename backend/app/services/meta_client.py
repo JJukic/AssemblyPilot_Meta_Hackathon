@@ -219,6 +219,9 @@ class MetaClient:
                 face.id for face in request.context.faces
             }:
                 raise ValueError("Unknown registered face ID")
+            from app.services.print_recognition import validate_print_observation
+
+            validate_print_observation(result, request)
             if result.step_id != request.context.step_id:
                 raise ValueError("Mismatched step")
             allowed = {block.id for block in request.context.expected_blocks}

@@ -1,3 +1,4 @@
+import type { PrintRecognition } from "@/lib/prints";
 import type { InspectionIssue, InspectionResponse } from "./inspection";
 import type { GeometricVerification } from "./geometry";
 import type { FaceResult } from "@/lib/faces";
@@ -24,7 +25,8 @@ export interface WorkflowInspection extends InspectionResponse {
   specification_id: string;
   state: WorkflowState;
   tracked_issues: TrackedIssue[];
-  correction_plan: { issue_id: string | null; block_id: string | null; kind: "adjust" | "geometry_adjust" | "face_adjust" | "face_capture" | "capture"; instruction: string }[];
+  correction_plan: { issue_id: string | null; block_id: string | null; kind: "adjust" | "geometry_adjust" | "face_adjust" | "face_capture" | "print_adjust" | "print_capture" | "capture"; instruction: string }[];
+  print_recognition?: PrintRecognition | null;
   face?: FaceResult | null;
   geometry?: GeometricVerification | null;
   muse_call_count: 1;

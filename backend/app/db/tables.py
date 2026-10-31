@@ -174,3 +174,11 @@ class StepFaceConstraint(SQLModel, table=True):
     target_block_id: str = Field(foreign_key="building_blocks.id", ondelete="RESTRICT")
     required_face_id: str = Field(foreign_key="block_faces.id", ondelete="RESTRICT")
     facing_direction: str
+
+
+class PrintedSideRule(SQLModel, table=True):
+    """Additive configuration: legacy BlockFace rows and photos remain untouched."""
+
+    __tablename__ = "printed_side_rules"
+    face_id: str = Field(primary_key=True, foreign_key="block_faces.id", ondelete="CASCADE")
+    configuration_json: str

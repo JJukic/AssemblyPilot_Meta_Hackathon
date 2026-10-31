@@ -88,6 +88,11 @@ def replace_blocks(session: Session, step: AssemblyStep, data: StepInput):
         face = session.get(BlockFace, data.face_constraint.required_face_id)
         if face is None or face.block_id != data.face_constraint.target_block_id:
             raise HTTPException(422, "Required face must belong to the target block")
+        if data.face_constraint.facing_direction == "not_required":
+            from app.db.tables import PrintedSideRule
+
+            if session.get(PrintedSideRule, face.id) is None:
+                raise HTTPException(422, "Print-only inspection requires a configured print rule")
         if (
             next(
                 item.required_quantity

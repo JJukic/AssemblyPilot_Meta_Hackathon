@@ -171,3 +171,16 @@ exact snapshots. New contours are disabled by default and make no additional AI 
 JPEG without AI or matching prerequisites. It adds direct rectangular ROI selection,
 manual Gaussian/Canny controls, a full-resolution edge image and an optional raw
 overlay while preserving existing inspection results.
+
+
+## Meta-first print recognition
+
+[Phase 4.1E](print-recognition.md) adds one optional JSON configuration table linked
+to existing physical faces. `print_recognition.py` evaluates validated Muse
+observations against registered text or reusable references. Physical direction
+and geometric placement keep independent gates. `print_crop.py` may add one
+supported planar crop to the same Muse request; it never infers a plane from an
+object mask or starts another model call. The existing correction and fresh-image
+verification flow incorporates `print_adjust`/`print_capture` actions. The frontend
+shows versioned recognition and its exact-snapshot region alongside the existing
+face, geometry, SAM, contour and Canny tools. No non-Meta provider is added.
