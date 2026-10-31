@@ -460,3 +460,20 @@ def test_missing_print_observation_reports_contract_problem_not_bad_image(flow, 
     assert "[print_rule_evidence]" in response.json()["detail"]["message"]
     assert "reason=print_rule_evidence" in caplog.text
     assert flow.progress()["status"] != "verified"
+
+
+def test_selected_assembly_reference_is_sent_and_disclosed_before_face_photos(flow):
+    face, root, _ = configure(flow)
+    flow.client.post(f"{root}/{face['id']}/images", files={"image": ("face.jpg", photo("white"))})
+    reference = flow.client.post(
+        f"/api/projects/{flow.project['id']}/steps/{flow.step['id']}/images",
+        files={"image": ("assembly.jpg", photo("yellow"))},
+    ).json()
+    flow.settings.meta_max_reference_images = 1
+    result = flow.start().json()
+    assert result["comparison_reference_id"] == reference["id"]
+    content = flow.calls[0]["messages"][1]["content"]
+    manifest = json.loads(content[0]["text"])["image_manifest"]
+    assert manifest[1]["role"] == "assembled_step_reference"
+    assert manifest[1]["reference_id"] == reference["id"]
+    assert len([item for item in content if item["type"] == "image_url"]) == 2

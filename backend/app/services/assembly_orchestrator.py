@@ -274,6 +274,14 @@ class AssemblyOrchestrator:
             elif print_result.gate_status == "uncertain" and state in {"correct", "verified"}:
                 state = "uncertain"
             response = WorkflowInspectionResponse(
+                comparison_reference_id=next(
+                    (
+                        item.reference_id
+                        for item in request.images
+                        if item.role == "assembled_step_reference"
+                    ),
+                    None,
+                ),
                 segmentations=segmentations,
                 **diagnosis.model_dump(),
                 meta_attempt_count=evidence._meta_attempt_count,

@@ -278,7 +278,7 @@ for (const fallback of [false, true]) test(`fresh verification preserves SAM ${f
   if (fallback) {
     await expect(panel.getByAltText("SAM mask for issue 1")).toHaveCount(0);
     await expect(panel.locator('rect[data-source="muse"]')).toHaveCount(1);
-    await expect(panel.getByText("SAM unavailable; Muse diagnosis retained.")).toBeVisible();
+    await expect(panel.locator(".segmentation-status")).toContainText("SAM unavailable; Muse diagnosis retained.");
   } else {
     await expect(panel.getByAltText("SAM mask for issue 1")).toBeVisible();
   }

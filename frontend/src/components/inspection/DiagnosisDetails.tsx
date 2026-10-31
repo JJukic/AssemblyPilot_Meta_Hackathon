@@ -1,8 +1,13 @@
+/* eslint-disable @next/next/no-img-element -- show the actual registered reference */
+import { validFace } from "@/lib/faces";
+import { mediaUrl } from "@/lib/api";
 import { AlertCircle, CircleCheck, HelpCircle } from "lucide-react";
 import { DiagnosticOverlay } from "./DiagnosticOverlay";
 import type { InspectionResponse } from "@/types/inspection";
 
 export function DiagnosisDetails({ result }: { result: InspectionResponse }) {
+  const face = "face" in result && validFace(result.face) ? result.face : null;
+  const referenceLayers = face?.snapshot_id === result.snapshot_id ? face?.contours ?? [] : [];
   return <div className="diagnosis">
     <p className="detection-eyebrow">Semantic assessment</p>
     <div className={`diagnosis-status diagnosis-${result.status}`}>
@@ -16,7 +21,7 @@ export function DiagnosisDetails({ result }: { result: InspectionResponse }) {
     <dl className="detection-summary" aria-label="Detection summary">
       <div><dt>Component groups</dt><dd>{result.visible_blocks.length}</dd></div>
       <div><dt>Reported issues</dt><dd>{result.issues.length}</dd></div>
-      <div><dt>SAM matches</dt><dd>{result.segmentations?.filter((item) => item.status === "matched").length ?? 0}</dd></div>
+      <div><dt>SAM issue matches</dt><dd>{result.segmentations?.filter((item) => item.status === "matched").length ?? 0}</dd></div>
     </dl>
     <p className="diagnosis-explanation">{result.explanation}</p>
     {result.active_vision && <aside className="active-vision" aria-label="Additional camera view needed">
@@ -24,7 +29,13 @@ export function DiagnosisDetails({ result }: { result: InspectionResponse }) {
       <p>{result.active_vision.reason}</p><strong>{result.active_vision.instruction}</strong>
       <p>Keep the assembly unchanged, capture the requested view, then inspect again.</p>
     </aside>}
-    <DiagnosticOverlay key={result.analyzed_snapshot.data_url} snapshot={result.analyzed_snapshot} snapshotId={result.snapshot_id} issues={result.issues} segmentations={result.segmentations} />
+    {result.comparison_reference_id !== undefined && <details className="comparison-reference">
+      <summary>Step reference used for this inspection</summary>
+      {result.comparison_reference_id ? <><p>This registered photo was sent to Muse to compare the assembly. It is separate from geometric feature matching.</p>
+        <img src={mediaUrl(`/api/media/${result.comparison_reference_id}`)} alt="Step reference sent to Meta" />
+      </> : <p>No assembled-step reference photo was sent. Check the selected step reference and reference-image limit before judging the complete assembly.</p>}
+    </details>}
+    <DiagnosticOverlay key={result.analyzed_snapshot.data_url} snapshot={result.analyzed_snapshot} snapshotId={result.snapshot_id} referenceLayers={referenceLayers} issues={result.issues} segmentations={result.segmentations} />
     {result.segmentations && <p className="confidence-note">SAM localization: {(result.segmentations.reduce((sum, entry) => sum + entry.latency_ms, 0) / 1000).toFixed(2)} s. {result.segmentations.length === 0 ? "Not requested for this diagnosis." : "Masks locate visible parts; they do not verify correctness."}</p>}
     <div className="detection-findings">
     <section aria-label="Visible components"><h4>VISIBLE COMPONENTS</h4>

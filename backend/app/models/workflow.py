@@ -102,6 +102,7 @@ class CorrectionAction(StrictOutput):
 
 
 class WorkflowInspectionResponse(InspectionResponse):
+    comparison_reference_id: str | None = None
     inspection_id: str
     snapshot_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     specification_id: str = Field(pattern=r"^[a-f0-9]{64}$")

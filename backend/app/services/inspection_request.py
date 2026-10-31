@@ -49,16 +49,16 @@ def build_multimodal_request(
 ) -> MultimodalInspectionRequest:
     context = build_inspection_context(session, project_id, step_id)
     images = [InspectionImage(role="current_snapshot", image=snapshot)]
-    # Required-face references first, then assembly/block context, under the existing cap.
-    candidates = []
+    # The selected assembly reference must not be crowded out by component photos.
+    candidates = (
+        [(context.step_reference_images[0], None, step_id)] if context.step_reference_images else []
+    )
     face_order = sorted(
         context.faces, key=lambda face: face.id != context.face_constraint.required_face_id
     )
     for face in face_order:
         if face.references:
             candidates.append((face.references[0], face.block_id, None))
-    if context.step_reference_images:
-        candidates.append((context.step_reference_images[0], None, step_id))
     for block in context.expected_blocks:
         if block.reference_images:
             candidates.append((block.reference_images[0], block.id, None))

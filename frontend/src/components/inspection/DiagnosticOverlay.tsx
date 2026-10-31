@@ -3,15 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "@/lib/api";
 import { detectEdges, type EdgeDebugResult } from "@/lib/edge-debug";
-import { validContour } from "@/lib/contours";
+import { ObjectLocalizationControls } from "./ObjectLocalizationControls";
+import type { ObjectLocalization } from "@/lib/object-localization";
+import { validContour, type ContourLayer } from "@/lib/contours";
 import { ContourControls, ContourPaths, emptyContours, OverlayOption } from "./ContourOverlay";
 import { isValidBoundingBox } from "@/lib/diagnosis-validation";
 import type { AnalyzedSnapshot, InspectionIssue, IssueSegmentation } from "@/types/inspection";
 
-export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapshotId }: {
-  snapshotId?: string; snapshot: AnalyzedSnapshot; issues: InspectionIssue[]; segmentations?: IssueSegmentation[];
+export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapshotId, referenceLayers = [] }: {
+  referenceLayers?: ContourLayer[]; snapshotId?: string; snapshot: AnalyzedSnapshot; issues: InspectionIssue[]; segmentations?: IssueSegmentation[];
 }) {
   const [contours, setContours] = useState(emptyContours);
+  const [objects, setObjects] = useState<ObjectLocalization | null>(null);
   const [edges, setEdges] = useState<EdgeDebugResult | null>(null);
   const [edgeBusy, setEdgeBusy] = useState(false);
   const [edgeError, setEdgeError] = useState("");
@@ -48,6 +51,9 @@ export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapsh
     return instance && issues[entry.issue_index]?.type !== "missing_part" && !invalidMasks.includes(instance.mask.data_url)
       ? [{ instance, index: entry.issue_index }] : [];
   });
+  const objectInstances = (objects?.result.instances ?? []).filter((item) => !invalidMasks.includes(item.mask.data_url));
+  const samMessage = segmentations.length ? [...new Set(segmentations.map((item) => item.message))].join(" ") :
+    "Automatic SAM only runs for reported issues. You can request object masks below even when Muse reports no defect.";
   const boxes = issues.flatMap((issue, index) => {
     if (issue.type === "missing_part") return [];
     const match = matches.find((item) => item.index === index);
@@ -58,6 +64,11 @@ export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapsh
   const layers = segmentations.flatMap((entry) => entry.status === "matched" && entry.outline &&
     validContour(entry.outline, { snapshot_id: snapshotId ?? "", width: snapshot.width, height: snapshot.height }) &&
     matches.some((match) => match.index === entry.issue_index) ? [entry.outline] : []);
+  layers.push(...referenceLayers.filter((layer) => layer.kind === "reference_match" && validContour(layer,
+    { snapshot_id: snapshotId ?? "", width: snapshot.width, height: snapshot.height })));
+  for (const item of objects?.outlines ?? []) {
+    if (objectInstances.some((instance) => instance.instance_id === item.instance_id)) layers.push(item.outline);
+  }
   if (edges?.analyzed_snapshot.data_url === snapshot.data_url) layers.push(edges.contours);
   return <figure className="diagnostic-overlay">
     <div className="detection-toolbar">
@@ -76,6 +87,17 @@ export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapsh
           width: `${instance.mask.width / snapshot.width * 100}%`, height: `${instance.mask.height / snapshot.height * 100}%` }}
         onLoad={(event) => { if (event.currentTarget.naturalWidth !== instance.mask.width || event.currentTarget.naturalHeight !== instance.mask.height) setInvalidMasks((previous) => [...previous, instance.mask.data_url]); }}
         onError={() => setInvalidMasks((previous) => [...previous, instance.mask.data_url])} />)}
+      {ready && annotated && showSegmentation && objectInstances.map((instance, index) => <img key={`object:${instance.instance_id}`}
+        className="segmentation-mask" alt={`SAM object candidate ${index + 1}`} src={instance.mask.data_url}
+        style={{ left: `${instance.left / snapshot.width * 100}%`, top: `${instance.top / snapshot.height * 100}%`, width: `${instance.mask.width / snapshot.width * 100}%`, height: `${instance.mask.height / snapshot.height * 100}%` }}
+        onLoad={(event) => { if (event.currentTarget.naturalWidth !== instance.mask.width || event.currentTarget.naturalHeight !== instance.mask.height) setInvalidMasks((previous) => [...previous, instance.mask.data_url]); }}
+        onError={() => setInvalidMasks((previous) => [...previous, instance.mask.data_url])} />)}
+      {ready && annotated && showBoxes && objectInstances.length > 0 && <svg className="diagnostic-boxes" viewBox={`0 0 ${snapshot.width} ${snapshot.height}`} aria-label="Localized object boxes">
+        {objectInstances.map((instance, index) => <g key={instance.instance_id}><title>{`Object ${index + 1}: ${objects?.concept} (not a diagnosed defect)`}</title>
+          <rect data-source="sam-object" x={instance.left} y={instance.top} width={instance.mask.width} height={instance.mask.height} />
+          <text x={instance.left + 3} y={instance.top + 14} fill="#69d5ff" fontSize={12}>{`O${index + 1}`}</text>
+        </g>)}
+      </svg>}
       {ready && annotated && showBoxes && boxes.length > 0 && <><svg className="diagnostic-boxes" viewBox="0 0 1000 1000" preserveAspectRatio="none" role="img" aria-label="Diagnostic bounding boxes">
         {boxes.map(({ box, index, description, sam }) => <g key={index}>
           <title>{`Issue ${index + 1}: ${description}`}</title>
@@ -86,16 +108,22 @@ export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapsh
       {ready && annotated && <ContourPaths layers={layers} enabled={contours} width={snapshot.width} height={snapshot.height} />}
     </div>
     {invalidMasks.length > 0 && <p role="alert">A segmentation mask could not be verified. Muse localization is retained.</p>}
-    {ready && boxes.length === 0 && <p className="muted">No reliable locations were reported. No boxes are drawn.</p>}
+    {ready && boxes.length === 0 && objectInstances.length === 0 && <p className="muted">No reliable locations were reported. No boxes are drawn.</p>}
     </div>
     <section className="detection-settings" aria-label="Detections and overlays">
       <div className="detection-settings-heading"><h4>Detections &amp; overlays</h4><p>Choose what to show on this image.</p></div>
       {!annotated && <p className="overlay-view-note">Original view: overlays are hidden. Select Show annotated to display your selections.</p>}
-      <OverlayOption label="Bounding Box" available={boxes.length > 0} checked={showBoxes} onChange={setShowBoxes}
-        description={boxes.length ? `${boxes.length} localized issue${boxes.length === 1 ? "" : "s"} · numbers match the findings below.` : "No reliably localized issues in this result."} />
-      <OverlayOption label="Show Segmentation" available={matches.length > 0} checked={showSegmentation} onChange={setShowSegmentation}
-        description={matches.length ? `${matches.length} selected SAM object mask${matches.length === 1 ? "" : "s"}.` : "No selected SAM object masks in this result."} />
-      <ContourControls layers={layers} enabled={contours} onChange={(kind, checked) => setContours({ ...contours, [kind]: checked })}
+      <OverlayOption label="Bounding Box" available={boxes.length + objectInstances.length > 0} checked={showBoxes} onChange={setShowBoxes}
+        description={objectInstances.length ? `${objectInstances.length} SAM object regions (O labels), separate from diagnosed issues.` : boxes.length ? `${boxes.length} localized issue${boxes.length === 1 ? "" : "s"} · numbers match the findings below.` : "No reliably localized issues in this result."} />
+      <OverlayOption label="Show Segmentation" available={matches.length + objectInstances.length > 0} checked={showSegmentation} onChange={setShowSegmentation}
+        description={objects ? `${objectInstances.length} independently requested object masks.` : matches.length ? `${matches.length} selected SAM issue masks.` : samMessage}>
+        <ObjectLocalizationControls snapshot={snapshot} ready={!!ready} onResult={(result) => {
+          setObjects(result);
+          if (result) { setAnnotated(true); setShowSegmentation(true); setShowBoxes(true); setContours((previous) => ({ ...previous, sam_outline: true })); }
+        }} />
+      </OverlayOption>
+      <ContourControls unavailableMessages={{ sam_outline: objects && !objectInstances.length ? "No matching object mask was returned." : samMessage,
+        reference_match: "Requires an accepted planar-face reference match. A whole-assembly step photo is compared by Muse, not by this overlay. See Face orientation for native-resolution reference evidence." }} layers={layers} enabled={contours} onChange={(kind, checked) => setContours({ ...contours, [kind]: checked })}
         cannyAction={<div className="canny-action">
           <button type="button" className="button secondary" disabled={!ready || edgeBusy} onClick={() => void showEdges()}>
             {edgeBusy ? "Detecting Canny edges…" : "Detect Canny edges"}

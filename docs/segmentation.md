@@ -169,3 +169,56 @@ Actual live status and executed checks are recorded in [validation.md](validatio
 The next acceptance step is real-photo validation of correct/incorrect assemblies,
 multiple identical blocks, occlusion and mask alignment. SAM segments visible shapes;
 it does not independently understand the assembly specification or verify a repair.
+
+## Explicit object search, independent of diagnosed issues
+
+Automatic localization still follows the existing bounded issue policy. When Muse
+reports no issue, that automatic pass does not produce masks; a missing overlay
+is not evidence that the assembly is correct. In **Detections & overlays → Show
+Segmentation**, enter a concept such as `blue building block` and choose
+**Segment objects with SAM**. This sends the exact inspected JPEG to Meta SAM in
+one explicit request, without another Muse diagnosis or an automatic frame loop.
+The configured `SAM_ENABLED` and backend `MODEL_API_KEY` still apply. Disabled
+SAM, missing credentials, provider errors/timeouts and zero matches are shown
+explicitly. These states never produce placeholder geometry.
+
+`POST /api/vision/objects` accepts multipart `image`, SHA-256 `snapshot_id` and
+`concept` (1–80 characters). It reuses image validation, requires an upright JPEG
+of at most 1600 pixels per side and rejects stale hashes before calling SAM. The
+response contains `concept`, `latency_ms`, the existing `SegmentationResult` and
+instance-indexed simplified outlines. Image hashes, dimensions, mask bounds,
+instance IDs and outline identity are validated before display. No database or
+progress writes occur.
+
+Returned candidates are shown as object regions O1, O2, etc., with independently
+selectable boxes, masks and outlines. They are not associated with registered
+components or diagnosed issues merely because they were found; multiple objects
+remain multiple candidates. A new capture or changed search concept cancels stale
+display. The initial diagnosis, correction workflow and verified progress remain
+unchanged. Actual issue-driven SAM results remain available alongside these
+explicitly requested object candidates.
+
+## Step reference versus Reference Match
+
+The selected assembled-step reference now takes priority over additional component
+photos under the request image cap. The workflow's `comparison_reference_id` shows
+which registered step photo was actually sent to Muse (null if none was sent).
+The inspection UI displays it in **Step reference used for this inspection**.
+Muse compares all visible assembly components and visible text differences;
+separate print gating applies only to the explicitly configured target block.
+
+**Reference Match** is still an OpenCV feature-correspondence overlay for an
+accepted registered planar-face reference. A photograph of a three-dimensional
+assembly is not automatically a valid planar reference. Supported feature pairs
+can appear on the main image when the exact snapshot identity agrees; otherwise
+the native-resolution evidence remains in **Face orientation**. Without accepted
+matching evidence the control stays unavailable. This is separate from Muse's
+semantic comparison with the complete assembly photo.
+
+For the reported blue-block example, `Give Me Details` and `insights` are different
+visible printed content. To make that requirement explicit, configure the blue
+block's expected text for the step rather than relying on a generic color/count
+assessment. A visible text comparison does not alone establish a calibrated
+physical direction. Current print rules support one explicitly constrained target
+per step; no whole-assembly geometric correctness claim or new live-inference
+success is made by these UI and pipeline changes.

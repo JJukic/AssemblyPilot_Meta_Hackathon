@@ -28,9 +28,10 @@ export function OverlayOption({ label, available, checked, onChange, description
   </div>;
 }
 
-export function ContourControls({ layers, enabled, onChange, cannyAction }: {
+export function ContourControls({ layers, enabled, onChange, cannyAction, unavailableMessages }: {
   layers: ContourLayer[]; enabled: Record<ContourKind, boolean>;
   onChange: (kind: ContourKind, checked: boolean) => void; cannyAction?: ReactNode;
+  unavailableMessages?: Partial<Record<ContourKind, string>>;
 }) {
   const descriptions: Record<ContourKind, string> = {
     sam_outline: "Object boundaries from SAM segmentation.",
@@ -40,7 +41,7 @@ export function ContourControls({ layers, enabled, onChange, cannyAction }: {
   return <div className="contour-controls">
     {(Object.keys(contourLabels) as ContourKind[]).map((kind) => {
       const available = layers.some((layer) => layer.kind === kind && layer.status === "available");
-      const message = layers.find((layer) => layer.kind === kind)?.message ?? "No supported evidence on this snapshot.";
+      const message = layers.find((layer) => layer.kind === kind)?.message ?? unavailableMessages?.[kind] ?? "No supported evidence on this snapshot.";
       return <OverlayOption key={kind} label={contourLabels[kind]} color={colors[kind]}
         available={available} checked={enabled[kind]} onChange={(checked) => onChange(kind, checked)}
         description={available ? descriptions[kind] : `${contourLabels[kind]} unavailable: ${message}`}>

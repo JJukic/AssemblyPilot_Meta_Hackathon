@@ -12,6 +12,7 @@ from app.api import (
     health,
     inspection,
     media,
+    object_localization,
     projects,
     steps,
 )
@@ -50,6 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(geometry.router)
     application.include_router(faces.router)
     application.include_router(edge_debug.router)
+    application.include_router(object_localization.router)
     for router in (blocks.router, projects.router, steps.router, media.router):
         application.include_router(router)
     return application

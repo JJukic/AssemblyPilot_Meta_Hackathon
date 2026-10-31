@@ -20,12 +20,29 @@ HTTP 200 returns `InspectionResponse` (the diagnostic fields remain at the top l
 | `model` | Configured Meta model ID, supplied by backend |
 | `model_latency_ms` | Backend monotonic duration of the adapter call, including retries/backoff, excluding context/image preparation; not provider-only compute time |
 | `inspected_at` | Backend UTC timestamp after successful validation |
+| `comparison_reference_id` | Workflow-owned ID of the assembled-step photo actually included in the Muse request, or null; optional for older stored responses |
 
 Issue types: `missing_part`, `misplaced_part`, `wrong_color`, `wrong_orientation`, `unexpected_part`, `unknown`. Boxes are null or `{x,y,width,height}` in camera-image coordinates 0–1, with positive dimensions and `x+width <= 1`, `y+height <= 1`. No default boxes are generated. `missing_part` must use null: an absent component has no observed location. All five discrepancy categories carry distinct expected and observed text. A correct diagnosis cannot contain issues; incorrect must contain at least one. IDs must be among the supplied current-step blocks, or null. Geometric/schema validation cannot prove visual accuracy.
 
 Active Vision view values are `top_down`, `front`, `back`, `left_side`, `right_side`, `close_up`, `other`. The nonempty reason and instruction must explain the missing evidence and a concrete camera move/region to reveal. The prompt asks for unchanged assembly and distinguishes missing reference information from evidence another view can supply. An uncertain response without this request is invalid upstream output, not a reason to fabricate one in Python.
 
 The model receives only the `InspectionResult` JSON schema; the server adds provenance fields after inference. The browser validates the response shape and coordinates again before saving it to history. An image decode/dimension mismatch hides all boxes. Deploy backend/frontend together: Phase 3B adds required structured fields, so a newer frontend rejects a Phase 3A-only backend rather than drawing unverified overlays.
+
+The selected assembled-step photo takes priority over additional component photos
+under the configured reference-image cap. The UI exposes the actual included step
+photo; registering a photo alone does not prove it was included in an earlier
+request. A zero reference limit still deliberately excludes all reference photos.
+
+## Independent object localization
+
+`POST /api/vision/objects` accepts multipart `image`, `snapshot_id` (SHA-256 of
+the exact JPEG bytes) and `concept` (1–80 nonblank characters). It performs one
+explicit Meta SAM request on an upright analyzed JPEG, independent of a Muse
+diagnosis. It requires enabled/configured SAM. The response contains the concept,
+latency, validated segmentation instances and simplified per-instance outlines.
+There is no diagnosis, correction-state update or progress write. Empty masks and
+provider errors never become invented boxes or a correctness verdict. See
+[segmentation.md](segmentation.md) for bounds, provenance and rendering details.
 
 ## Failures
 

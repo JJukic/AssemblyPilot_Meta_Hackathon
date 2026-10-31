@@ -373,3 +373,12 @@ a.brand, a.button { text-decoration: none; }
   .detection-summary > div { padding: 10px 8px; }
   .detection-summary dt { font-size: 10px; }
 }
+.object-localization-controls { display: grid; gap: 10px; margin-top: 12px; }
+.object-localization-controls .field { min-width: 0; margin: 0; }
+.object-localization-controls input { width: 100%; height: auto; margin-top: 6px; }
+.object-localization-controls small, .object-localization-controls p { font-size: 11px; line-height: 1.6; color: var(--muted); }
+.object-localization-controls [role="alert"] { color: #ffb7a5; }
+.diagnostic-boxes rect[data-source="sam-object"] { stroke: #69d5ff; fill: none; }
+.comparison-reference { margin: 16px 0; padding: 12px; border: 1px solid var(--border); border-radius: 7px; }
+.comparison-reference p { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 12px 0; }
+.comparison-reference img { display: block; max-width: 100%; max-height: 360px; height: auto; }

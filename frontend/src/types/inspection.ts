@@ -25,6 +25,7 @@ export interface InspectionResult {
 }
 export interface AnalyzedSnapshot { data_url: string; width: number; height: number }
 export interface InspectionResponse extends InspectionResult {
+  comparison_reference_id?: string | null;
   analyzed_snapshot: AnalyzedSnapshot;
   inspection_id?: string;
   snapshot_id?: string;

@@ -58,6 +58,11 @@ def sam_outline(entry, snapshot_id, width, height):
     )
     if instance is None:
         return unavailable("SAM Outline unavailable: no selected mask.")
+    return instance_outline(instance, snapshot_id, width, height)
+
+
+def instance_outline(instance, snapshot_id, width, height):
+    """Extract only the actual returned mask; no association with a diagnosis is implied."""
     try:
         with Image.open(
             BytesIO(base64.b64decode(instance.mask.data_url.split(",", 1)[1], validate=True))
@@ -76,7 +81,13 @@ def sam_outline(entry, snapshot_id, width, height):
             else "SAM Outline unavailable: no boundary survived filtering.",
         )
     except (ValueError, OSError, cv2.error):
-        return unavailable("SAM Outline unavailable: mask could not be processed.")
+        return layer(
+            "sam_outline",
+            snapshot_id,
+            width,
+            height,
+            message="SAM Outline unavailable: mask could not be processed.",
+        )
 
 
 def face_edges(scene, quad, snapshot_id, sigma):

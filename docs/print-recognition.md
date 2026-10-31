@@ -15,7 +15,7 @@ provider, OCR service, continuous capture or autonomous loop is introduced.
    the registry for compatibility; they are not evidence of recognition.
 2. For a complex logo, use **Meta + References** with a logo description and
    reusable upright reference photographs of that side. The expected side's
-   first reference has priority within the existing request image cap. Other
+   first reference follows the selected assembly reference within the image cap. Other
    registered-side photos help distinguish alternatives. Uploads remain reusable
    across views; the software does not require per-view registration.
 3. A step selects one target block (required quantity one) and a required printed

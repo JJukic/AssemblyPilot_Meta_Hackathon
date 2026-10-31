@@ -106,3 +106,29 @@ class IssueSegmentation(BaseModel):
         if self.status == "ambiguous" and not ids:
             raise ValueError("Ambiguous status requires candidates")
         return self
+
+
+class ObjectOutline(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    instance_id: str
+    outline: ContourLayer
+
+
+class ObjectLocalization(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+    concept: str = Field(min_length=1, max_length=80)
+    result: SegmentationResult
+    outlines: list[ObjectOutline] = Field(max_length=32)
+    latency_ms: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def same_objects(self):
+        ids = [item.instance_id for item in self.outlines]
+        if len(set(ids)) != len(ids) or set(ids) != {i.instance_id for i in self.result.instances}:
+            raise ValueError("Object outlines must match returned SAM instances")
+        for item in self.outlines:
+            if item.outline.kind != "sam_outline" or not item.outline.belongs_to(
+                self.result.snapshot_id, self.result.width, self.result.height
+            ):
+                raise ValueError("Object outline belongs to another snapshot")
+        return self

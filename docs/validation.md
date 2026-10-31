@@ -378,3 +378,26 @@ was clarified; a new local attempt can now expose the bounded rejection reason.
 browser scenario additionally checks exact contour alignment and no horizontal
 overflow at 1600, 1280 and 390 px. Desktop/mobile screenshots with synthetic
 fixtures were visually reviewed. This change reorganizes presentation only.
+
+## Independent SAM object search and assembly reference visibility — 2026-10-31
+
+`make lint`, `make test` (411 backend tests and frontend TypeScript), `make build`
+and `make test-browser` (80 passed with system Chromium) passed. Twelve added
+backend cases cover exact JPEG identity, image validation, multiple/empty masks,
+provider failures, disabled/unconfigured SAM and assembled-step reference priority
+under the image cap. Seven added browser cases cover explicit localization with
+no diagnosed issues, original JPEG transport, actual reference display, responsive
+alignment, failure/missing evidence and stale capture/concept changes. Mobile
+rendering was also visually reviewed using a synthetic fixture.
+
+Browser assertions were corrected to measure SVG geometry without its stroke and
+to address the specific retained-diagnosis fallback notice now that the reason is
+also exposed in the overlay cards. All 80 cases pass after those corrections.
+
+No new live Meta request was sent. Synthetic images and mocked provider replies
+verify the integration, not real-photo accuracy. The user's locally stored reference
+and historical inference result are not accessible here. Visible printed content
+differs between the supplied blue-block images; prompt changes have not yet been
+validated by live inference on those photographs. SAM object masks locate visible
+regions without changing the verdict or claiming a correct assembly. Reference
+Match remains unavailable without accepted planar-face matching evidence.

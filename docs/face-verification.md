@@ -102,8 +102,9 @@ not treated as planar-face masks. SAM still runs only under its existing bounded
 issue-localization policy; this phase introduces no extra SAM requests.
 
 Muse receives the rule, registered IDs/descriptions and first photo per face
-within the existing reference/payload caps. These precede assembled-step and
-block references; omitted-reference counts remain exposed. Its existing single
+within the existing reference/payload caps. The selected assembled-step photo comes
+first, followed by required-face/other face photos and block references;
+omitted-reference counts remain exposed. Its existing single
 inspection/verification call returns nullable `observed_face_id`. Unknown IDs are
 rejected. If deterministic identity is unavailable, the existing Muse identity
 can be displayed as semantic evidence. It cannot establish metric pose and does
