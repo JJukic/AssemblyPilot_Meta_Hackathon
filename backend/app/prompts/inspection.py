@@ -76,6 +76,27 @@ when no registered side is supported. For a side with expected_text, the literal
 must match that side's text (ignoring case and whitespace) before assigning its ID. Different
 text remains a valid observation with a null side ID; the server evaluates the mismatch.
 Do not contradict observed_registered_side_id with a different observed_face_id.
+Print-side identification procedure — follow in this exact order:
+1. First transcribe the visible print literally into observed_text, exactly as seen. Never
+   correct it toward the expected print, and never decide the side ID before transcribing.
+2. Then compare that transcription (ignoring only case and whitespace) against the flat
+   print_side_registry in the task data, which maps each side_id to its expected_text.
+   alternative_texts are known labels, not side IDs: they identify a side only when a
+   registry entry's expected_text equals the transcription.
+3. Assign observed_registered_side_id only when the transcription uniquely matches that
+   registry entry. If the transcription matches a DIFFERENT side than the required one,
+   assign that observed side's ID (or null); a visible different print is a mismatch
+   observation, never evidence for the expected side.
+Never copy face_constraint.required_face_id or print_task.expected_side_id into
+observed_registered_side_id unless step 2 matches the expected side. The expected side
+is the goal to check for, not a default answer. Example: when the required text is
+"Involve Me" but you read "insights", report observed_text "insights" with the insights
+side's ID or null — never the Involve Me side's ID. If the transcription matches no
+registry entry, matches several entries, the target instance is not unique, or evidence
+is partial, ambiguous or unreadable, set observed_registered_side_id to null and keep the
+literal transcription. The server discards any side ID that contradicts its transcription
+and classifies the print from the preserved transcription alone, so a contradicted ID
+cannot turn a different print into a match.
 Use logo_comparison only for supported reference-guided artwork interpretation; text equality
 is evaluated by the application. The optional print bounding_box must enclose the READABLE
 printed region on image 0, not the whole block and never a reference/crop coordinate system.
@@ -121,6 +142,33 @@ def inspection_task_data(request: MultimodalInspectionRequest) -> str:
         if context.face_constraint
         else None,
         "registered_faces": [face.model_dump(mode="json") for face in context.faces],
+        # Flat, unambiguous side_id -> expected_text mapping. The nested
+        # registered_faces dump alone buries this inside each print_rule.
+        "print_side_registry": [
+            {
+                "side_id": face.id,
+                "block_id": face.block_id,
+                "side_name": face.name,
+                "label": face.label,
+                "expected_text": face.print_rule.expected_text if face.print_rule else None,
+                "alternative_texts": face.print_rule.alternative_texts
+                if face.print_rule
+                else [],
+            }
+            for face in context.faces
+        ],
+        "print_task": {
+            "expected_side_id": context.face_constraint.required_face_id
+            if context.face_constraint
+            else None,
+            "target_block_id": context.face_constraint.target_block_id
+            if context.face_constraint
+            else None,
+            "note": (
+                "expected_side_id is the required goal, not the observed side. "
+                "Transcribe first, then look the transcription up in print_side_registry."
+            ),
+        },
         "quantity_semantics": "Blocks assigned to this step, not necessarily the complete assembly",
         "expected_blocks": [
             block.model_dump(exclude={"reference_images"}) for block in context.expected_blocks

@@ -53,6 +53,23 @@ def configured_side(context):
     )
 
 
+DISCARDED_SIDE_ID_NOTE = (
+    " The model's printed-side ID was discarded because it was not supported by "
+    "its own transcription and evidence quality; the preserved transcription "
+    "was evaluated independently."
+)
+
+
+def discard_side_id_claim(result, observed):
+    """Reject only the ID claim; observed_text is preserved byte-for-byte."""
+    claimed = observed.observed_registered_side_id
+    observed.observed_registered_side_id = None
+    if result.observed_face_id is not None and result.observed_face_id == claimed:
+        result.observed_face_id = None
+    if DISCARDED_SIDE_ID_NOTE.strip() not in observed.description:
+        observed.description = (observed.description + DISCARDED_SIDE_ID_NOTE)[:2000]
+
+
 def validate_print_observation(result, request):
     expected = configured_side(request.context)
     observed = result.print_observation
@@ -77,24 +94,32 @@ def validate_print_observation(result, request):
             raise PrintEvidenceError("print_side_unknown")
         if side.block_id != expected.block_id:
             raise PrintEvidenceError("print_side_wrong_block")
-        if observed.evidence_quality != "clear":
-            raise PrintEvidenceError("print_side_unclear")
+        # A side ID is a claim, not evidence. Never let it override the literal
+        # transcription: unclear, text-contradicting or face-conflicting claims
+        # are discarded and the preserved text is classified by the server.
+        # This must not fail the whole inspection (no extra Meta call is made).
         if (
-            side.print_rule
-            and side.print_rule.expected_text
-            and (
-                normalize_print(side.print_rule.expected_text)
-                != normalize_print(observed.observed_text)
+            observed.evidence_quality != "clear"
+            or (
+                side.print_rule
+                and side.print_rule.expected_text
+                and (
+                    normalize_print(side.print_rule.expected_text)
+                    != normalize_print(observed.observed_text)
+                )
             )
+            or (result.observed_face_id and result.observed_face_id != side.id)
         ):
-            raise PrintEvidenceError("print_side_text_conflict")
+            if result.observed_face_id and result.observed_face_id != side.id:
+                # Two conflicting identity claims: trust neither model ID.
+                result.observed_face_id = None
+            discard_side_id_claim(result, observed)
+            return
         attached = {item.reference_id for item in request.images if item.reference_id}
         if not (side.print_rule and side.print_rule.expected_text) and not any(
             photo.id in attached for photo in side.references
         ):
             raise PrintEvidenceError("print_side_unsupported")
-        if result.observed_face_id and result.observed_face_id != side.id:
-            raise PrintEvidenceError("print_side_identity_conflict")
 
 
 def supported_surface(box, face):
@@ -208,7 +233,28 @@ def recognize_print(request, diagnosis, face, segmentations):
             observed.suggested_action,
         )
         result.bounding_box = observed.bounding_box
+        # Defense in depth (also covers verification, whose adapter re-parses):
+        # never trust a model side ID that contradicts its own transcription.
         selected_id = observed.observed_registered_side_id
+        if selected_id is not None:
+            claimed = next(
+                (side for side in request.context.faces if side.id == selected_id), None
+            )
+            if (
+                claimed is None
+                or claimed.block_id != expected.block_id
+                or observed.evidence_quality != "clear"
+                or (
+                    claimed.print_rule
+                    and claimed.print_rule.expected_text
+                    and normalize_print(claimed.print_rule.expected_text)
+                    != normalize_print(observed.observed_text)
+                )
+                or (diagnosis.observed_face_id and diagnosis.observed_face_id != selected_id)
+            ):
+                selected_id = None
+                if DISCARDED_SIDE_ID_NOTE.strip() not in result.description:
+                    result.description += DISCARDED_SIDE_ID_NOTE
         counts = [
             item.estimated_count
             for item in diagnosis.visible_blocks
@@ -248,7 +294,17 @@ def recognize_print(request, diagnosis, face, segmentations):
                 if side.print_rule and normalize_print(side.print_rule.expected_text) == text
             ]
             if selected_id is None and len(matching_ids) == 1:
+                # Server-derived identity: the unique registered side whose
+                # expected text equals the preserved transcription.
                 selected_id = matching_ids[0]
+            elif len(matching_ids) > 1:
+                # Several registered sides share this text; identity is
+                # indistinguishable, so do not fabricate a side or a gate.
+                result.recognition_status, result.evidence_quality = "uncertain", "ambiguous"
+                result.description += (
+                    " Several registered sides share this text; the observed side is ambiguous."
+                )
+                return PrintRecognitionResult.model_validate(result.model_dump())
         elif (
             observed.observed_logo
             and result.reference_image_id

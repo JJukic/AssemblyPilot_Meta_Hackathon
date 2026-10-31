@@ -110,6 +110,170 @@ def test_zero_shot_no_reference_single_request(flow, text, quality, status, gate
     )
 
 
+def add_alternative_side(flow, root, payload, text="insights"):
+    other = flow.client.post(
+        root,
+        json={
+            **payload,
+            "label": "back",
+            "name": "insights side",
+            "print_rule": {
+                "expected_text": text,
+                "alternative_texts": [],
+                "recognition_mode": "meta_auto",
+            },
+        },
+    )
+    assert other.status_code == 201, other.text
+    return other.json()
+
+
+def test_conflict_expected_id_with_alternative_text_reports_mismatch(flow):
+    # Expected Involve Me, model transcribes insights but claims the expected side.
+    face, _, _ = configure(flow)
+    flow.base["print_observation"].update(
+        observed_text="insights", observed_registered_side_id=face["id"]
+    )
+    response = flow.start()
+    assert response.status_code == 200, response.text
+    data = response.json()
+    result = data["print_recognition"]
+    assert result["recognition_status"] == "mismatch" and result["gate_status"] == "fail"
+    assert result["observed_print"] == "insights"  # literal transcription preserved
+    assert result["observed_registered_side_id"] is None  # no fabricated side ID
+    assert result["known_alternative"] is True
+    assert "discarded" in result["description"]
+    assert data["state"] == "correction_required" and data["muse_call_count"] == 1
+    assert len(flow.calls) == 1  # no automatic retry / extra Meta call
+
+
+def test_conflict_alternative_id_with_expected_text_reports_match_from_text(flow):
+    # Expected Involve Me, model transcribes Involve Me but claims the alternative side.
+    face, root, payload = configure(flow)
+    other = add_alternative_side(flow, root, payload)
+    flow.base["print_observation"].update(
+        observed_text="Involve Me", observed_registered_side_id=other["id"]
+    )
+    response = flow.start()
+    assert response.status_code == 200, response.text
+    data = response.json()
+    result = data["print_recognition"]
+    assert result["recognition_status"] == "match" and result["gate_status"] == "pass"
+    assert result["observed_print"] == "Involve Me"
+    # Server-derived from the transcription, not the model's contradicted claim.
+    assert result["observed_registered_side_id"] == face["id"]
+    assert data["state"] == "correct" and len(flow.calls) == 1
+
+
+def test_correctly_assigned_observed_side_id_reports_mismatch(flow):
+    face, root, payload = configure(flow)
+    other = add_alternative_side(flow, root, payload)
+    flow.base["print_observation"].update(
+        observed_text="insights", observed_registered_side_id=other["id"]
+    )
+    response = flow.start()
+    assert response.status_code == 200, response.text
+    result = response.json()["print_recognition"]
+    assert result["recognition_status"] == "mismatch" and result["gate_status"] == "fail"
+    assert result["observed_registered_side_id"] == other["id"]
+    assert result["observed_registered_side_name"] == "insights side"
+    assert result["observed_print"] == "insights"
+
+
+def test_unknown_legible_text_with_wrong_expected_id_reports_mismatch(flow):
+    face, _, _ = configure(flow)
+    flow.base["print_observation"].update(
+        observed_text="Quantum Banana", observed_registered_side_id=face["id"]
+    )
+    response = flow.start()
+    assert response.status_code == 200, response.text
+    result = response.json()["print_recognition"]
+    assert result["recognition_status"] == "mismatch" and result["gate_status"] == "fail"
+    assert result["observed_print"] == "Quantum Banana"
+    assert result["observed_registered_side_id"] is None
+    assert result["known_alternative"] is False
+
+
+@pytest.mark.parametrize("quality", ["partial", "ambiguous", "unreadable"])
+def test_partial_or_ambiguous_text_with_side_claim_stays_uncertain(flow, quality):
+    face, _, _ = configure(flow)
+    flow.base["print_observation"].update(
+        observed_text="Involve" if quality != "unreadable" else None,
+        evidence_quality=quality,
+        observed_registered_side_id=face["id"],
+    )
+    response = flow.start()
+    assert response.status_code == 200, response.text
+    data = response.json()
+    result = data["print_recognition"]
+    assert result["recognition_status"] == "uncertain" and result["gate_status"] == "uncertain"
+    assert result["observed_registered_side_id"] is None
+    assert data["state"] == "uncertain" and len(flow.calls) == 1
+
+
+def test_multiple_indistinguishable_targets_with_conflicting_id_stay_uncertain(flow):
+    face, _, _ = configure(flow)
+    flow.base["visible_blocks"][0]["estimated_count"] = 2
+    flow.base["print_observation"].update(
+        observed_text="insights", observed_registered_side_id=face["id"]
+    )
+    response = flow.start()
+    assert response.status_code == 200, response.text
+    data = response.json()
+    result = data["print_recognition"]
+    assert result["recognition_status"] == "uncertain" and result["gate_status"] == "uncertain"
+    assert result["evidence_quality"] == "ambiguous"
+    assert data["state"] == "uncertain"
+
+
+def test_conflicting_id_match_does_not_prove_direction(flow):
+    # Strict orientation gate: text match alone, even after discarding a wrong
+    # side claim, cannot pass when physical direction is unsupported.
+    face, root, payload = configure(flow, direction="board_negative_y")
+    other = add_alternative_side(flow, root, payload)
+    flow.base["print_observation"].update(
+        observed_text="Involve Me", observed_registered_side_id=other["id"]
+    )
+    response = flow.start()
+    assert response.status_code == 200, response.text
+    data = response.json()
+    result = data["print_recognition"]
+    assert result["recognition_status"] == "match" and result["gate_status"] == "uncertain"
+    assert result["direction_supported"] is False
+    assert data["state"] == "uncertain"
+
+
+def test_fresh_verification_with_conflicting_side_ids_uses_text(flow):
+    face, root, payload = configure(flow)
+    other = add_alternative_side(flow, root, payload)
+    flow.base["print_observation"].update(
+        observed_text="insights", observed_registered_side_id=face["id"]
+    )
+    before = flow.start().json()
+    assert before["state"] == "correction_required"
+    flow.base["print_observation"].update(
+        observed_text="Involve Me", observed_registered_side_id=other["id"]
+    )
+    response = flow.verify(before["inspection_id"])
+    assert response.status_code == 200, response.text
+    after = response.json()["inspection"]
+    assert after["state"] == "verified" and len(flow.calls) == 2
+    assert after["print_recognition"]["observed_registered_side_id"] == face["id"]
+    assert flow.progress()["status"] == "verified"
+
+
+def test_print_side_registry_mapping_is_explicit_in_task_data(flow):
+    face, root, payload = configure(flow)
+    other = add_alternative_side(flow, root, payload)
+    assert flow.start().status_code == 200
+    task = json.loads(flow.calls[0]["messages"][1]["content"][0]["text"])
+    registry = {entry["side_id"]: entry["expected_text"] for entry in task["print_side_registry"]}
+    assert registry == {face["id"]: "Involve Me", other["id"]: "insights"}
+    assert task["print_task"]["expected_side_id"] == face["id"]
+    policy = flow.calls[0]["messages"][0]["content"]
+    assert "never copy" in policy.lower() and "transcrib" in policy.lower()
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -504,10 +668,7 @@ def test_requested_print_schema_matches_active_rule(flow, mode):
         "print_target_mismatch",
         "print_side_unknown",
         "print_side_wrong_block",
-        "print_side_unclear",
-        "print_side_text_conflict",
         "print_side_unsupported",
-        "print_side_identity_conflict",
     ],
 )
 def test_print_rejections_identify_exact_safe_reason_without_retry(flow, caplog, reason):
@@ -521,18 +682,11 @@ def test_print_rejections_identify_exact_safe_reason_without_retry(flow, caplog,
         observed["target_block_id"] = secret
     elif reason == "print_side_unknown":
         observed["observed_registered_side_id"] = secret
-    elif reason == "print_side_unclear":
-        observed["evidence_quality"] = "partial"
-    elif reason == "print_side_text_conflict":
-        observed["observed_text"] = secret
     elif reason == "print_side_unsupported":
         payload["print_rule"].update(
             expected_text="", logo_description="An emblem", recognition_mode="meta_references"
         )
         assert flow.client.put(f"{root}/{face['id']}", json=payload).status_code == 200
-    elif reason == "print_side_identity_conflict":
-        other = flow.client.post(root, json={**payload, "label": "back"}).json()
-        flow.base["observed_face_id"] = other["id"]
     elif reason == "print_side_wrong_block":
         block = flow.client.post("/api/blocks", json={"name": "Other", "color": "red"}).json()
         other = flow.client.post(f"/api/blocks/{block['id']}/faces", json=payload).json()
