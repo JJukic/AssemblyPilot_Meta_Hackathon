@@ -530,3 +530,88 @@ def test_existing_benchmark_remains_muse_only(settings, inspection_case, monkeyp
     report = asyncio.run(evaluate([(case, request)], meta))
     assert report["results"][0]["diagnosis"]["segmentations"][0]["status"] == "disabled"
     assert "data:image" not in json.dumps(report)
+
+
+def test_worker_resource_limits_are_best_effort(monkeypatch):
+    import resource
+
+    from app.services.sam_decode import limit_resources
+
+    real_setrlimit = resource.setrlimit
+
+    def macos_setrlimit(kind, limits):
+        if kind == resource.RLIMIT_AS:
+            raise ValueError("current limit exceeds maximum limit")
+        return real_setrlimit(kind, limits)
+
+    monkeypatch.setattr(resource, "setrlimit", macos_setrlimit)
+    status = limit_resources()
+    assert status["rlimit_as"] == "unsupported"
+    assert status["rlimit_cpu"] == "applied"
+
+
+def test_decode_succeeds_without_address_space_limit():
+    import app.services.sam_decode as worker
+
+    payload = {
+        "events": events(),
+        "width": 100,
+        "height": 80,
+        "snapshot_id": "0" * 64,
+    }
+    result = asyncio.run(worker.decode(payload))
+    assert len(result.instances) == 1 and result.instances[0].instance_id == "0"
+
+
+def test_invalid_response_carries_safe_stage_reason(sam_case):
+    with pytest.raises(InspectionError) as error:
+        run(sam_case, lambda _: httpx.Response(200, json={"output": []}))
+    assert error.value.code == "sam_invalid_response"
+    assert "[http_response_format:non_sse_response]" in str(error.value)
+    assert "private" not in str(error.value)
+
+    broken = "<0f>" + TOKEN.replace("5,5,!!!!!", "5,5,broken")
+    with pytest.raises(InspectionError) as error:
+        run(sam_case, lambda _: response(broken))
+    assert error.value.code == "sam_invalid_response"
+    assert str(error.value).count("[") == 1 and str(error.value).endswith("]")
+    assert "private" not in str(error.value) and "sam-test-key" not in str(error.value)
+
+
+def test_smoke_concept_is_selectable_offline(settings, image_bytes, tmp_path, monkeypatch, capsys):
+    from argparse import Namespace
+
+    import smoke_segmentation
+
+    settings.sam_enabled = True
+    settings.model_api_key = SecretStr("smoke-test-key")
+    monkeypatch.setattr(smoke_segmentation, "Settings", lambda: settings)
+    jpeg = image_bytes()
+    seen = {}
+
+    async def fake_segment(self, image, concept):
+        seen["concept"] = concept
+        assert image.jpeg_bytes == jpeg
+        return SegmentationResult(
+            snapshot_id=hashlib.sha256(jpeg).hexdigest(), width=100, height=80, instances=[]
+        )
+
+    monkeypatch.setattr(smoke_segmentation.SamClient, "segment", fake_segment)
+    monkeypatch.setattr(
+        smoke_segmentation, "process_image", lambda data, config: type(
+            "Image", (), {"jpeg_bytes": jpeg, "width": 100, "height": 80}
+        )()
+    )
+    source = tmp_path / "photo.jpg"
+    source.write_bytes(b"not-read")
+    output = tmp_path / "annotated.png"
+    args = Namespace(image=source, output=output, concept="yellow building block")
+    assert asyncio.run(smoke_segmentation.run(args)) == 0
+    assert seen["concept"] == "yellow building block"
+    assert output.exists()
+    assert '"concept": "yellow building block"' in capsys.readouterr().out
+
+    args = Namespace(
+        image=source, output=tmp_path / "second.png", concept="find the thing please"
+    )
+    assert asyncio.run(smoke_segmentation.run(args)) == 1

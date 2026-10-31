@@ -129,11 +129,14 @@ cannot guarantee cancellation of work already running at Meta.
 Application limits: normalized image <=1600px/edge, existing encoded-image/request
 limits, SSE <=2 MiB / 10,000 events, <=32 instances, each PNG <=512 KiB,
 combined base64 masks <=2 MiB per operation. The official codec has no resource
-quotas, so it runs in a short-lived subprocess with 512 MiB address space, 30 CPU
-seconds and 35 seconds wall time, inside the overall SAM deadline. The worker receives
-no API credential, does not log raw output and is killed on timeout/cancellation.
-This worker requires POSIX resource limits (Linux/macOS); unsupported platforms safely
-report SAM unavailable. Large/complex masks may exceed these conservative limits.
+quotas, so it runs in a short-lived subprocess with 512 MiB address space (Linux;
+best-effort on macOS where the kernel rejects it), 30 CPU seconds and 35 seconds
+wall time, inside the overall SAM deadline. The worker receives no API credential,
+does not log raw output and is killed on timeout/cancellation. Failures carry a
+safe `[stage:reason]` suffix (HTTP format, SSE framing, parser completion, worker
+termination, mask decoding, geometry validation, resource limits) with counts and
+sizes only; keys, provider output, base64 bytes and photographs are never logged.
+Large/complex masks may exceed these conservative limits.
 
 Muse retains its own deadline (default 60s, maximum 180s). The browser allows 310s
 for the configured worst case of Muse + two SAM operations. Latency can be materially
@@ -149,10 +152,12 @@ command sends a potentially billable request using a photograph **you supply**:
 cd backend
 uv run --frozen python smoke_segmentation.py \
   --image /absolute/path/to/your-photo.jpg \
-  --output data/sam-smoke/annotated.png
+  --output data/sam-smoke/annotated.png \
+  --concept "yellow building block"
 ```
 
-It always uses `green building block`, the existing safe normalization, real SAM,
+It uses the selectable `--concept` (default `green building block`), the existing
+safe normalization, real SAM,
 the official parser and the same geometry checks. It prints instance count, duration,
 identity and output path after a successful completed response, including zero matches.
 All returned instances are annotated and labelled for manual review; this standalone

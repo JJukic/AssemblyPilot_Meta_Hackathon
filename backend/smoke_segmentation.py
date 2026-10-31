@@ -15,7 +15,7 @@ from app.core.config import Settings
 from app.services.image_processor import ImageValidationError, process_image
 from app.services.inspection_errors import InspectionError
 from app.services.inspection_request import inspection_image_settings
-from app.services.sam_client import SamClient
+from app.services.sam_client import SamClient, validate_concept
 
 
 async def run(args) -> int:
@@ -26,6 +26,11 @@ async def run(args) -> int:
     if not settings.sam_enabled:
         print("SKIPPED: SAM_ENABLED=false.")
         return 77
+    try:
+        concept = validate_concept(getattr(args, "concept", "green building block"))
+    except InspectionError as exc:
+        print(f"FAILED: {exc}")
+        return 1
     output = args.output.expanduser().resolve()
     if output.exists() or output == args.image.expanduser().resolve():
         print("FAILED: Choose a new output path; existing files are never overwritten.")
@@ -36,7 +41,7 @@ async def run(args) -> int:
             image = process_image(
                 source.read(settings.max_upload_bytes + 1), inspection_image_settings(settings)
             )
-        result = await SamClient(settings).segment(image, "green building block")
+        result = await SamClient(settings).segment(image, concept)
         latency_ms = (perf_counter() - started) * 1000
         annotated = Image.open(BytesIO(image.jpeg_bytes)).convert("RGBA")
         draw = ImageDraw.Draw(annotated)
@@ -53,7 +58,7 @@ async def run(args) -> int:
                 {
                     "status": "completed",
                     "model": result.model,
-                    "concept": "green building block",
+                    "concept": concept,
                     "instances": len(result.instances),
                     "latency_ms": round(latency_ms, 1),
                     "snapshot_id": result.snapshot_id,
@@ -75,6 +80,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("data/sam-smoke/annotated.png"))
+    parser.add_argument("--concept", type=str, default="green building block")
     return asyncio.run(run(parser.parse_args()))
 
 

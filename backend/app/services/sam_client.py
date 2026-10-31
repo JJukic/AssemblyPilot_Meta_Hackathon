@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -22,6 +23,56 @@ from app.services.inspection_errors import InspectionError
 from app.services.meta_client import MetaClient, retry_after_seconds, upstream_error
 
 MAX_STREAM_BYTES = 2 * 1024 * 1024
+
+logger = logging.getLogger(__name__)
+
+
+class SamProtocolError(ValueError):
+    """Safe SAM failure: stage/reason/counts only, never provider output."""
+
+    def __init__(self, stage: str, reason: str, safe: dict | None = None):
+        super().__init__(reason)
+        self.stage = stage
+        self.reason = reason
+        self.safe = safe or {}
+
+
+def _parse_worker_diagnostic(stderr: bytes) -> dict:
+    try:
+        first = stderr.decode("utf-8", errors="strict").strip().splitlines()[0][:2048]
+        value = json.loads(first)
+        if not isinstance(value, dict):
+            return {}
+        stage, reason = value.get("stage"), value.get("reason")
+        if not isinstance(stage, str) or not isinstance(reason, str):
+            return {}
+        if stage not in {
+            "http_response_format",
+            "sse_framing",
+            "parser_completion",
+            "worker_termination",
+            "mask_decoding",
+            "geometry_validation",
+            "resource_limits",
+        }:
+            return {}
+        safe: dict = {}
+        for key in ("events", "instances", "width", "height", "stdin_bytes"):
+            item = value.get(key)
+            if isinstance(item, int) and -(10**9) <= item <= 10**9:
+                safe[key] = item
+        limits = value.get("limits")
+        if isinstance(limits, dict):
+            safe_limits = {
+                key: limits[key]
+                for key in ("rlimit_as", "rlimit_cpu")
+                if limits.get(key) in {"applied", "unsupported", "unavailable"}
+            }
+            if safe_limits:
+                safe["limits"] = safe_limits
+        return {"stage": stage, "reason": reason, "safe": safe}
+    except Exception:
+        return {}
 
 
 def snapshot_identity(image: ProcessedImage) -> str:
@@ -47,7 +98,7 @@ async def decode_events(events: list[dict], image: ProcessedImage) -> Segmentati
         cwd=BACKEND_ROOT,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
         env={
             name: value
             for name, value in os.environ.items()
@@ -64,10 +115,44 @@ async def decode_events(events: list[dict], image: ProcessedImage) -> Segmentati
     ).encode()
     try:
         async with asyncio.timeout(35):
-            output, _ = await worker.communicate(payload)
+            output, stderr = await worker.communicate(payload)
+        diagnostic = _parse_worker_diagnostic((stderr or b"")[:4096])
         if worker.returncode or len(output) > 3 * 1024 * 1024:
-            raise ValueError("Parser rejected response")
-        return SegmentationResult.model_validate_json(output)
+            if diagnostic:
+                raise SamProtocolError(
+                    diagnostic["stage"],
+                    diagnostic["reason"],
+                    {
+                        **diagnostic["safe"],
+                        "returncode": worker.returncode or 0,
+                        "stdout_bytes": len(output),
+                    },
+                )
+            raise SamProtocolError(
+                "worker_termination",
+                "parser_rejected",
+                {
+                    "events": len(events),
+                    "returncode": worker.returncode or 0,
+                    "stdout_bytes": len(output),
+                },
+            )
+        try:
+            result = SegmentationResult.model_validate_json(output)
+        except Exception:
+            raise SamProtocolError(
+                "geometry_validation",
+                "result_validation_failed",
+                {"events": len(events), "stdout_bytes": len(output)},
+            ) from None
+        if diagnostic.get("stage") == "resource_limits":
+            logger.debug(
+                "SAM worker limits: %s events=%s instances=%s",
+                diagnostic["safe"].get("limits", "-"),
+                diagnostic["safe"].get("events", "-"),
+                len(result.instances),
+            )
+        return result
     finally:
         if worker.returncode is None:
             worker.kill()
@@ -177,12 +262,18 @@ class SamClient:
                                     if "text/event-stream" not in response.headers.get(
                                         "content-type", ""
                                     ):
-                                        raise ValueError("Expected the documented SSE response")
+                                        raise SamProtocolError(
+                                            "http_response_format", "non_sse_response"
+                                        )
                                     data = bytearray()
                                     async for chunk in response.aiter_bytes():
                                         data.extend(chunk)
                                         if len(data) > MAX_STREAM_BYTES:
-                                            raise ValueError("Oversized response")
+                                            raise SamProtocolError(
+                                                "http_response_format",
+                                                "oversized_response",
+                                                {"stream_bytes": len(data)},
+                                            )
                                     events = parse_sse(bytes(data))
                                     return await decode_events(events, image)
                                 retry_after = retry_after_seconds(
@@ -201,9 +292,29 @@ class SamClient:
                         await asyncio.sleep(max(retry_after or 0, 0.5 * 2**attempt))
         except TimeoutError:
             raise InspectionError("sam_timeout", "SAM exceeded its time limit.", 504) from None
-        except (ValueError, TypeError, KeyError, OSError):
+        except SamProtocolError as exc:
+            fields = " ".join(f"{key}={exc.safe[key]}" for key in sorted(exc.safe)[:6])
+            logger.warning(
+                "Rejected SAM segmentation: stage=%s reason=%s %s",
+                exc.stage,
+                exc.reason,
+                fields or "-",
+            )
             raise InspectionError(
-                "sam_invalid_response", "SAM returned unsupported or invalid segmentation."
+                "sam_invalid_response",
+                "SAM returned unsupported or invalid segmentation. "
+                f"[{exc.stage}:{exc.reason}]",
+            ) from None
+        except (ValueError, TypeError, KeyError, OSError):
+            logger.warning(
+                "Rejected SAM segmentation: stage=%s reason=%s",
+                "worker_termination",
+                "decode_failed",
+            )
+            raise InspectionError(
+                "sam_invalid_response",
+                "SAM returned unsupported or invalid segmentation. "
+                "[worker_termination:decode_failed]",
             ) from None
         raise AssertionError("Retry loop must return or raise")
 
@@ -211,7 +322,13 @@ class SamClient:
 def parse_sse(data: bytes) -> list[dict]:
     """SSE framing only; official parser handles every SAM token and terminal event."""
     events, lines = [], []
-    for line in data.decode("utf-8").splitlines() + [""]:
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise SamProtocolError(
+            "sse_framing", "invalid_encoding", {"stream_bytes": len(data)}
+        ) from None
+    for line in text.splitlines() + [""]:
         if line.startswith("data:"):
             lines.append(line[5:].removeprefix(" "))
         elif not line and lines:
@@ -219,10 +336,23 @@ def parse_sse(data: bytes) -> list[dict]:
             lines = []
             if raw == "[DONE]":
                 continue
-            event = json.loads(raw)
+            try:
+                event = json.loads(raw)
+            except ValueError:
+                raise SamProtocolError(
+                    "sse_framing",
+                    "invalid_event_json",
+                    {"stream_bytes": len(data), "events": len(events)},
+                ) from None
             if not isinstance(event, dict) or not isinstance(event.get("type"), str):
-                raise ValueError("Unsupported event")
+                raise SamProtocolError(
+                    "sse_framing",
+                    "unsupported_event",
+                    {"stream_bytes": len(data), "events": len(events)},
+                )
             events.append(event)
             if len(events) > 10000:
-                raise ValueError("Too many events")
+                raise SamProtocolError(
+                    "sse_framing", "too_many_events", {"stream_bytes": len(data)}
+                )
     return events
