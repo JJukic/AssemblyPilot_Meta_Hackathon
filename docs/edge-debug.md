@@ -97,3 +97,18 @@ when that is distracting. Blur can remove useful fine edges; reflections and wea
 contrast remain difficult. The original camera JPEG may already contain capture
 compression artifacts. No real-camera accuracy benchmark or paid Meta inference
 was performed for this debug feature.
+
+## Edges directly on the inspected image
+
+In **Meta AI inspection**, choose **Detect Canny edges** immediately above the
+analyzed snapshot. Local OpenCV analyzes that exact returned JPEG (which may be
+smaller than the original camera capture), then enables **Canny Edges** on the
+same image. It works without SAM or reference matching. The checkbox hides/shows
+the amber contours; **Show original** hides all annotations. This shortcut uses
+the complete image with Gaussian kernel 3 and Canny thresholds 50/150. The
+separate debug workstation retains adjustable thresholds and manual ROI controls.
+
+No additional AI request is made and no diagnosis/progress is changed. Image
+identity and contour coordinates pass through the existing edge-response
+validation. A new capture or inspection discards the result and aborts pending
+extraction; errors and empty evidence never produce fabricated contours.

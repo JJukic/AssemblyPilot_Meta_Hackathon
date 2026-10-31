@@ -13,7 +13,7 @@ export interface EdgeDebugResult {
 }
 const equalROI = (a: EdgeROI, b: EdgeROI) => a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
 
-export async function detectEdges(snapshot: Snapshot, options: EdgeOptions, signal: AbortSignal): Promise<EdgeDebugResult> {
+export async function detectEdges(snapshot: Pick<Snapshot, "dataUrl" | "width" | "height">, options: EdgeOptions, signal: AbortSignal): Promise<EdgeDebugResult> {
   const file = snapshotFile(snapshot, "edge-debug.jpg");
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
   const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");

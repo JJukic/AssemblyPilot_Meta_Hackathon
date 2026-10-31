@@ -1,6 +1,8 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Render the exact analyzed JPEG without image optimization. */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { errorMessage } from "@/lib/api";
+import { detectEdges, type EdgeDebugResult } from "@/lib/edge-debug";
 import { validContour } from "@/lib/contours";
 import { ContourControls, ContourPaths, emptyContours } from "./ContourOverlay";
 import { isValidBoundingBox } from "@/lib/diagnosis-validation";
@@ -10,6 +12,30 @@ export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapsh
   snapshotId?: string; snapshot: AnalyzedSnapshot; issues: InspectionIssue[]; segmentations?: IssueSegmentation[];
 }) {
   const [contours, setContours] = useState(emptyContours);
+  const [edges, setEdges] = useState<EdgeDebugResult | null>(null);
+  const [edgeBusy, setEdgeBusy] = useState(false);
+  const [edgeError, setEdgeError] = useState("");
+  const edgeRequest = useRef<AbortController | null>(null);
+  // DiagnosisDetails remounts this overlay for each exact analyzed JPEG.
+  useEffect(() => () => edgeRequest.current?.abort(), []);
+  async function showEdges() {
+    if (edgeRequest.current) return;
+    const controller = new AbortController(); edgeRequest.current = controller;
+    setEdgeBusy(true); setEdgeError(""); setEdges(null);
+    try {
+      const result = await detectEdges({ dataUrl: snapshot.data_url, width: snapshot.width, height: snapshot.height },
+        { blur_kernel: 3, low_threshold: 50, high_threshold: 150, roi: null }, controller.signal);
+      if (!controller.signal.aborted) {
+        if (snapshotId && result.snapshot_id !== snapshotId) throw new Error("Edge evidence belongs to another inspection.");
+        setEdges(result); setAnnotated(true);
+        setContours((previous) => ({ ...previous, canny_edges: true }));
+      }
+    } catch (cause) {
+      if (!controller.signal.aborted) setEdgeError(errorMessage(cause));
+    } finally {
+      if (!controller.signal.aborted) { setEdgeBusy(false); edgeRequest.current = null; }
+    }
+  }
   const [showBoxes, setShowBoxes] = useState(true);
   const [annotated, setAnnotated] = useState(true);
   const [showSegmentation, setShowSegmentation] = useState(true);
@@ -32,12 +58,19 @@ export function DiagnosticOverlay({ snapshot, issues, segmentations = [], snapsh
   const layers = segmentations.flatMap((entry) => entry.status === "matched" && entry.outline &&
     validContour(entry.outline, { snapshot_id: snapshotId ?? "", width: snapshot.width, height: snapshot.height }) &&
     matches.some((match) => match.index === entry.issue_index) ? [entry.outline] : []);
+  if (edges?.analyzed_snapshot.data_url === snapshot.data_url) layers.push(edges.contours);
   return <figure className="diagnostic-overlay">
     <div className="segmentation-controls">
       <button type="button" className="secondary-button" aria-pressed={!annotated} onClick={() => setAnnotated(!annotated)}>{annotated ? "Show original" : "Show annotated"}</button>
       <label><input type="checkbox" checked={showSegmentation} onChange={(event) => setShowSegmentation(event.target.checked)} disabled={!matches.length} /> Show Segmentation</label>
     </div>
     <label><input type="checkbox" checked={showBoxes} disabled={!boxes.length} onChange={(event) => setShowBoxes(event.target.checked)} /> Bounding Box</label>
+    <button type="button" className="button secondary" disabled={!ready || edgeBusy} onClick={() => void showEdges()}>
+      {edgeBusy ? "Detecting Canny edges…" : "Detect Canny edges"}
+    </button>
+    <p className="muted">Detect raw edges directly on this analyzed image using local OpenCV. Uses the full image; no additional AI request or change to the diagnosis.</p>
+    {edgeBusy && <p role="status">Extracting edges from the analyzed snapshot…</p>}
+    {edgeError && <p role="alert" className="form-error">{edgeError}</p>}
     <ContourControls layers={layers} enabled={contours} onChange={(kind, checked) => setContours({ ...contours, [kind]: checked })} />
     <div className="diagnostic-image-stage">
       <img src={snapshot.data_url} width={snapshot.width} height={snapshot.height} alt="Analyzed snapshot"

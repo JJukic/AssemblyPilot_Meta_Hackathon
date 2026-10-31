@@ -351,3 +351,12 @@ Only synthetic images and mocked Meta inference were used. No Phase 4.1E live
 request was sent, no real-image print accuracy or latency was measured, and no
 new model provider or automatic inference loop was introduced. The actual yellow
 block experiment and its pending A–G records are in [print-recognition.md](print-recognition.md).
+
+## Direct analyzed-image Canny overlay — 2026-10-31
+
+`Detect Canny edges` now computes and displays raw edges directly on the inspected
+JPEG using the existing local endpoint. No new inference or verdict change.
+`make lint`, `make test` (390 backend tests and TypeScript), `make build`, and
+`make test-browser` (73 tests with system Chromium) passed. Four added browser
+cases cover exact analyzed-image transport and desktop/mobile alignment, toggles,
+stale captures, backend failure and mismatched image identity.

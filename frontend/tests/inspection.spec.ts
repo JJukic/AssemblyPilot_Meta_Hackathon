@@ -322,3 +322,89 @@ test("SAM snapshot identity, mask dimensions and ambiguous selection are rejecte
     await expect(page.locator(".history-entry")).toHaveCount(0);
   }
 });
+
+async function inspectForEdges(page: Page) {
+  analyzedSnapshot = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = 400; canvas.height = 200;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "white"; context.fillRect(0, 0, 400, 200);
+    context.fillStyle = "black"; context.fillRect(100, 40, 160, 100);
+    return { data_url: canvas.toDataURL("image/jpeg"), width: 400, height: 200 };
+  });
+  await page.route("**/api/inspect", (route) => route.fulfill({ json: inspectionResponse() }));
+  await capture(page);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  const overlay = page.getByRole("region", { name: "Meta AI inspection" }).locator(".diagnostic-overlay");
+  await expect(overlay.getByRole("button", { name: "Detect Canny edges", exact: true })).toBeEnabled();
+  return overlay;
+}
+
+test("Canny edges render directly on the analyzed JPEG without another AI request", async ({ page }) => {
+  const overlay = await inspectForEdges(page);
+  let aiCalls = 0;
+  page.on("request", (request) => { if (/\/api\/(inspect|verify|segment)$/.test(request.url())) aiCalls++; });
+  await expect(overlay.getByLabel("Canny Edges", { exact: true })).toBeDisabled();
+  const response = page.waitForResponse("**/api/vision/edges");
+  await overlay.getByRole("button", { name: "Detect Canny edges", exact: true }).click();
+  const edges = await (await response).json();
+  expect(edges.analyzed_snapshot).toEqual(analyzedSnapshot);
+  expect(edges.edge_pixel_count).toBeGreaterThan(0);
+  const toggle = overlay.getByLabel("Canny Edges", { exact: true });
+  await expect(toggle).toBeChecked();
+  const paths = overlay.locator('[data-contour-kind="canny_edges"] path');
+  await expect(paths.first()).toBeVisible();
+  await expect(overlay.getByAltText("Analyzed snapshot")).toHaveAttribute("src", analyzedSnapshot.data_url);
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const image = (await overlay.getByAltText("Analyzed snapshot").boundingBox())!;
+    const point = await paths.first().evaluate((path: SVGPathElement) => {
+      const p = path.getPointAtLength(0).matrixTransform(path.getScreenCTM()!);
+      return { x: p.x, y: p.y };
+    });
+    const [x, y] = edges.contours.paths[0].points[0];
+    expect((point.x - image.x) / image.width).toBeCloseTo(x / 400, 3);
+    expect((point.y - image.y) / image.height).toBeCloseTo(y / 200, 3);
+  }
+  await overlay.getByRole("button", { name: "Show original", exact: true }).click();
+  await expect(paths).toHaveCount(0);
+  await overlay.getByRole("button", { name: "Show annotated", exact: true }).click();
+  await expect(paths.first()).toBeVisible();
+  await toggle.uncheck();
+  await expect(paths).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Incorrect", exact: true })).toBeVisible();
+  expect(aiCalls).toBe(0);
+});
+
+test("a late Canny response cannot attach to a new inspection capture", async ({ page }) => {
+  let entered!: () => void, release!: () => void, completed!: () => void;
+  const received = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const finished = new Promise<void>((resolve) => { completed = resolve; });
+  await page.route("**/api/vision/edges", async (route) => {
+    const response = await route.fetch(); entered(); await gate;
+    await route.fulfill({ response }).catch(() => {}); completed();
+  });
+  const overlay = await inspectForEdges(page);
+  await overlay.getByRole("button", { name: "Detect Canny edges", exact: true }).click();
+  await received;
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  release(); await finished;
+  await expect(overlay).toHaveCount(0);
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  await expect(overlay.getByLabel("Canny Edges", { exact: true })).toBeDisabled();
+  await expect(overlay.locator('[data-contour-kind="canny_edges"]')).toHaveCount(0);
+});
+
+for (const fault of ["backend", "identity"] as const) test(`analyzed-image Canny ${fault} error preserves the diagnosis`, async ({ page }) => {
+  await page.route("**/api/vision/edges", async (route) => {
+    if (fault === "backend") return route.fulfill({ status: 422, json: { detail: "OpenCV edge extraction failed." } });
+    const response = await route.fetch();
+    const result = await response.json(); result.snapshot_id = "0".repeat(64);
+    return route.fulfill({ json: result });
+  });
+  const overlay = await inspectForEdges(page);
+  await overlay.getByRole("button", { name: "Detect Canny edges", exact: true }).click();
+  await expect(overlay.getByRole("alert")).toContainText(fault === "backend" ? "extraction failed" : "does not match");
+  await expect(overlay.locator('[data-contour-kind="canny_edges"]')).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Incorrect", exact: true })).toBeVisible();
+});
