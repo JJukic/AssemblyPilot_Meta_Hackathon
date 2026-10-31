@@ -100,6 +100,16 @@ class MetaClient:
         return self.settings.meta_api_base_url.rstrip("/") + "/chat/completions"
 
     def request_body(self, request: MultimodalInspectionRequest) -> bytes:
+        from app.services.print_recognition import configured_side
+
+        expected = configured_side(request.context)
+        print_required = expected is not None and expected.print_rule.recognition_mode != "contour"
+        schema = InspectionResult.model_json_schema()
+        # Match the requested output to the same rule enforced after inference.
+        # An unreadable print is a structured observation, never a missing observation.
+        schema["properties"]["print_observation"] = (
+            {"$ref": "#/$defs/PrintObservation"} if print_required else {"type": "null"}
+        )
         content = [{"type": "text", "text": inspection_task_data(request)}]
         for index, item in enumerate(request.images):
             content.append({"type": "text", "text": f"Image {index}: {item.role}"})
@@ -120,7 +130,7 @@ class MetaClient:
                 "json_schema": {
                     "name": "assembly_inspection",
                     "strict": True,
-                    "schema": InspectionResult.model_json_schema(),
+                    "schema": schema,
                 },
             },
         }
@@ -240,13 +250,20 @@ class MetaClient:
                 face.id for face in request.context.faces
             }:
                 raise ValueError("Unknown registered face ID")
-            from app.services.print_recognition import validate_print_observation
+            from app.services.print_recognition import (
+                PrintEvidenceError,
+                validate_print_observation,
+            )
 
             reason = "print_rule_evidence"
             explanation = (
                 "Meta's printed-side evidence is missing or conflicts with the print rule."
             )
-            validate_print_observation(result, request)
+            try:
+                validate_print_observation(result, request)
+            except PrintEvidenceError as exc:
+                reason, explanation = exc.reason, str(exc)
+                raise
             reason = "step_id_mismatch"
             explanation = "Meta returned a diagnosis for a different step ID."
             if result.step_id != request.context.step_id:

@@ -61,12 +61,21 @@ inspection to return print_observation. No human face recognition, biometrics or
 Meta Auto reads visible printed words without requiring a reference photograph. Meta + References
 uses the supplied reusable print references. New viewpoints need no new manual contour teaching.
 For contour mode or no configured print rule, return print_observation=null.
-Otherwise return target_block_id only when the target instance is identified; target_identified
+For every other configured print mode, print_observation MUST be an object even if the
+target is absent or its print is unreadable. Describe the uncertainty in that object; do not
+return null. The response schema reflects whether this step requires this observation.
+Return target_block_id only when the target instance is identified; target_identified
 must agree. Multiple indistinguishable same-color instances, glare, similar-looking characters,
 partial text or hidden print require ambiguous/partial/unreadable evidence, never completion
 from the expected label. observed_text is a literal transcription; observed_logo is a separate
 interpretation. Never silently correct spelling to the expected print. Unknown content has no
 registered side ID. Use only supplied physical block-side IDs; do not infer hidden sides.
+observed_registered_side_id identifies the OBSERVED side, never the requested/expected side
+merely because it is the goal. Set it to null for partial/unreadable/ambiguous evidence, or
+when no registered side is supported. For a side with expected_text, the literal transcription
+must match that side's text (ignoring case and whitespace) before assigning its ID. Different
+text remains a valid observation with a null side ID; the server evaluates the mismatch.
+Do not contradict observed_registered_side_id with a different observed_face_id.
 Use logo_comparison only for supported reference-guided artwork interpretation; text equality
 is evaluated by the application. The optional print bounding_box must enclose the READABLE
 printed region on image 0, not the whole block and never a reference/crop coordinate system.

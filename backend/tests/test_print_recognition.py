@@ -457,8 +457,8 @@ def test_missing_print_observation_reports_contract_problem_not_bad_image(flow, 
     flow.base["print_observation"] = None
     response = flow.start()
     assert response.status_code == 502
-    assert "[print_rule_evidence]" in response.json()["detail"]["message"]
-    assert "reason=print_rule_evidence" in caplog.text
+    assert "[print_missing]" in response.json()["detail"]["message"]
+    assert "reason=print_missing" in caplog.text
     assert flow.progress()["status"] != "verified"
 
 
@@ -477,3 +477,92 @@ def test_selected_assembly_reference_is_sent_and_disclosed_before_face_photos(fl
     assert manifest[1]["role"] == "assembled_step_reference"
     assert manifest[1]["reference_id"] == reference["id"]
     assert len([item for item in content if item["type"] == "image_url"]) == 2
+
+
+@pytest.mark.parametrize("mode", [None, "meta_auto", "meta_references", "hybrid", "contour"])
+def test_requested_print_schema_matches_active_rule(flow, mode):
+    if mode:
+        configure(flow, mode=mode)
+    if mode == "contour":
+        flow.base["print_observation"] = None
+    assert flow.start().status_code == 200
+    schema = flow.calls[0]["response_format"]["json_schema"]["schema"]
+    assert "print_observation" in schema["required"]
+    assert schema["properties"]["print_observation"] == (
+        {"$ref": "#/$defs/PrintObservation"} if mode and mode != "contour" else {"type": "null"}
+    )
+    if mode and mode != "contour":
+        observation = schema["$defs"]["PrintObservation"]
+        assert set(observation["required"]) == set(observation["properties"])
+        assert {"type": "null"} in observation["properties"]["observed_text"]["anyOf"]
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "print_unrequested",
+        "print_target_mismatch",
+        "print_side_unknown",
+        "print_side_wrong_block",
+        "print_side_unclear",
+        "print_side_text_conflict",
+        "print_side_unsupported",
+        "print_side_identity_conflict",
+    ],
+)
+def test_print_rejections_identify_exact_safe_reason_without_retry(flow, caplog, reason):
+    face, root, payload = configure(
+        flow, mode="contour" if reason == "print_unrequested" else "meta_auto"
+    )
+    observed = flow.base["print_observation"]
+    observed["observed_registered_side_id"] = face["id"]
+    secret = "untrusted-model-value-DO-NOT-LOG"
+    if reason == "print_target_mismatch":
+        observed["target_block_id"] = secret
+    elif reason == "print_side_unknown":
+        observed["observed_registered_side_id"] = secret
+    elif reason == "print_side_unclear":
+        observed["evidence_quality"] = "partial"
+    elif reason == "print_side_text_conflict":
+        observed["observed_text"] = secret
+    elif reason == "print_side_unsupported":
+        payload["print_rule"].update(
+            expected_text="", logo_description="An emblem", recognition_mode="meta_references"
+        )
+        assert flow.client.put(f"{root}/{face['id']}", json=payload).status_code == 200
+    elif reason == "print_side_identity_conflict":
+        other = flow.client.post(root, json={**payload, "label": "back"}).json()
+        flow.base["observed_face_id"] = other["id"]
+    elif reason == "print_side_wrong_block":
+        block = flow.client.post("/api/blocks", json={"name": "Other", "color": "red"}).json()
+        other = flow.client.post(f"/api/blocks/{block['id']}/faces", json=payload).json()
+        data = {
+            **flow.step_data,
+            "face_constraint": {
+                "target_block_id": flow.block["id"],
+                "required_face_id": face["id"],
+                "facing_direction": "not_required",
+            },
+            "required_blocks": [
+                *flow.step_data["required_blocks"],
+                {"block_id": block["id"], "required_quantity": 1},
+            ],
+        }
+        assert (
+            flow.client.put(
+                f"/api/projects/{flow.project['id']}/steps/{flow.step['id']}", json=data
+            ).status_code
+            == 200
+        )
+        observed["observed_registered_side_id"] = other["id"]
+    response = flow.start()
+    assert response.status_code == 502, response.text
+    # The request only includes sides of the constrained block; another block's
+    # registered side is therefore unknown within this request's allowed IDs.
+    expected_reason = "print_side_unknown" if reason == "print_side_wrong_block" else reason
+    assert f"[{expected_reason}]" in response.json()["detail"]["message"]
+    assert f"reason={expected_reason}" in caplog.text
+    assert secret not in response.text + caplog.text
+    assert face["id"] not in response.text + caplog.text
+    assert len(flow.calls) == 1
+    assert flow.progress()["status"] != "verified"

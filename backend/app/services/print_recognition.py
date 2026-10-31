@@ -10,6 +10,32 @@ from app.models.prints import PrintRecognitionResult
 from app.services.face_inspection import sam_consistent
 
 
+class PrintEvidenceError(ValueError):
+    """Fixed public reasons only; never expose provider text or registered values."""
+
+    messages = {
+        "print_unrequested": "Meta returned print evidence although this step requested none.",
+        "print_missing": "Meta omitted the required printed-side observation.",
+        "print_target_mismatch": "Meta assigned the print observation to another block.",
+        "print_side_unknown": "Meta returned an unregistered printed-side ID.",
+        "print_side_wrong_block": "Meta assigned a printed side belonging to another block.",
+        "print_side_unclear": "Meta assigned a registered side despite unclear print evidence.",
+        "print_side_text_conflict": (
+            "Meta's selected printed-side ID contradicts its transcribed text. "
+            "A different visible print must be reported as a mismatch, "
+            "not assigned the expected ID."
+        ),
+        "print_side_unsupported": (
+            "Meta assigned a side without registered text or an attached reference supporting it."
+        ),
+        "print_side_identity_conflict": "Meta returned two conflicting printed-side identities.",
+    }
+
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(self.messages[reason])
+
+
 def normalize_print(text):
     # Deliberately no fuzzy spelling/substring matching or confusable-character substitution.
     return " ".join(unicodedata.normalize("NFKC", text or "").casefold().split())
@@ -32,12 +58,12 @@ def validate_print_observation(result, request):
     observed = result.print_observation
     if not expected or expected.print_rule.recognition_mode == "contour":
         if observed is not None:
-            raise ValueError("No Meta print observation was requested")
+            raise PrintEvidenceError("print_unrequested")
         return
     if observed is None:
-        raise ValueError("Required print observation is missing")
+        raise PrintEvidenceError("print_missing")
     if observed.target_block_id not in {None, expected.block_id}:
-        raise ValueError("Print observation belongs to another target")
+        raise PrintEvidenceError("print_target_mismatch")
     if observed.observed_registered_side_id is not None:
         side = next(
             (
@@ -47,12 +73,12 @@ def validate_print_observation(result, request):
             ),
             None,
         )
-        if (
-            side is None
-            or side.block_id != expected.block_id
-            or observed.evidence_quality != "clear"
-        ):
-            raise ValueError("Unknown or unsupported registered printed side")
+        if side is None:
+            raise PrintEvidenceError("print_side_unknown")
+        if side.block_id != expected.block_id:
+            raise PrintEvidenceError("print_side_wrong_block")
+        if observed.evidence_quality != "clear":
+            raise PrintEvidenceError("print_side_unclear")
         if (
             side.print_rule
             and side.print_rule.expected_text
@@ -61,14 +87,14 @@ def validate_print_observation(result, request):
                 != normalize_print(observed.observed_text)
             )
         ):
-            raise ValueError("Registered printed-side ID contradicts observed text")
+            raise PrintEvidenceError("print_side_text_conflict")
         attached = {item.reference_id for item in request.images if item.reference_id}
         if not (side.print_rule and side.print_rule.expected_text) and not any(
             photo.id in attached for photo in side.references
         ):
-            raise ValueError("Registered side has no text or attached reference evidence")
+            raise PrintEvidenceError("print_side_unsupported")
         if result.observed_face_id and result.observed_face_id != side.id:
-            raise ValueError("Conflicting registered side identities")
+            raise PrintEvidenceError("print_side_identity_conflict")
 
 
 def supported_surface(box, face):

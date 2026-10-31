@@ -401,3 +401,25 @@ differs between the supplied blue-block images; prompt changes have not yet been
 validated by live inference on those photographs. SAM object masks locate visible
 regions without changing the verdict or claiming a correct assembly. Reference
 Match remains unavailable without accepted planar-face matching evidence.
+
+## Active print-rule response contract — 2026-10-31
+
+A local report of `[print_rule_evidence]` revealed that the outgoing shared schema
+allowed null print evidence even when the active rule required an observation.
+The request schema now reflects the rule; partial/unreadable observations remain
+valid and uncertain. Fixed error subcategories distinguish missing evidence from
+wrong target/side IDs, unclear or unsupported side assignments and contradictory
+transcribed text. Validation remains strict and does not retry automatically.
+
+`make lint` and `make test` passed (424 backend tests and frontend TypeScript).
+`make test-browser` passed all 80 browser cases with system Chromium, including
+its production Next.js build. Thirteen added backend cases cover all recognition
+modes' outgoing contracts, classified rejection/redaction and no extra inference
+or verified progress after rejection. Existing text mismatch, uncertainty,
+correction and fresh-verification tests continue to pass. One existing non-fatal
+Starlette/httpx deprecation warning remains.
+
+These are offline tests with synthetic images and mocked Meta responses. No new
+live Meta request was sent. The exact rejected field in the user's previous local
+answer cannot be recovered from the former aggregate error code. The schema
+inconsistency is confirmed in code; its role in that individual failure is not.

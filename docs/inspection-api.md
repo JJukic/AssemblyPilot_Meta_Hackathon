@@ -155,7 +155,8 @@ A `meta_invalid_response` error means the backend rejected Meta's response; it d
 not establish that the uploaded image was blurred. The previous generic instruction
 to capture a clearer view hid several distinct failures. Messages now include a
 bounded reason such as `output_limit`, `diagnosis_json`, `diagnosis_schema`,
-`print_rule_evidence`, `step_id_mismatch`, `unknown_face_id` or `unknown_block_id`.
+`print_missing`, `print_side_text_conflict`, `step_id_mismatch`, `unknown_face_id`
+or `unknown_block_id`.
 For schema failures, only schema-owned field names are included. The backend logs
 `Rejected Meta diagnosis: reason=... fields=...`; it never logs raw provider
 answers, unrecognized field names, image data, credentials or validation values.
@@ -168,3 +169,18 @@ assuming another photograph will fix it. Rejection remains HTTP 502 and never
 produces a fabricated diagnosis or verified progress. No additional inference
 retry was added. Print-only defects are kept separate from the semantic issue
 list so the prompt no longer asks simultaneously for incompatible representations.
+
+The old `print_rule_evidence` category combined missing observations, wrong target
+IDs, unsupported/unclear registered-side assignments, conflicting side identities
+and side IDs that contradicted transcribed text. These now have separate bounded
+`print_*` reasons. The old message alone cannot identify which occurred locally.
+
+The outgoing strict schema now requires a non-null `print_observation` object for
+Meta Auto, Meta + References and Hybrid print rules. With no active rule or in
+Contour mode it requests null. This removes a mismatch where the shared nullable
+schema permitted an answer that active-rule validation subsequently rejected.
+Unreadable/partial evidence is still a valid structured observation and stays
+uncertain. Observed text and side IDs may be null; the schema does not force a
+reading, box, known side or successful verdict. A side ID is the observed identity,
+not the desired side: mismatching text may validly have no registered side ID.
+Cross-field validation remains strict even if the provider ignores the schema.
