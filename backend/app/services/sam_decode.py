@@ -45,7 +45,14 @@ def limit_resources() -> dict:
     except (ValueError, OSError, AttributeError):
         status["rlimit_as"] = "unsupported" if hasattr(resource, "RLIMIT_AS") else "unavailable"
     try:
-        resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
+        # RLIMIT_CPU is an absolute CPU-time deadline for this process, not a
+        # duration. The worker main() calls this at startup (usage ~0), but a
+        # budget anchored in the past would kill a longer-lived caller, so
+        # always grant a fresh 30 CPU-seconds from current usage.
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        consumed = int(usage.ru_utime + usage.ru_stime)
+        budget = consumed + 30
+        resource.setrlimit(resource.RLIMIT_CPU, (budget, budget))
         status["rlimit_cpu"] = "applied"
     except (ValueError, OSError, AttributeError):
         status["rlimit_cpu"] = "unsupported" if hasattr(resource, "RLIMIT_CPU") else "unavailable"

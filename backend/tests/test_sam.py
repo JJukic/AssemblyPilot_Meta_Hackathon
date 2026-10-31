@@ -537,17 +537,23 @@ def test_worker_resource_limits_are_best_effort(monkeypatch):
 
     from app.services.sam_decode import limit_resources
 
-    real_setrlimit = resource.setrlimit
+    # Stub every setrlimit call: delegating CPU to the real function would set
+    # an absolute CPU deadline on the pytest process itself and SIGKILL the
+    # whole suite once cumulative CPU time passes it (CI exit code 137).
+    calls = []
 
-    def macos_setrlimit(kind, limits):
+    def fake_setrlimit(kind, limits):
+        calls.append((kind, limits))
         if kind == resource.RLIMIT_AS:
             raise ValueError("current limit exceeds maximum limit")
-        return real_setrlimit(kind, limits)
 
-    monkeypatch.setattr(resource, "setrlimit", macos_setrlimit)
+    before = resource.getrlimit(resource.RLIMIT_CPU)
+    monkeypatch.setattr(resource, "setrlimit", fake_setrlimit)
     status = limit_resources()
     assert status["rlimit_as"] == "unsupported"
     assert status["rlimit_cpu"] == "applied"
+    assert [kind for kind, _ in calls] == [resource.RLIMIT_AS, resource.RLIMIT_CPU]
+    assert resource.getrlimit(resource.RLIMIT_CPU) == before  # host process untouched
 
 
 def test_decode_succeeds_without_address_space_limit():
