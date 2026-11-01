@@ -131,6 +131,7 @@ test("9 duplicate voice commands suppressed; pending blocks repeats", () => {
 class FakeRec {
   constructor() {
     this.starts = 0;
+    this.results = [];
     FakeRec.last = this;
   }
   start() {
@@ -139,7 +140,8 @@ class FakeRec {
   stop() {}
   abort() {}
   emitFinal(transcript) {
-    this.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript }, length: 1 }] });
+    this.results.push({ isFinal: true, 0: { transcript }, length: 1 });
+    this.onresult({ resultIndex: this.results.length - 1, results: this.results });
   }
   emitInterim(transcript) {
     this.onresult({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript }, length: 1 }] });
@@ -168,9 +170,10 @@ test("11 microphone permission denial stops without restart loop", () => {
   const c = controller(() => {}, (e) => errors.push(e));
   assert.equal(c.start(), true);
   const rec = FakeRec.last;
+  const end = rec.onend;
   rec.onerror({ error: "not-allowed" });
   assert.equal(c.isListening, false);
-  rec.onend();
+  end();
   assert.equal(rec.starts, 1); // never restarted after fatal error
   assert.ok(errors.some((e) => e.includes("not-allowed")));
   c.dispose();
@@ -181,6 +184,7 @@ test("13-16 voice Next/Previous/Re-anchor/Exit/Verify dispatch; interim ignored"
   const c = controller((cmd) => got.push(cmd.action));
   c.start();
   const rec = FakeRec.last;
+  rec.onstart();
   rec.emitInterim("next step");
   assert.deepEqual(got, []);
   rec.emitFinal("Next step.");
@@ -220,6 +224,7 @@ test("17 unrelated speech never triggers verify or any action", () => {
   const got = [];
   const c = controller((cmd) => got.push(cmd.action));
   c.start();
+  FakeRec.last.onstart();
   FakeRec.last.emitFinal("this step looks great, well done everyone");
   FakeRec.last.emitFinal("verify");
   assert.deepEqual(got, []);

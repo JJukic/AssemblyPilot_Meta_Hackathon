@@ -216,9 +216,9 @@ export function detectSpeechSupport(
   env: SpeechEnv = globalThis as SpeechEnv,
 ): SpeechSupport {
   const secure = env.isSecureContext !== false;
-  const apiName = env.SpeechRecognition
+  const apiName = typeof env.SpeechRecognition === "function"
     ? "SpeechRecognition"
-    : env.webkitSpeechRecognition
+    : typeof env.webkitSpeechRecognition === "function"
       ? "webkitSpeechRecognition"
       : null;
   if (!secure)
@@ -258,8 +258,9 @@ export interface RecognitionLike {
   start(): void;
   stop(): void;
   abort(): void;
+  onstart: (() => void) | null;
   onresult: ((event: RecognitionEventLike) => void) | null;
-  onerror: ((event: { error?: string }) => void) | null;
+  onerror: ((event: { error?: string; message?: string }) => void) | null;
   onend: (() => void) | null;
 }
 export interface RecognitionEventLike {
@@ -271,23 +272,52 @@ export interface RecognitionEventLike {
   }>;
 }
 
-const FATAL_ERRORS = new Set([
-  "not-allowed",
-  "service-not-allowed",
-  "audio-capture",
-  "language-not-supported",
-]);
+export type VoiceState = "off" | "starting" | "listening" | "stopping" | "unsupported" | "error";
+export interface VoiceSnapshot {
+  state: VoiceState;
+  message: string;
+  errorCode?: string;
+}
+
+const ERROR_HELP: Record<string, string> = {
+  "not-allowed": "Speech input was denied by the browser, OS privacy settings or policy. Website microphone permission alone may not be sufficient.",
+  "service-not-allowed": "The browser exposes speech recognition but disallows or cannot use its recognition service. Microphone permission cannot establish service availability.",
+  "audio-capture": "Speech recognition could not capture microphone audio. Run the separate microphone test and close other microphone users.",
+  network: "The browser's speech service could not be reached. Microphone access may still work; check connectivity and service policy.",
+  "language-not-supported": "The browser's speech service does not support the selected language. Choose another language and explicitly retry.",
+  "no-speech": "No speech was detected. Explicitly enable voice again when ready.",
+  aborted: "The browser aborted speech recognition unexpectedly. No automatic retry will occur.",
+};
+
+/** Requests access only when called by the explicit test button. Never records/uploads. */
+export async function probeMicrophone(
+  getUserMedia: ((constraints: MediaStreamConstraints) => Promise<MediaStream>) | undefined,
+): Promise<{ ok: boolean; message: string }> {
+  if (!getUserMedia) return { ok: false, message: "Unsupported: this browser exposes no microphone getUserMedia API in this context." };
+  let stream: MediaStream | undefined;
+  try {
+    stream = await getUserMedia({ audio: true });
+    if (!stream.getAudioTracks().some((track) => track.readyState === "live")) {
+      return { ok: false, message: "Microphone test failed: no live audio track was provided." };
+    }
+    return { ok: true, message: "Microphone access passed; all test tracks stopped. This does not prove speech recognition service availability." };
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "UnknownError";
+    return { ok: false, message: `Microphone test failed (${name}). Check OS/browser permission and microphone availability; this is separate from speech recognition.` };
+  } finally {
+    stream?.getTracks().forEach((track) => track.stop());
+  }
+}
 
 /**
- * Thin controller over the browser recognition object. Never restarts in an
- * uncontrolled loop: at most `maxRestarts` automatic restarts, never after a
- * fatal/permission error, and never after stop()/dispose().
+ * Event-driven recognition. Constructor presence and start() returning are not
+ * proof of a working service. Every retry requires an explicit user action.
  */
 export class VoiceController {
   private recognition: RecognitionLike | null = null;
-  private listening = false;
+  private snapshot: VoiceSnapshot = { state: "off", message: "Voice is off." };
   private disposed = false;
-  private restarts = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
   readonly gate = new CommandGate();
   constructor(
     private create: () => RecognitionLike | null,
@@ -296,96 +326,141 @@ export class VoiceController {
       onStatus?: (s: string) => void;
       onError?: (s: string) => void;
       onListeningChange?: (listening: boolean) => void;
+      onStateChange?: (snapshot: VoiceSnapshot) => void;
     },
-    private options: { lang?: string; maxRestarts?: number } = {},
+    private options: { lang?: string; startupTimeoutMs?: number; stopTimeoutMs?: number } = {},
   ) {}
   get isListening() {
-    return this.listening;
+    return this.snapshot.state === "listening";
+  }
+  get status(): Readonly<VoiceSnapshot> { return this.snapshot; }
+
+  private update(snapshot: VoiceSnapshot) {
+    const wasListening = this.isListening;
+    this.snapshot = snapshot;
+    this.handlers.onStateChange?.(snapshot);
+    this.handlers.onStatus?.(snapshot.message);
+    if (wasListening !== this.isListening) this.handlers.onListeningChange?.(this.isListening);
+  }
+  private clearTimer() { clearTimeout(this.timer); this.timer = undefined; }
+  private release(abort = false) {
+    this.clearTimer();
+    const rec = this.recognition;
+    this.recognition = null;
+    if (!rec) return;
+    rec.onstart = null;
+    rec.onresult = null;
+    rec.onerror = null;
+    rec.onend = null;
+    if (abort) {
+      try { rec.abort(); } catch { /* Already ended; callbacks are detached. */ }
+    }
+  }
+  private fail(code: string, message: string) {
+    this.release(true);
+    this.update({ state: "error", errorCode: code, message });
+    this.handlers.onError?.(message);
   }
   start(): boolean {
-    if (this.disposed || this.listening) return this.listening;
-    const rec = this.create();
+    if (this.disposed) return false;
+    if (["starting", "listening", "stopping"].includes(this.snapshot.state)) return false;
+    this.release(true);
+    this.gate.reset();
+    this.update({ state: "starting", message: "Waiting for the browser's speech recognition start event…" });
+    let rec: RecognitionLike | null;
+    try { rec = this.create(); } catch (error) {
+      this.fail("constructor-failed", `Speech recognition constructor failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+      return false;
+    }
     if (!rec) {
-      this.handlers.onError?.("Speech recognition is not available in this browser.");
+      this.update({ state: "unsupported", message: "Speech recognition is not available in this browser." });
       return false;
     }
     this.recognition = rec;
-    this.restarts = 0;
-    rec.lang = this.options.lang ?? "en-US";
-    rec.continuous = true;
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
+    try {
+      rec.lang = this.options.lang ?? "en-US";
+      rec.continuous = true;
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+    } catch (error) {
+      this.fail("configuration-failed", `Speech recognition configuration failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+      return false;
+    }
+    const finalized = new Set<number>();
+    rec.onstart = () => {
+      if (this.disposed || this.recognition !== rec || this.snapshot.state !== "starting") return;
+      this.clearTimer();
+      this.update({ state: "listening", message: `Recognition service started (${rec.lang}). Say “Help” for commands.` });
+    };
     rec.onresult = (event) => {
+      if (this.disposed || this.recognition !== rec || !this.isListening) return;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
-        if (!result?.isFinal) continue; // finalized results only
+        if (!result?.isFinal || finalized.has(i)) continue;
+        finalized.add(i); // A browser may replay the same finalized result event.
         const transcript = result[0]?.transcript ?? "";
         const matched = matchCommand(transcript);
         if (!matched) continue;
         if (!this.gate.tryAccept(matched.action)) continue;
         this.handlers.onCommand(matched);
+        if (!this.isListening || this.disposed || this.recognition !== rec) break;
       }
     };
     rec.onerror = (event) => {
+      if (this.disposed || this.recognition !== rec) return;
       const error = event.error ?? "unknown";
-      this.handlers.onError?.(`Speech recognition error: ${error}`);
-      if (FATAL_ERRORS.has(error)) {
-        this.restarts = Number.POSITIVE_INFINITY; // never auto-restart
-        this.setListening(false);
-      }
+      if (this.snapshot.state === "stopping" && error === "aborted") return;
+      this.fail(error, `Speech recognition error (${error}): ${ERROR_HELP[error] ?? "The browser reported a recognition failure. Use manual controls or explicitly retry."}${event.message ? ` Browser detail: ${event.message}` : ""}`);
     };
     rec.onend = () => {
-      this.setListening(false);
-      const max = this.options.maxRestarts ?? 3;
-      if (!this.disposed && this.shouldListen && this.restarts < max) {
-        this.restarts++;
-        try {
-          rec.start();
-          this.setListening(true);
-        } catch {
-          /* bounded: give up silently, status already reported */
-        }
+      if (this.disposed || this.recognition !== rec) return;
+      if (this.snapshot.state === "stopping") {
+        this.release();
+        this.update({ state: "off", message: "Voice stopped." });
+      } else {
+        const beforeStart = this.snapshot.state === "starting";
+        this.fail(beforeStart ? "ended-before-start" : "unexpected-end", beforeStart
+          ? "Recognition ended before it confirmed startup. The API exists, but its service did not start. The browser supplied no more specific error. Run the microphone test; manual controls remain available."
+          : "The recognition session ended unexpectedly. No automatic restart will occur; explicitly enable voice again.");
       }
     };
-    this.shouldListen = true;
+    this.timer = setTimeout(() => {
+      if (this.recognition === rec && this.snapshot.state === "starting")
+        this.fail("startup-timeout", "No recognition start event arrived within the startup deadline. The API exists, but service startup is unconfirmed. Check the browser permission prompt and run the microphone test.");
+    }, this.options.startupTimeoutMs ?? 10000);
     try {
       rec.start();
-      this.setListening(true);
-      return true;
-    } catch {
-      this.handlers.onError?.("Speech recognition could not be started.");
+      return this.snapshot.state === "starting" || this.isListening;
+    } catch (error) {
+      // A synchronous error event may already have provided a better diagnostic.
+      if (this.snapshot.state !== "error") {
+        const name = error instanceof Error ? error.name : "start-failed";
+        this.fail(name, `Speech recognition start failed (${name}): ${error instanceof Error ? error.message : String(error)}`);
+      }
       return false;
     }
   }
-  private shouldListen = false;
-  private setListening(value: boolean) {
-    if (this.listening === value) return;
-    this.listening = value;
-    this.handlers.onListeningChange?.(value);
-  }
   stop() {
-    this.shouldListen = false;
+    if (this.disposed || !["starting", "listening"].includes(this.snapshot.state)) return;
+    this.clearTimer();
     this.gate.reset();
+    this.update({ state: "stopping", message: "Stopping speech recognition…" });
+    this.timer = setTimeout(() => {
+      this.release(true);
+      this.update({ state: "off", message: "Voice stopped; the browser did not send an end event, so recognition was aborted." });
+    }, this.options.stopTimeoutMs ?? 3000);
     try {
       this.recognition?.stop();
-    } catch {
-      /* already stopped */
+    } catch (error) {
+      this.fail("stop-failed", `Speech recognition stop failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    this.setListening(false);
   }
   dispose() {
+    if (this.disposed) return;
     this.disposed = true;
-    this.stop();
-    if (this.recognition) {
-      this.recognition.onresult = null;
-      this.recognition.onerror = null;
-      this.recognition.onend = null;
-      try {
-        this.recognition.abort();
-      } catch {
-        /* ignore */
-      }
-      this.recognition = null;
-    }
+    this.release(true);
+    this.gate.reset();
+    if (this.snapshot.state !== "error" && this.snapshot.state !== "unsupported")
+      this.update({ state: "off", message: "Voice stopped and recognition released." });
   }
 }

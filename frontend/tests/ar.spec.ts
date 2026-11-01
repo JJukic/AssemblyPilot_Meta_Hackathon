@@ -312,7 +312,8 @@ test("phase6.1 selected step reference shown; voice next/previous/verify work wi
       onresult: ((e: unknown) => void) | null = null;
       onerror: ((e: unknown) => void) | null = null;
       onend: (() => void) | null = null;
-      start() { (window as unknown as { __rec: unknown }).__rec = this; }
+      onstart: (() => void) | null = null;
+      start() { (window as unknown as { __rec: unknown }).__rec = this; this.onstart?.(); }
       stop() {} abort() {}
     }
     (window as unknown as { SpeechRecognition: unknown }).SpeechRecognition = FakeRec;
@@ -327,8 +328,12 @@ test("phase6.1 selected step reference shown; voice next/previous/verify work wi
   await page.getByRole("button", { name: "Enable voice control" }).click();
   const fire = (transcript: string, isFinal = true) =>
     page.evaluate(([t, fin]) => {
-      const rec = (window as unknown as { __rec: { onresult: (e: unknown) => void } }).__rec;
-      rec.onresult({ resultIndex: 0, results: [{ isFinal: fin, 0: { transcript: t }, length: 1 }] });
+      const rec = (window as unknown as { __rec: { onresult: (e: unknown) => void; results?: unknown[] } }).__rec;
+      const results = rec.results ??= [];
+      const result = { isFinal: fin, 0: { transcript: t }, length: 1 };
+      const index = results.length;
+      if (fin) results.push(result);
+      rec.onresult({ resultIndex: index, results: fin ? results : [...results, result] });
     }, [transcript, isFinal] as const);
   await fire("next step", false); // interim: must be ignored
   await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();

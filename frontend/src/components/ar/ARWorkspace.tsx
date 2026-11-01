@@ -19,8 +19,10 @@ import {
   VOICE_COMMANDS,
   VoiceController,
   detectSpeechSupport,
+  probeMicrophone,
   type RecognitionLike,
   type VoiceAction,
+  type VoiceSnapshot,
 } from "@/lib/ar/voice";
 import { getProgress } from "@/lib/inspection";
 import type { ProjectDetail } from "@/types/projects";
@@ -63,12 +65,18 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     () => detectSpeechSupportCached(),
     () => CHECKING_SPEECH,
   );
-  const [voiceOn, setVoiceOn] = useState(false),
-    [voiceStatus, setVoiceStatus] = useState("Voice off"),
+  const [voice, setVoice] = useState<VoiceSnapshot>({ state: "off", message: "Voice is off." }),
+    [voiceStatus, setVoiceStatus] = useState(""),
     [lastCommand, setLastCommand] = useState(""),
     [voiceLang, setVoiceLang] = useState("en-US"),
     [consent, setConsent] = useState(false),
     [readAloud, setReadAloud] = useState(false);
+  const [micTest, setMicTest] = useState({ state: "idle", message: "Microphone access has not been tested." });
+  const micPending = useRef(false), micSession = useRef({ active: false });
+  const voiceBusy = ["starting", "listening", "stopping"].includes(voice.state);
+  const voiceState = voiceSupported.supported ? voice.state : "unsupported";
+  const voiceMessage = voiceSupported.supported ? voice.message : voiceSupported.reason;
+  const voiceLabel = voiceState.charAt(0).toUpperCase() + voiceState.slice(1);
   const host = useRef<HTMLDivElement>(null),
     runtime = useRef<SpatialSession | null>(null),
     alive = useRef(true),
@@ -98,15 +106,17 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const verificationUrl = `/?project=${encodeURIComponent(projectId)}&step=${encodeURIComponent(view.step_id ?? "")}`;
   const verificationStatus = !online ? "uncertain" : verified ? "verified" : "not_verified";
 
-  const stopVoice = useCallback(() => {
-    voiceRef.current?.dispose();
-    voiceRef.current = null;
-    setVoiceOn(false);
-    setVoiceStatus("Voice off");
+  const stopVoice = useCallback((release = false) => {
+    if (release) {
+      voiceRef.current?.dispose();
+      voiceRef.current = null;
+    } else voiceRef.current?.stop();
   }, []);
 
   useEffect(() => {
     alive.current = true;
+    const microphoneSession = { active: true };
+    micSession.current = microphoneSession;
     generation.current++;
     void capabilities().then((c) => {
       if (alive.current) {
@@ -116,6 +126,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     });
     return () => {
       alive.current = false;
+      microphoneSession.active = false;
       voiceRef.current?.dispose();
       voiceRef.current = null;
       void runtime.current?.end();
@@ -242,13 +253,13 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       blockLabel: `${blockLabel} · ${placement?.evidence.toUpperCase() ?? "NO MODEL"}${placement ? ` · #${placement.instance}/${target?.required_quantity ?? "?"}` : ""}`,
       verification: verificationStatus as Guidance["verification"],
       hasReference: !!refPath,
-      voiceLabel: voiceOn ? `🎤 Listening (${voiceLang}) — say “Help” for commands` : "Voice: off — enable voice on this page",
+      voiceLabel: `Voice: ${voiceLabel}${voice.errorCode ? ` (${voice.errorCode})` : ""} — ${voiceMessage}`,
       lastCommand: lastCommand || undefined,
     };
     runtime.current?.update(info.current);
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
-  }, [placement, step, target, verified, online, totalSteps, refPath, voiceOn, voiceLang, lastCommand, showReference, helpVisible, verificationStatus]);
+  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus]);
 
   async function navigate(offset: number) {
     if (!project || !online) return;
@@ -270,13 +281,13 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   async function verify() {
     // Voice/button Verify never marks anything verified. It ends XR and opens
     // the existing camera workspace; a fresh real photo is always required.
-    stopVoice();
+    stopVoice(true);
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     await runtime.current?.end();
     router.push(verificationUrl);
   }
   async function exitAR() {
-    stopVoice();
+    stopVoice(true);
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     await runtime.current?.end();
     setActive(false);
@@ -343,17 +354,20 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   });
 
   function enableVoice() {
-    if (!voiceSupported.supported || !consent || voiceOn) return;
-    const Ctor = (
-      window as unknown as { SpeechRecognition?: SpeechCtor; webkitSpeechRecognition?: SpeechCtor }
-    ).SpeechRecognition ??
-      (window as unknown as { webkitSpeechRecognition?: SpeechCtor }).webkitSpeechRecognition;
+    if (!voiceSupported.supported || !consent || voiceBusy || micPending.current) return;
+    if (voiceRef.current && ["starting", "listening", "stopping"].includes(voiceRef.current.status.state)) return;
+    const Ctor = voiceSupported.apiName
+      ? (window as unknown as Record<string, SpeechCtor | undefined>)[voiceSupported.apiName]
+      : undefined;
     if (!Ctor) {
-      setVoiceStatus("Speech recognition unavailable in this browser.");
+      setVoice({ state: "unsupported", message: "Speech recognition unavailable in this browser." });
       return;
     }
+    voiceRef.current?.dispose();
+    setVoiceStatus("");
+    setLastCommand("");
     const controller = new VoiceController(
-      () => new Ctor() as never,
+      () => new Ctor(),
       {
         onCommand: (cmd) => {
           setLastCommand(cmd.phrase);
@@ -362,25 +376,29 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           // Always dispatch through the ref so the latest step/view closure runs.
           void (
             actionRef.current as unknown as (a: VoiceAction) => Promise<void>
-          )(cmd.action).finally(() => controller.gate.setPending(false));
+          )(cmd.action).catch((e) => {
+            if (alive.current) setVoiceStatus(`Command failed: ${errorMessage(e)}`);
+          }).finally(() => controller.gate.setPending(false));
         },
-        onStatus: (s) => setVoiceStatus(s),
-        onError: (s) => {
-          setVoiceStatus(s);
-          if (s.includes("not-allowed")) setVoiceOn(false);
-        },
-        onListeningChange: (listening) => {
-          setVoiceOn(listening);
-          setVoiceStatus(listening ? `Listening (${voiceLang})…` : "Voice off");
+        onStateChange: (snapshot) => {
+          if (alive.current && voiceRef.current === controller) setVoice(snapshot);
         },
       },
       { lang: voiceLang },
     );
     voiceRef.current = controller;
-    if (!controller.start()) {
-      setVoiceStatus("Speech recognition could not be started. Check microphone permission.");
-      voiceRef.current = null;
-    }
+    controller.start();
+  }
+
+  async function testMicrophone() {
+    if (micPending.current || voiceBusy) return;
+    micPending.current = true;
+    const session = micSession.current;
+    setMicTest({ state: "testing", message: "Waiting for microphone permission. Respond to the browser prompt; any granted test stream will be stopped immediately." });
+    const result = await probeMicrophone(navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices));
+    micPending.current = false;
+    if (alive.current && session.active)
+      setMicTest({ state: result.ok ? "passed" : "error", message: result.message });
   }
 
   async function enter() {
@@ -412,7 +430,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           (a) => actionRef.current(a),
           () => {
             runtime.current = null;
-            stopVoice();
+            stopVoice(true);
             if (alive.current) {
               setActive(false);
               setStatus("XR session ended. Microphone stopped. Re-enter and re-anchor before continuing.");
@@ -485,7 +503,14 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
 
       <fieldset className="ar-voice">
         <legend>Hands-free voice control</legend>
-        <p role="status">{voiceSupported.supported ? voiceStatus : voiceSupported.reason}</p>
+        <p role="status" aria-label="Voice state">Voice: {voiceLabel}</p>
+        <p role={voiceState === "error" ? "alert" : "status"}>
+          {voice.errorCode && <strong>{voice.errorCode}: </strong>}{voiceMessage}
+        </p>
+        <p>Recognition API: <strong>{voiceSupported.apiName ?? "None"}</strong>. Constructor presence does not prove that the browser&apos;s speech service works.</p>
+        {(voiceState === "error" || voiceState === "unsupported") && (
+          <p>Browser speech recognition is currently unavailable for this attempt. If the microphone test passes, audio capture works but the recognition service still failed. Use manual controls; a native HoloLens Unity/OpenXR client with Windows keyword recognition is an alternative.</p>
+        )}
         {voiceSupported.mayUseCloudService && (
           <p>
             Privacy: browser speech recognition may send audio to your browser provider&apos;s
@@ -495,12 +520,15 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           </p>
         )}
         <label>
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> I
+          <input type="checkbox" checked={consent} onChange={(e) => {
+            setConsent(e.target.checked);
+            if (!e.target.checked) stopVoice(true);
+          }} /> I
           understand and consent to browser speech recognition as described above.
         </label>
         <label>
           Voice language{" "}
-          <select value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)} disabled={voiceOn}>
+          <select value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)} disabled={voiceBusy}>
             <option value="en-US">English (en-US)</option>
             <option value="de-DE">Deutsch (de-DE)</option>
           </select>
@@ -510,13 +538,21 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           instructions aloud (“Read instructions” command)
         </label>
         <div className="form-actions">
-          {!voiceOn ? (
-            <button className="button primary" disabled={!voiceSupported.supported || !consent} onClick={enableVoice}>
+          {!voiceBusy ? (
+            <button className="button primary" disabled={!voiceSupported.supported || !consent || micTest.state === "testing"} onClick={enableVoice}>
               Enable voice control
             </button>
           ) : (
-            <button className="button danger" onClick={stopVoice}>Stop listening</button>
+            <button className="button danger" disabled={voice.state === "stopping"} onClick={() => stopVoice()}>
+              {voice.state === "starting" ? "Cancel voice startup" : voice.state === "stopping" ? "Stopping…" : "Stop listening"}
+            </button>
           )}
+        </div>
+        {voiceStatus && <p>{voiceStatus}</p>}
+        <div className="ar-microphone-test">
+          <p>Microphone test (separate permission): clicking below briefly requests microphone audio access, then immediately stops all test tracks. It does not record, transcribe or upload audio, and does not start speech recognition.</p>
+          <button className="button secondary" disabled={voiceBusy || micTest.state === "testing"} onClick={() => void testMicrophone()}>Test microphone access</button>
+          <p role="status" aria-label="Microphone test result">{micTest.message}</p>
         </div>
         {lastCommand && <p>Last recognized command: “{lastCommand}”</p>}
         <details>

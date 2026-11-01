@@ -288,7 +288,32 @@ inference. No raw audio is sent to or stored by the AssemblyPilot backend; no
 recordings or full transcripts are stored (only the short-lived last command
 is displayed). Recognition stops on XR exit, on "Stop listening", on opt-out
 and on page unmount; permission denial and errors are shown and never cause
-an uncontrolled restart loop (bounded restarts only).
+an uncontrolled restart loop. There are **no automatic recognition restarts**;
+every retry requires clicking **Enable voice control** again.
+
+### Voice diagnostics on the device
+
+The Voice controls show **Off**, **Starting**, **Listening**, **Stopping**,
+**Unsupported** or **Error**, plus the exposed constructor (`SpeechRecognition`,
+`webkitSpeechRecognition`, or none). Only the recognition service's `onstart`
+event establishes Listening. Startup times out after ten seconds without that
+event. Constructor presence and microphone permission do not prove that Edge
+can use its speech recognition service.
+
+Errors remain visible after `onend`, including `not-allowed`,
+`service-not-allowed`, `audio-capture`, `network`, `language-not-supported`,
+`ended-before-start` and `unexpected-end`. Record the displayed code, message
+and constructor on the HoloLens; these changes alone do not establish headset
+speech compatibility.
+
+**Test microphone access** is a separate, explicit permission request. It calls
+`getUserMedia({audio:true})` only when clicked, immediately stops all returned
+tracks (including late permission grants), and never records or uploads audio.
+A passing test confirms audio capture only. If recognition fails while this
+test passes, the reported blocker is in browser speech startup/service access,
+not basic microphone access. Browser error codes can identify a denied or
+unavailable service but do not always distinguish device limitations from
+enterprise policy or network restrictions.
 
 ### Exiting AR
 
@@ -302,9 +327,15 @@ cancels hit testing/anchors and disposes the renderer.
 
 If Edge on the device exposes no usable `SpeechRecognition` in immersive
 WebXR, the documented fallback remains a native Unity/OpenXR client using the
-platform speech/command APIs against the same backend APIs (see "Native
-fallback" above). Browser voice must not be claimed HoloLens-validated until
-tested on the physical device.
+the built-in Windows keyword recognizer, with the UWP microphone capability,
+against the same backend APIs (see "Native fallback" above). Map recognized
+fixed commands to the existing Next/Previous/Verify/Exit actions; do not send
+raw microphone audio to AssemblyPilot. This requires a separate native client;
+it is not a browser polyfill and is not implemented by this fix. No paid speech
+service is required for that built-in recognizer. See Microsoft's
+[MRTK3 speech documentation](https://learn.microsoft.com/en-us/windows/mixed-reality/mrtk-unity/mrtk3-input/packages/input/speech).
+Browser voice must not be claimed HoloLens-validated until tested on the
+physical device.
 
 ## Real HoloLens test checklist — Phase 6.1 (all pending personal testing)
 
