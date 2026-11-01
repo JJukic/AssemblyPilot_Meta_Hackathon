@@ -18,7 +18,7 @@ import { checkHealth } from "@/lib/api";
 import type { Assembly, ConnectionStatus } from "@/types/assembly";
 import type { GeometrySetup } from "@/types/calibration";
 
-export function Dashboard({ assembly, initialProjectId = "" }: { assembly: Assembly; initialProjectId?: string }) {
+export function Dashboard({ assembly, initialProjectId = "", initialStepId = "" }: { assembly: Assembly; initialProjectId?: string; initialStepId?: string }) {
   const projects = useResource(registry.projects);
   const [selectedProject, setSelectedProject] = useState(initialProjectId);
   const camera = useCamera();
@@ -61,7 +61,8 @@ export function Dashboard({ assembly, initialProjectId = "" }: { assembly: Assem
           <div>{projects.data?.length === 0 ? <p>No custom projects yet. <Link href="/projects">Create your first project</Link>.</p> : <Link href="/projects">Manage projects</Link>}
           {projects.error && <p className="muted">Custom projects unavailable. The practice demo and camera still work. <button className="text-button" onClick={projects.reload}>Retry</button></p>}</div>
         </div>
-        <div className="workspace-grid"><CameraView camera={camera} />{selectedProject ? <CustomAssembly key={selectedProject} projectId={selectedProject} snapshot={camera.snapshot} captureFresh={() => camera.capture(false)} cameraReady={camera.status === "connected"} geometrySetup={geometrySetup} /> : <AssemblyPanel assembly={assembly} />}</div>
+        {selectedProject && <Link className="button secondary" href={`/ar?project=${selectedProject}`}>Spatial AR guidance</Link>}
+        <div className="workspace-grid"><CameraView camera={camera} />{selectedProject ? <CustomAssembly key={selectedProject} projectId={selectedProject} initialStepId={initialStepId} snapshot={camera.snapshot} captureFresh={() => camera.capture(false)} cameraReady={camera.status === "connected"} geometrySetup={geometrySetup} /> : <AssemblyPanel assembly={assembly} />}</div>
         <CalibrationPanel key={`${camera.deviceId}:${camera.status}`} camera={camera} onSelectionChange={setGeometrySetup} />
         <EdgeDebugPanel key={`${camera.deviceId}:${camera.snapshot?.capturedAt ?? "none"}`} snapshot={camera.snapshot} />
         <InspectionHistory />

@@ -416,3 +416,13 @@ a.brand, a.button { text-decoration: none; }
 .setup-wizard h2 { font-size: 1.35rem; }
 .setup-wizard h3 { font-size: 1.1rem; font-weight: 600; }
 .setup-wizard h4 { font-size: 1rem; font-weight: 600; letter-spacing: normal; }
+.ar-workspace, .ar-editor { padding: 24px; margin: 16px 0; }
+.ar-workspace p, .ar-editor p { margin: 14px 0; line-height: 1.6; overflow-wrap: anywhere; }
+.ar-workspace h3 { margin-top: 20px; }
+.ar-topdown, .ar-preview svg { width: 100%; max-width: 340px; aspect-ratio: 1; background: #152536; touch-action: manipulation; }
+.ar-workspace .button, .ar-editor .button { margin: 6px; min-height: 48px; white-space: normal; }
+.xr-output canvas { display: none; }
+.ar-editor input[type=checkbox] { width: 20px; height: 20px; }
+.ar-preview { padding: 16px; margin: 20px 0; border: 1px solid #4b7086; border-radius: 12px; }
+.ar-workspace h2 { font-size: 1.45rem; font-weight: 650; }
+.ar-workspace h3 { font-size: 1.1rem; font-weight: 600; letter-spacing: normal; }

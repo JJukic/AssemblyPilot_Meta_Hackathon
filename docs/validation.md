@@ -452,3 +452,39 @@ The unmarked [manual acceptance checklist](jury-setup.md#manual-acceptance-check
 must still be exercised with the judge's hardware/photos and authorized Meta access.
 Precision setup reuses the existing editors after confirmation; no generated
 measurements, physical directions or advanced defaults are activated by the wizard.
+
+## Phase 6 — spatial AR guidance, 2026-11-01
+
+Based on main `7b97333`, after PR #10 merged. The owner reports the HoloLens is
+currently offline/disconnected. No actual device session or spatial alignment was
+validated, and no paid live Meta inference was performed.
+
+- `make lint`: Ruff and ESLint passed.
+- `make test`: 482 backend tests, TypeScript and 8 mocked XR/geometry tests passed.
+- `make build`: Next.js production build passed, including `/ar`.
+- `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser`: 94 passed.
+- Sixteen backend cases cover bounded metric metadata, assigned instances,
+  confirmation, rejected assets/camera transforms, cursor conflicts, deletion,
+  verification invalidation and additive-schema preservation of a real stored
+  reference image/project in disposable SQLite.
+- Mocked XR/GPU tests cover metric geometry/studs/rotation, secure capability
+  checks, fixed local origin under simulated head movement, hit-test fallback,
+  optional anchors, late anchors, lost tracking, reset/reconnect, lifecycle cleanup
+  and input-ray navigation. They do not prove real-world tracking or stereo rendering.
+- Seven browser cases cover unsupported/insecure/denied sessions, user-gesture
+  requests, optional features, confirmed authoring/removal, shared navigation,
+  hidden stale placement, reconnect, mobile/desktop 2D fallback and a real
+  synthetic-camera upload to the existing backend for the requested step. The
+  disposable backend has no Meta key; the request fails honestly with that error.
+- Existing 87 browser cases preserve wizard, SAM, geometry, contours, printed-side,
+  correction and fresh-image verification behavior. Desktop and mobile AR preview
+  screenshots were captured; the desktop view was visually inspected.
+
+Non-blocking warnings: the existing Starlette/httpx deprecation and Three's
+CommonJS deprecation in the Node-only test harness. Production rendering imports
+Three as ES modules.
+
+[HoloLens setup and manual acceptance checklist](hololens.md) documents trusted
+private-network HTTPS, hardware checks, session-only anchoring/local-space limits
+and the Unity/OpenXR migration path. GLB imports, QR detection, persistent anchors,
+native camera streaming and hardware compatibility remain outside this tested slice.

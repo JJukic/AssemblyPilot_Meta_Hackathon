@@ -1,0 +1,14 @@
+# Replace with your PC's private LAN IP; allow TCP 443 only from the HoloLens/private LAN.
+# No port forwarding, public tunnel, or public DNS listener.
+https://192.168.1.50 {
+    bind 192.168.1.50
+    tls internal
+    header Permissions-Policy "xr-spatial-tracking=(self), camera=(self)"
+    @backend path /api/* /health
+    handle @backend {
+        reverse_proxy 127.0.0.1:8000
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+}

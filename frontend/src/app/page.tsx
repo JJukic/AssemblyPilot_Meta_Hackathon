@@ -6,8 +6,8 @@ import demoAssembly from "../../../data/assemblies/demo-lego.json";
 const assembly: Assembly = demoAssembly;
 
 export default async function Home({ searchParams }: {
-  searchParams: Promise<{ project?: string | string[] }>;
+  searchParams: Promise<{ project?: string | string[]; step?: string | string[] }>;
 }) {
   const params = await searchParams;
-  return <Dashboard assembly={assembly} initialProjectId={typeof params.project === "string" ? params.project : ""} />;
+  return <Dashboard initialStepId={typeof params.step === "string" ? params.step : ""} assembly={assembly} initialProjectId={typeof params.project === "string" ? params.project : ""} />;
 }

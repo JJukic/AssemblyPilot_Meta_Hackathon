@@ -10,8 +10,8 @@ import { InspectionPanel } from "@/components/inspection/InspectionPanel";
 import type { Assembly, Snapshot } from "@/types/assembly";
 import type { GeometrySetup } from "@/types/calibration";
 
-export function CustomAssembly({ projectId, snapshot, captureFresh, cameraReady, geometrySetup }: { projectId: string; snapshot: Snapshot | null; captureFresh: () => Snapshot | null; cameraReady: boolean; geometrySetup: GeometrySetup | null }) {
-  const [current, setCurrent] = useState(0);
+export function CustomAssembly({ projectId, initialStepId = "", snapshot, captureFresh, cameraReady, geometrySetup }: { projectId: string; initialStepId?: string; snapshot: Snapshot | null; captureFresh: () => Snapshot | null; cameraReady: boolean; geometrySetup: GeometrySetup | null }) {
+  const [current, setCurrent] = useState<number | null>(null);
   const load = useCallback(() => registry.project(projectId), [projectId]);
   const { data, error, reload } = useResource(load);
   const loadProgress = useCallback(() => getProgress(projectId), [projectId]);
@@ -40,7 +40,7 @@ export function CustomAssembly({ projectId, snapshot, captureFresh, cameraReady,
       reference_image: step.reference_images[0] ? mediaUrl(step.reference_images[0].url) : null,
     })),
   };
-  const currentIndex = Math.min(current, assembly.steps.length - 1);
+  const currentIndex = Math.min(current ?? Math.max(0, data.steps.findIndex(s => s.id === initialStepId)), assembly.steps.length - 1);
   const stepId = String(assembly.steps[currentIndex].id);
   const stepProgress = progress.data?.find((entry) => entry.step_id === stepId);
   return <div className="inspection-column">

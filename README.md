@@ -272,10 +272,19 @@ in this cloud environment.
 
 No user photographs or labelled test cases are bundled. See [the benchmark guide](docs/benchmark.md) to evaluate 1–10 real, labelled photographs against your registered project and reference images. The runner is opt-in, uses Meta only, records validated diagnoses and latency, and reports errors without inventing scores. It does not run in CI.
 
+## HoloLens spatial guidance (Phase 6)
+
+Project steps can optionally carry confirmed metric AR placements. **Spatial AR**
+checks the current browser and requests a real immersive WebXR session on a user
+gesture, with optional surface detection/anchors and explicit manual alignment.
+Unsupported devices show a labelled 2D preview. Viewing holograms never verifies a
+physical build. HoloLens hardware is currently offline and has **not** been validated.
+See [private HTTPS setup, coordinate conventions, native fallback and hardware checklist](docs/hololens.md).
+
 ## Checks
 
 ```sh
-make test          # Python tests + strict TypeScript check
+make test          # Python tests + strict TypeScript + mocked XR logic tests
 make lint          # Ruff + ESLint (warnings fail)
 make build         # Next.js production build
 cd frontend && npx playwright install chromium
@@ -290,9 +299,9 @@ The executed cloud validation results and remaining hardware limitations are rec
 
 - Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified. Localization and verification quality need real-image evaluation.
 - Model confidence is an uncalibrated estimate or null. A `correct` result is not a physical safety or connection guarantee.
-- No autonomous correction loop, 3D metrology, image generation or smart-glasses integration. Optional SAM localization runs on each new diagnosis/verification snapshot and never changes the Muse assessment. Real camera, correction and geometry quality still need evaluation.
+- No autonomous correction loop, 3D metrology, image generation or hardware-validated smart-glasses support. Optional SAM localization runs on each new diagnosis/verification snapshot and never changes the Muse assessment. Real camera, correction and geometry quality still need evaluation.
 - Reference photos must be supplied by the user; navigation remains manual. The selected step photo (or oldest photo if no choice was saved) and first photo per assigned block are included, up to the configured reference cap; omitted counts are included in the prompt.
-- Registry limitations remain: no pagination, multi-user conflict resolution, migrations or cloud sync. Full-field edits use last-write-wins semantics.
+- Registry limitations remain: no pagination, general multi-user conflict resolution, a versioned migration framework or cloud sync. Full-field edits use last-write-wins semantics.
 - Physical webcam/iPhone compatibility needs local hardware validation. Offline transport tests establish request/response handling, not model recognition quality or your account's live access.
 
 ## Printed-face verification (Phase 4.1C)

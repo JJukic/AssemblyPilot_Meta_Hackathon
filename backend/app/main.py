@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    ar,
     blocks,
     calibration,
     edge_debug,
@@ -47,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Content-Type"],
     )
     application.include_router(health.router)
+    application.include_router(ar.router)
     application.include_router(setup.router)
     application.include_router(inspection.router)
     application.include_router(calibration.router)

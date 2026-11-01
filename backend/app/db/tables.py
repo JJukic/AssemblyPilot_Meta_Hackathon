@@ -196,3 +196,18 @@ class SetupReceipt(SQLModel, table=True):
     request_id: str = Field(primary_key=True)
     project_id: str = Field(foreign_key="assembly_projects.id", ondelete="CASCADE")
     fingerprint: str
+
+
+class ARPlacement(SQLModel, table=True):
+    __tablename__ = "ar_placements"
+    step_id: str = Field(primary_key=True, foreign_key="assembly_steps.id", ondelete="CASCADE")
+    configuration_json: str
+
+
+class ARView(SQLModel, table=True):
+    __tablename__ = "ar_views"
+    project_id: str = Field(
+        primary_key=True, foreign_key="assembly_projects.id", ondelete="CASCADE"
+    )
+    step_id: str = Field(foreign_key="assembly_steps.id", ondelete="CASCADE")
+    revision: int = 0
