@@ -6,21 +6,42 @@ export interface HealthResponse {
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
+// HoloLens Edge may lack AbortSignal.timeout/any. Keep cancellation and deadlines
+// without requiring those newer browser APIs, and release listeners after parsing.
+async function withRequestTimeout<T>(
+  timeoutMs: number,
+  signal: AbortSignal | null | undefined,
+  request: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
+  const timer = timeoutMs > 0 ? setTimeout(abort, timeoutMs) : undefined;
+  try {
+    return await request(controller.signal);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
 export async function checkHealth(signal?: AbortSignal): Promise<HealthResponse> {
-  const timeout = AbortSignal.timeout(5000);
-  const response = await fetch(`${API_URL}/health`, {
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    cache: "no-store",
+  return withRequestTimeout(5000, signal, async (requestSignal) => {
+    const response = await fetch(`${API_URL}/health`, {
+      signal: requestSignal,
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`Backend returned HTTP ${response.status}`);
+    const body: unknown = await response.json();
+    if (
+      !body || typeof body !== "object" ||
+      !("status" in body) || body.status !== "ok" ||
+      !("service" in body) || body.service !== "assemblypilot-backend" ||
+      !("version" in body) || typeof body.version !== "string"
+    ) throw new Error("Unexpected backend health response");
+    return body as HealthResponse;
   });
-  if (!response.ok) throw new Error(`Backend returned HTTP ${response.status}`);
-  const body: unknown = await response.json();
-  if (
-    !body || typeof body !== "object" ||
-    !("status" in body) || body.status !== "ok" ||
-    !("service" in body) || body.service !== "assemblypilot-backend" ||
-    !("version" in body) || typeof body.version !== "string"
-  ) throw new Error("Unexpected backend health response");
-  return body as HealthResponse;
 }
 
 export function mediaUrl(path: string): string {
@@ -49,23 +70,26 @@ export class ApiError extends Error {
 }
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      ...options,
-      headers: { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...options.headers },
-      cache: "no-store",
-      signal: options.signal ?? AbortSignal.timeout(15000),
-    });
-  } catch {
-    throw new Error("Cannot reach the backend. Check that it is running, then retry.");
-  }
-  if (!response.ok) {
-    const body: unknown = await response.json().catch(() => null);
-    throw new ApiError(responseMessage(body) ?? `Request failed (HTTP ${response.status})`, response.status);
-  }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  // Explicit caller signals retain their own deadlines (e.g. long inspections).
+  return withRequestTimeout(options.signal ? 0 : 15000, options.signal, async (signal) => {
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers: { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...options.headers },
+        cache: "no-store",
+        signal,
+      });
+    } catch {
+      throw new Error("Cannot reach the backend. Check that it is running, then retry.");
+    }
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => null);
+      throw new ApiError(responseMessage(body) ?? `Request failed (HTTP ${response.status})`, response.status);
+    }
+    if (response.status === 204) return undefined as T;
+    return response.json() as Promise<T>;
+  });
 }
 
 export function errorMessage(error: unknown): string {

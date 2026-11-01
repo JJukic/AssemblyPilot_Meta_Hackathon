@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 const config: NextConfig = {
+  allowedDevOrigins: ["192.168.1.105"],
   poweredByHeader: false,
   turbopack: { root: path.resolve(__dirname, "..") },
   outputFileTracingRoot: path.resolve(__dirname, ".."),
