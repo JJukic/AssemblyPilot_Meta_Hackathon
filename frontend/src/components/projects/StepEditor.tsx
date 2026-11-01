@@ -10,6 +10,7 @@ export function StepEditor({ step, blocks, onSave, onCancel }: {
   step?: ProjectStep; blocks: BuildingBlock[]; onSave: (data: StepInput) => Promise<void>; onCancel: () => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(step?.required_blocks.map((item) => item.block_id)));
+  const [simplePrint, setSimplePrint] = useState<StepInput["simple_print"]>(step?.simple_print ?? null);
   const existing = step?.spatial_constraint;
   const [faceConstraint, setFaceConstraint] = useState<StepInput["face_constraint"]>(step?.face_constraint ?? null);
   const [faceBlockId, setFaceBlockId] = useState(step?.face_constraint?.target_block_id ?? "");
@@ -52,7 +53,7 @@ export function StepEditor({ step, blocks, onSave, onCancel }: {
     }
     setBusy(true); setError(null);
     try {
-      await onSave({ title, instruction, required_blocks: assignments, spatial_constraint: spatialConstraint, face_constraint: faceConstraint });
+      await onSave({ title, instruction, required_blocks: assignments, spatial_constraint: spatialConstraint, face_constraint: faceConstraint, simple_print: simplePrint });
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
@@ -81,6 +82,9 @@ export function StepEditor({ step, blocks, onSave, onCancel }: {
         </div>
       </>}
     </section>
+    <h3 className="form-subtitle">Simple printed-text check</h3>
+    <label className="field">Text target<select value={simplePrint?.target_block_id ?? ""} onChange={(e) => setSimplePrint(e.target.value ? { target_block_id: e.target.value, expected_text: "" } : null)}><option value="">No simple text check</option>{blocks.filter((b) => selected.has(b.id)).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+    {simplePrint && <label className="field">Expected text<input required maxLength={500} value={simplePrint.expected_text} onChange={(e) => setSimplePrint({ ...simplePrint, expected_text: e.target.value })} /><small>One target instance. No dimensions or physical direction inferred.</small></label>}
     <h3 className="form-subtitle">Printed face orientation</h3>
     <label className="field">Face target block<select value={faceBlockId} onChange={(e) => { setFaceBlockId(e.target.value); setFaceConstraint(null); }}><option value="">No face check</option>{blocks.filter((block) => selected.has(block.id)).map((block) => <option key={block.id} value={block.id}>{block.name}</option>)}</select></label>
     {faceBlockId && <FaceConstraintEditor key={faceBlockId} blockId={faceBlockId} value={faceConstraint} onChange={setFaceConstraint} />}

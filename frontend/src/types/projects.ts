@@ -10,6 +10,7 @@ export interface Project extends ProjectInput {
 }
 export interface StepBlockInput { block_id: string; required_quantity: number }
 export interface StepInput {
+  simple_print?: { target_block_id: string; expected_text: string } | null;
   title: string;
   instruction: string;
   position?: number;

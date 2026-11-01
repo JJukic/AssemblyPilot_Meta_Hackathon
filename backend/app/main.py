@@ -14,6 +14,7 @@ from app.api import (
     media,
     object_localization,
     projects,
+    setup,
     steps,
 )
 from app.core.config import Settings, get_settings
@@ -46,6 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Content-Type"],
     )
     application.include_router(health.router)
+    application.include_router(setup.router)
     application.include_router(inspection.router)
     application.include_router(calibration.router)
     application.include_router(geometry.router)

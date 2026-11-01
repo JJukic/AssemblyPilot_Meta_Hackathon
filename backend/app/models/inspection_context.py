@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.models.blocks import BlockInput, ImageRead
 from app.models.faces import FaceConstraint, FaceRead
 from app.models.geometry import StudOffsetConstraintRead
+from app.models.setup import SimplePrintConstraint
 
 
 class ExpectedBlock(BlockInput):
@@ -28,6 +29,7 @@ class PreviousInspection(BaseModel):
 
 
 class InspectionContext(BaseModel):
+    simple_print: SimplePrintConstraint | None = Field(default=None, exclude_if=lambda v: v is None)
     project_id: str
     project_name: str
     step_id: str

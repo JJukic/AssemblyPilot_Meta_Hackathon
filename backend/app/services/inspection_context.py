@@ -24,6 +24,7 @@ def build_inspection_context(
     project = require_project(session, project_id)
     step = public_step(session, require_step(session, project_id, step_id))
     return InspectionContext(
+        simple_print=step.simple_print,
         project_id=project.id,
         project_name=project.name,
         step_id=step.id,

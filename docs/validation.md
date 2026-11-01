@@ -423,3 +423,32 @@ These are offline tests with synthetic images and mocked Meta responses. No new
 live Meta request was sent. The exact rejected field in the user's previous local
 answer cannot be recovered from the former aggregate error code. The schema
 inconsistency is confirmed in code; its role in that individual failure is not.
+
+## Phase 5 — jury assembly setup, 2026-11-01
+
+Implemented from updated main `97a5870` (merged PR #9); no equivalent setup wizard
+was present. The main branch's GitHub Actions run was successful before work began.
+
+- `make lint`: Ruff and ESLint passed.
+- `make test`: 466 backend tests passed; frontend TypeScript passed.
+- `make build`: production Next.js build passed, including `/setup`.
+- `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser`: 87 passed.
+- Thirty new backend tests cover explicit confirmation, atomic rollback/file
+  cleanup, idempotent retries, new/existing blocks, one/multiple steps, real
+  uploaded/library reference handling, strict Meta draft validation, manual fallback,
+  and dimension-free print rules through correction/fresh-image verification.
+- Seven new browser cases cover empty library, custom/existing blocks, edited AI
+  drafts, failure fallback, invalid IDs, retained drafts, lost save responses,
+  camera references, reordering photos with steps, Simple/Advanced selection,
+  confirmation reset, mobile/desktop layout and direct real camera/request launch.
+- Existing registry tests now target their own fixtures rather than assuming the
+  shared disposable browser database contains no projects from concurrent suites.
+- Review screenshots at 1600 and 390 px were visually inspected.
+
+All Meta replies in automated tests are mocked; browser APIs use disposable SQLite
+storage and a synthetic camera, without credentials. No paid live Meta request,
+real-block recognition benchmark or physical camera acceptance check was performed.
+The unmarked [manual acceptance checklist](jury-setup.md#manual-acceptance-checklist-requires-real-blocks-and-authorized-api-access)
+must still be exercised with the judge's hardware/photos and authorized Meta access.
+Precision setup reuses the existing editors after confirmation; no generated
+measurements, physical directions or advanced defaults are activated by the wizard.
