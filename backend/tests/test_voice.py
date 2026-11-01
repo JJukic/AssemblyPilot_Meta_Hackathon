@@ -133,3 +133,30 @@ def test_voice_endpoints_never_touch_meta_inspection(voice_client, monkeypatch):
     response = post_clip(voice_client, token=session(voice_client))
     assert response.status_code == 200
     assert voice_client.get("/health").status_code == 200
+
+
+def test_command_table_matches_shared_parity_fixture():
+    import json
+    from pathlib import Path
+
+    fixture = json.loads(
+        (Path(__file__).resolve().parents[2] / "frontend/src/lib/ar/voice-commands.json")
+        .read_text(encoding="utf-8")
+    )
+    for phrase, action, language in fixture["accepted"]:
+        matched = match_command(phrase)
+        assert matched is not None, phrase
+        assert matched["action"] == action, phrase
+        assert matched["language"] == language, phrase
+    for phrase in fixture["rejected"]:
+        assert match_command(phrase) is None, phrase
+
+
+def test_new_whisper_variants_match():
+    assert match_command("Previous steps")["action"] == "previous"
+    assert match_command("Go back")["action"] == "previous"
+    assert match_command("Back one step")["action"] == "previous"
+    assert match_command("Next steps")["action"] == "next"
+    assert match_command("Go forward")["action"] == "next"
+    assert match_command("Inspect step")["action"] == "verify"
+    assert match_command("Inspect again")["action"] == "verify-again"

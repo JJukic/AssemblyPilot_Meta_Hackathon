@@ -441,3 +441,48 @@ releases the microphone and revokes the session.
 Automated tests cover the endpoint, matching, limits, intent freshness,
 auto-capture request submission and cleanup with mocked transcription and
 no Meta calls. They do not replace this device test.
+
+## Voice command execution audit (Previous Step fix)
+
+Transcription is not execution. An audit of the full pipeline
+(mic → Whisper → normalize → match → validate → dispatch → action → visible
+result) found three root causes for heard-but-not-executed commands:
+
+1. **Stale dispatch closure (main cause).** Voice controllers are created
+   once when voice is enabled, and their `onCommand` captured that render's
+   action handler — including the step and revision current *at enable
+   time*. "Next Step" appeared to work (it moved away from the enable-time
+   step), while "Previous Step" computed its target from the stale step,
+   hit the boundary or a stale-revision conflict, and returned silently.
+   All voice dispatch now goes through a ref refreshed on every render, and
+   navigation reads the freshest viewed-step revision from a ref.
+2. **Duplicate gate suppressed legitimate repeats.** The same-action
+   cooldown also blocked a genuinely new "Previous Step" spoken in the next
+   listening window. For local voice, one bounded clip is one utterance
+   transcribed exactly once, so duplicate protection is now the
+   pending-execution lock plus one-action-per-clip; consecutive legitimate
+   commands execute. (Browser speech keeps its cooldown gate.)
+3. **Silent failures.** Navigation returned without a trace on boundary,
+   offline and revision-conflict cases, and "Listening…" overwrote the
+   outcome. Every command now produces an explicit execution outcome:
+   the AR page and the holographic panel show the latest transcript, the
+   matched action (or "No command matched"), SUCCESS/FAILED/REJECTED, the
+   reason (e.g. "Already at first step", "Project state revision
+   conflict"), and the resulting step ("Step 3 → 2"). Silent windows never
+   overwrite a result. On a 409 revision conflict, navigation reloads the
+   server view and retries once before reporting failure.
+
+Safe Whisper variants added (exact phrases only, frontend/backend parity
+fixture `voice-commands.json` asserted by tests on both sides):
+"previous steps", "go back", "back one step", "next steps", "go forward",
+"inspect step", "inspect again". Negated, ambiguous, joined or unrelated
+speech still executes nothing. Recording also stops ~0.7 s after speech
+ends instead of always waiting out the full window.
+
+Automated end-to-end tests with mocked Whisper
+(`frontend/tests/voice-commands.spec.ts`) assert actual results — step,
+reference, instruction, hologram state via the viewed cursor, diagnostics,
+exactly one inspection request for Verify Step, and microphone cleanup on
+Exit AR — for every command. Real-device retest still required: repeat the
+acceptance list above, especially "Previous Step" after "Next Step" and
+consecutive "Previous Step" commands.

@@ -13,14 +13,30 @@ def _add(action: str, language: str, phrases: list[str]) -> None:
         _PHRASES[phrase] = (action, language)
 
 
-_add("next", "en", ["next step", "go to next step", "go to the next step"])
+_add(
+    "next",
+    "en",
+    ["next step", "next steps", "go to next step", "go to the next step", "go forward"],
+)
 _add(
     "previous",
     "en",
-    ["previous step", "go to previous step", "go to the previous step", "prev step"],
+    [
+        "previous step",
+        "previous steps",
+        "go to previous step",
+        "go to the previous step",
+        "prev step",
+        "go back",
+        "back one step",
+    ],
 )
-_add("verify", "en", ["verify step", "verify this step", "verify the step"])
-_add("verify-again", "en", ["verify again", "verify it again", "verify step again"])
+_add("verify", "en", ["verify step", "verify this step", "verify the step", "inspect step"])
+_add(
+    "verify-again",
+    "en",
+    ["verify again", "verify it again", "verify step again", "inspect again"],
+)
 _add(
     "show-reference",
     "en",

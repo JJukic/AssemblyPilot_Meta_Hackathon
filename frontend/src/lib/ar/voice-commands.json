@@ -1,0 +1,31 @@
+{
+  "comment": "Canonical parity fixture: frontend (voice.ts) and backend (voice_commands.py) tests both assert every entry. Runtime tables live in those two files and must stay in sync with this fixture.",
+  "accepted": [
+    ["next step", "next", "en"], ["next steps", "next", "en"], ["go to next step", "next", "en"], ["go to the next step", "next", "en"], ["go forward", "next", "en"],
+    ["previous step", "previous", "en"], ["previous steps", "previous", "en"], ["go to previous step", "previous", "en"], ["go to the previous step", "previous", "en"], ["prev step", "previous", "en"], ["go back", "previous", "en"], ["back one step", "previous", "en"],
+    ["verify step", "verify", "en"], ["verify this step", "verify", "en"], ["verify the step", "verify", "en"], ["inspect step", "verify", "en"],
+    ["verify again", "verify-again", "en"], ["verify it again", "verify-again", "en"], ["verify step again", "verify-again", "en"], ["inspect again", "verify-again", "en"],
+    ["show reference", "show-reference", "en"], ["show reference photo", "show-reference", "en"], ["show reference photograph", "show-reference", "en"], ["display reference", "show-reference", "en"], ["show the reference", "show-reference", "en"],
+    ["hide reference", "hide-reference", "en"], ["hide reference photo", "hide-reference", "en"], ["hide reference photograph", "hide-reference", "en"], ["hide the reference", "hide-reference", "en"],
+    ["show instructions", "show-instructions", "en"], ["show instruction", "show-instructions", "en"], ["expand instructions", "show-instructions", "en"], ["show the instructions", "show-instructions", "en"],
+    ["read instructions", "read-instructions", "en"], ["read instruction", "read-instructions", "en"], ["read instructions aloud", "read-instructions", "en"], ["read the instructions", "read-instructions", "en"], ["read the instruction aloud", "read-instructions", "en"],
+    ["reanchor", "re-anchor", "en"], ["re anchor", "re-anchor", "en"], ["reset alignment", "re-anchor", "en"], ["reset tabletop alignment", "re-anchor", "en"],
+    ["recenter", "recenter", "en"], ["recenter panel", "recenter", "en"], ["re centre", "recenter", "en"], ["re centre panel", "recenter", "en"], ["center panel", "recenter", "en"], ["centre panel", "recenter", "en"],
+    ["help", "help", "en"], ["show commands", "help", "en"], ["show help", "help", "en"], ["list commands", "help", "en"],
+    ["stop listening", "stop-listening", "en"], ["stop voice", "stop-listening", "en"], ["disable voice", "stop-listening", "en"], ["turn off microphone", "stop-listening", "en"], ["stop microphone", "stop-listening", "en"],
+    ["exit ar", "exit", "en"], ["leave ar", "exit", "en"], ["close ar", "exit", "en"], ["quit ar", "exit", "en"], ["exit", "exit", "en"],
+    ["naechster schritt", "next", "de"], ["nachster schritt", "next", "de"],
+    ["vorheriger schritt", "previous", "de"],
+    ["schritt pruefen", "verify", "de"], ["schritt prufen", "verify", "de"],
+    ["erneut pruefen", "verify-again", "de"], ["nochmal pruefen", "verify-again", "de"], ["schritt erneut pruefen", "verify-again", "de"],
+    ["referenz anzeigen", "show-reference", "de"], ["referenz zeigen", "show-reference", "de"],
+    ["anleitung vorlesen", "read-instructions", "de"], ["anleitung lesen", "read-instructions", "de"],
+    ["ar beenden", "exit", "de"], ["beenden", "exit", "de"]
+  ],
+  "rejected": [
+    "", "verify", "next", "previous", "step", "please tidy the room", "the weather is nice",
+    "next step and previous step", "don't go to next step", "do not verify step", "never exit ar",
+    "exit step", "go to the next step please and hurry", "previous step please go back now",
+    "show me the previous step", "what is the next step", "verify this", "go backwards"
+  ]
+}

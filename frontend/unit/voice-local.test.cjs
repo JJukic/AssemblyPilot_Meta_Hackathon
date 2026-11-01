@@ -68,15 +68,29 @@ function fakeController(transcripts, onCommand) {
   return { controller, cleaned, clips: () => clip };
 }
 
-test("bounded loop dispatches next, suppresses duplicates, cleans up on stop", async () => {
+test("one action per clip: consecutive legitimate repeats execute; pending blocks overlap", async () => {
   const got = [];
-  const { controller, cleaned } = fakeController(["Next step", "Next step", "Exit AR"], async (c) => got.push(c.action));
+  const { controller, cleaned } = fakeController(["Next step", "Next step"], async (c) => got.push(c.action));
   await controller.recordOnce();
-  await controller.recordOnce(); // duplicate within cooldown: suppressed by gate
-  assert.deepEqual(got, ["next"]);
+  await controller.recordOnce(); // a new clip is a new utterance: executes again
+  assert.deepEqual(got, ["next", "next"]);
   controller.stop();
   assert.ok(cleaned.includes("revoked"));
   assert.equal(controller.isListening, false);
+
+  // While an action is pending, a further clip is rejected explicitly.
+  let release;
+  const diagnostics = [];
+  const slow = fakeController(["Next step", "Next step"], () => new Promise((r) => { release = r; }));
+  slow.controller.deps.onDiagnostic = (d) => diagnostics.push(d);
+  const first = slow.controller.recordOnce();
+  await new Promise((r) => setTimeout(r, 20));
+  await slow.controller.recordOnce();
+  assert.equal(diagnostics.at(-1).state, "rejected");
+  assert.match(diagnostics.at(-1).reason, /still executing|Duplicate/);
+  release({ ok: true });
+  await first;
+  slow.controller.dispose();
 });
 
 test("microphone permission failure never loops and reports honestly", async () => {
@@ -115,4 +129,30 @@ test("voice verify intent is project/step scoped, fresh-only and expirable", () 
   clearVoiceVerifyIntent();
   assert.equal(readVoiceVerifyIntent("p1", "s1", now), null);
   delete global.window;
+});
+
+test("frontend matcher matches the shared parity fixture exactly", () => {
+  const fixture = JSON.parse(fs.readFileSync(__dirname + "/../src/lib/ar/voice-commands.json", "utf8"));
+  for (const [phrase, action, language] of fixture.accepted) {
+    const matched = matchCommand(phrase);
+    assert.ok(matched, phrase);
+    assert.equal(matched.action, action, phrase);
+    assert.equal(matched.language, language, phrase);
+  }
+  for (const phrase of fixture.rejected) assert.equal(matchCommand(phrase), null, phrase);
+});
+
+test("diagnostics: unmatched, duplicate and failed outcomes are explicit", async () => {
+  const diagnostics = [];
+  const { controller } = fakeController(["the weather is nice"], async () => ({ ok: true }));
+  controller.deps.onDiagnostic = (d) => diagnostics.push(d);
+  await controller.recordOnce();
+  assert.equal(diagnostics.at(-1).state, "rejected");
+  assert.equal(diagnostics.at(-1).reason, "Phrase not recognized");
+
+  const failing = fakeController(["Next step"], async () => ({ ok: false, reason: "Already at last step" }));
+  failing.controller.deps.onDiagnostic = (d) => diagnostics.push(d);
+  await failing.controller.recordOnce();
+  assert.equal(diagnostics.at(-1).state, "failed");
+  assert.equal(diagnostics.at(-1).reason, "Already at last step");
 });

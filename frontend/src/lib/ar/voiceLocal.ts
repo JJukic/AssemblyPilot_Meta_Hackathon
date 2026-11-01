@@ -4,7 +4,14 @@
  * Bounded listening windows + push-to-talk; audio is never stored.
  */
 import { apiRequest } from "../api";
-import { CommandGate, matchCommand, type MatchedCommand, type VoiceAction } from "./voice";
+import {
+  CommandGate,
+  matchCommand,
+  type CommandDiagnostic,
+  type ExecutionOutcome,
+  type MatchedCommand,
+  type VoiceAction,
+} from "./voice";
 
 export interface TranscribeResult {
   matched: boolean;
@@ -96,7 +103,8 @@ export interface LocalVoiceDeps {
   api?: VoiceApi;
   /** Record one bounded clip. Default uses getUserMedia + WebAudio in-browser. */
   recordClip?: (maxMs: number) => Promise<RecordedClip>;
-  onCommand: (cmd: MatchedCommand) => void | Promise<void>;
+  onCommand: (cmd: MatchedCommand) => Promise<ExecutionOutcome | void>;
+  onDiagnostic?: (diagnostic: CommandDiagnostic) => void;
   onStatus?: (status: string) => void;
   onError?: (message: string) => void;
   onListeningChange?: (listening: boolean) => void;
@@ -107,7 +115,11 @@ export interface LocalVoiceDeps {
 const SILENCE_RMS = 0.008;
 
 export class LocalVoiceController {
-  readonly gate = new CommandGate();
+  // One bounded clip is one utterance and is transcribed exactly once, so a
+  // repeated phrase in the NEXT clip is a new legitimate command (e.g.
+  // consecutive "Previous Step"). Duplicate protection here is the pending
+  // lock plus one-action-per-clip, not a same-action cooldown.
+  readonly gate = new CommandGate(0);
   private api: VoiceApi;
   private token: string | null = null;
   private running = false;
@@ -185,8 +197,14 @@ export class LocalVoiceController {
       );
       this.failures = 0;
       if (!result.matched || !result.action) {
-        if (result.transcript)
-          this.deps.onStatus?.(`Heard “${result.transcript}” — not a known command. Say “Help”.`);
+        // Empty transcripts (silence) never overwrite a real command result.
+        if (result.transcript.trim())
+          this.deps.onDiagnostic?.({
+            transcript: result.transcript,
+            action: null,
+            state: "rejected",
+            reason: "Phrase not recognized",
+          });
         return true;
       }
       const matched: MatchedCommand = {
@@ -194,14 +212,53 @@ export class LocalVoiceController {
         phrase: result.phrase ?? result.transcript,
         language: result.language === "de" ? "de" : "en",
       };
-      // Backend already matched deterministically; re-check locally as a
-      // second guard, then suppress duplicates / repeats while pending.
-      if (!matchCommand(result.transcript) && result.phrase !== matched.phrase) return true;
-      if (!this.gate.tryAccept(matched.action)) return true;
-      this.deps.onStatus?.(`Heard: “${matched.phrase}”`);
+      // Second, consistent guard: the frontend matcher must agree with the
+      // backend action for the transcript (or its normalized phrase).
+      const localMatch =
+        matchCommand(result.transcript) ??
+        (result.phrase ? matchCommand(result.phrase) : null);
+      if (!localMatch || localMatch.action !== matched.action) {
+        this.deps.onDiagnostic?.({
+          transcript: result.transcript,
+          action: matched.action,
+          state: "rejected",
+          reason: "Frontend validation rejected the backend result",
+        });
+        return true;
+      }
+      if (!this.gate.tryAccept(matched.action)) {
+        this.deps.onDiagnostic?.({
+          transcript: result.transcript,
+          action: matched.action,
+          state: "rejected",
+          reason: this.gate.isPending
+            ? "Another command is still executing"
+            : "Duplicate command suppressed",
+        });
+        return true;
+      }
+      this.deps.onDiagnostic?.({
+        transcript: result.transcript,
+        action: matched.action,
+        state: "executing",
+      });
       this.gate.setPending(true);
       try {
-        await this.deps.onCommand(matched);
+        const outcome = await this.deps.onCommand(matched);
+        this.deps.onDiagnostic?.({
+          transcript: result.transcript,
+          action: matched.action,
+          state: !outcome || outcome.ok ? "completed" : "failed",
+          reason: outcome && !outcome.ok ? outcome.reason : undefined,
+          detail: outcome?.detail,
+        });
+      } catch (cause) {
+        this.deps.onDiagnostic?.({
+          transcript: result.transcript,
+          action: matched.action,
+          state: "failed",
+          reason: cause instanceof Error ? cause.message : "Command execution failed",
+        });
       } finally {
         this.gate.setPending(false);
       }
@@ -246,8 +303,22 @@ export async function recordMicClip(maxMs: number): Promise<RecordedClip> {
   const source = context.createMediaStreamSource(stream);
   const processor = context.createScriptProcessor(4096, 1, 1);
   const chunks: Float32Array[] = [];
+  // Voice-activity early stop: finish ~0.7 s after speech ends instead of
+  // always waiting out the full bounded window (lower latency, less overlap).
+  const chunkMs = (4096 / context.sampleRate) * 1000;
+  let heardSpeech = false;
+  let silentChunks = 0;
+  let finish: (() => void) | null = null;
   processor.onaudioprocess = (event) => {
-    chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+    const data = new Float32Array(event.inputBuffer.getChannelData(0));
+    chunks.push(data);
+    if (rms(data) > 0.02) {
+      heardSpeech = true;
+      silentChunks = 0;
+    } else if (heardSpeech) {
+      silentChunks++;
+      if (silentChunks * chunkMs > 700) finish?.();
+    }
   };
   source.connect(processor);
   processor.connect(context.destination);
@@ -264,7 +335,10 @@ export async function recordMicClip(maxMs: number): Promise<RecordedClip> {
     stream.getTracks().forEach((track) => track.stop());
     void context.close().catch(() => {});
   };
-  await new Promise((resolve) => setTimeout(resolve, maxMs));
+  await new Promise<void>((resolve) => {
+    finish = resolve;
+    setTimeout(resolve, maxMs);
+  });
   const total = chunks.reduce((n, c) => n + c.length, 0);
   const samples = new Float32Array(total);
   let offset = 0;

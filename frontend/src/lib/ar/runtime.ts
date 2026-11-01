@@ -26,6 +26,7 @@ export interface Guidance {
   hasReference?: boolean;
   voiceLabel?: string;
   lastCommand?: string;
+  diagnostic?: string;
 }
 
 export const PANEL_W = 1024;
@@ -363,8 +364,14 @@ export class SpatialSession {
     c.fillStyle = "#ffffff";
     c.fillText((info.blockLabel ?? info.detail).slice(0, 92), 20, 392);
     c.fillStyle = "#83e8eb";
-    c.fillText((info.voiceLabel ?? "Voice: off").slice(0, 92), 20, 420);
-    if (info.lastCommand) {
+    if (!info.diagnostic)
+      c.fillText((info.voiceLabel ?? "Voice: off").slice(0, 92), 20, 420);
+    if (info.diagnostic) {
+      c.fillStyle = info.diagnostic.startsWith("✗") ? "#ff9d9d" : "#6dffa8";
+      c.font = "bold 20px sans-serif";
+      c.fillText(info.diagnostic.slice(0, 96), 20, 420);
+      c.font = "21px sans-serif";
+    } else if (info.lastCommand) {
       c.fillStyle = "#6dffa8";
       c.fillText(`Heard: “${info.lastCommand}”`.slice(0, 92), 520, 420);
     }

@@ -20,6 +20,8 @@ import {
   VoiceController,
   detectSpeechSupport,
   probeMicrophone,
+  type CommandDiagnostic,
+  type ExecutionOutcome,
   type RecognitionLike,
   type VoiceAction,
   type VoiceSnapshot,
@@ -86,6 +88,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     runtime = useRef<SpatialSession | null>(null),
     alive = useRef(true),
     generation = useRef(0);
+  const [diagnostic, setDiagnostic] = useState<CommandDiagnostic | null>(null);
+  const viewRef = useRef<ViewedStep>({ step_id: null, revision: 0 });
   const [localOn, setLocalOn] = useState(false),
     [localStatus, setLocalStatus] = useState("Local voice off (recommended on HoloLens)."),
     [localConsent, setLocalConsent] = useState(false),
@@ -93,6 +97,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const localRef = useRef<LocalVoiceController | null>(null);
   const voiceRef = useRef<VoiceController | null>(null);
   const actionRef = useRef<(action: Action | VoiceAction) => void>(() => {});
+  // Voice controllers are created once at enable time; they must never call
+  // the enable-time closure (stale step/revision/toggles). Always dispatch
+  // through this ref, which is refreshed with the latest render.
+  const dispatchRef = useRef<
+    (a: VoiceAction, t: string) => Promise<ExecutionOutcome>
+  >(() => Promise.resolve({ ok: false, reason: "Voice dispatch not ready" }));
   const info = useRef<Guidance>({ placement: null, text: "Loading", detail: "Unverified" });
   const step = project?.steps.find((s) => s.id === view.step_id);
   const totalSteps = project?.steps.length ?? 0;
@@ -299,31 +309,84 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       voiceLabel: localOn
         ? `🎤 Local voice listening — ${localStatus}`
         : `Voice: ${voiceLabel}${voice.errorCode ? ` (${voice.errorCode})` : ""} — ${voiceMessage}`,
+      diagnostic: diagnostic
+        ? `${diagnostic.state === "completed" ? "✓" : diagnostic.state === "failed" || diagnostic.state === "rejected" ? "✗" : "…"} ${diagnostic.action ?? "no command"} · ${diagnostic.state.toUpperCase()}${diagnostic.detail ? ` · ${diagnostic.detail}` : ""}${diagnostic.reason ? ` · ${diagnostic.reason}` : ""} · “${diagnostic.transcript}”`
+        : undefined,
       lastCommand: lastCommand || undefined,
     };
     runtime.current?.update(info.current);
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
-  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus]);
+  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic]);
 
-  async function navigate(offset: number) {
-    if (!project || !online) return;
-    const index = project.steps.findIndex((s) => s.id === view.step_id),
-      next = project.steps[index + offset];
-    if (!next) return;
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
+
+  async function navigate(offset: number): Promise<ExecutionOutcome> {
+    if (!project) return { ok: false, reason: "Project is still loading" };
+    if (!online) return { ok: false, reason: "Project state unavailable (offline)" };
+    const current = viewRef.current;
+    const index = project.steps.findIndex((s) => s.id === current.step_id);
+    if (index < 0) return { ok: false, reason: "Current step is unknown" };
+    const from = project.steps[index];
+    const next = project.steps[index + offset];
+    if (!next)
+      return {
+        ok: false,
+        reason: offset < 0 ? "Already at first step" : "Already at last step",
+        detail: `Step ${from.position} of ${project.steps.length}`,
+      };
     setPlacement(null);
     runtime.current?.setReferenceImage(null);
     runtime.current?.update({ ...info.current, placement: null });
     try {
-      const v = await setView(projectId, next.id, view.revision);
+      let v: ViewedStep;
+      try {
+        v = await setView(projectId, next.id, current.revision);
+      } catch (cause) {
+        // Revision conflict: another writer moved the cursor. Reload the
+        // freshest view and retry once against that step, never silently.
+        if (!(cause instanceof Error) || !/409|changed the viewed step/i.test(cause.message))
+          throw cause;
+        const fresh = await getView(projectId);
+        viewRef.current = fresh;
+        setViewed(fresh);
+        const freshIndex = project.steps.findIndex((s) => s.id === fresh.step_id);
+        const retryTarget = project.steps[freshIndex + offset];
+        if (!retryTarget)
+          return {
+            ok: false,
+            reason: "Project state revision conflict",
+            detail: `Still at Step ${project.steps[freshIndex]?.position ?? "?"}`,
+          };
+        v = await setView(projectId, retryTarget.id, fresh.revision);
+        viewRef.current = v;
+        setViewed(v);
+        setVerification({ step: "", verified: false });
+        setError("");
+        return {
+          ok: true,
+          detail: `Step ${project.steps[freshIndex].position} → ${retryTarget.position} (after revision reload)`,
+        };
+      }
+      viewRef.current = v;
       setViewed(v);
       setVerification({ step: "", verified: false });
       setError("");
+      return { ok: true, detail: `Step ${from.position} → ${next.position}` };
     } catch (e) {
-      setError(errorMessage(e));
+      const message = errorMessage(e);
+      setError(message);
+      return {
+        ok: false,
+        reason: /409|changed the viewed step/i.test(message)
+          ? "Project state revision conflict"
+          : message,
+      };
     }
   }
-  async function verify(mode: "inspect" | "verify" = "inspect") {
+  async function verify(mode: "inspect" | "verify" = "inspect"): Promise<ExecutionOutcome> {
     // Voice/button Verify never marks anything verified. It ends XR and opens
     // the HoloLens camera workspace, which auto-captures ONE fresh real frame
     // and runs the existing Meta inspection / fresh-image verification.
@@ -338,13 +401,20 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     await runtime.current?.end();
     router.push(verificationUrl);
+    return {
+      ok: true,
+      detail: `Opening HoloLens camera ${mode === "verify" ? "fresh-image verification" : "inspection"} for Step ${step?.position ?? "?"}`,
+    };
   }
-  async function verifyAgain() {
-    if (!view.step_id) return;
+  async function verifyAgain(): Promise<ExecutionOutcome> {
+    if (!view.step_id) return { ok: false, reason: "Current step is unknown" };
     const last = readLastInspection(projectId, view.step_id);
     if (!last)
       setStatus("Verify Again: no previous inspection for this step yet — running a first inspection instead.");
-    await verify(last ? "verify" : "inspect");
+    const outcome = await verify(last ? "verify" : "inspect");
+    return last
+      ? outcome
+      : { ...outcome, detail: `${outcome.detail ?? ""} (first inspection — no previous inspection yet)` };
   }
   async function exitAR() {
     stopAllVoice(true);
@@ -353,67 +423,93 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     setActive(false);
     setStatus("XR session ended. Microphone stopped. Re-enter and re-anchor before continuing.");
   }
-  async function handleAction(a: Action | VoiceAction) {
+  async function handleAction(a: Action | VoiceAction): Promise<ExecutionOutcome> {
     switch (a) {
       case "next":
-        await navigate(1);
-        break;
+        return navigate(1);
       case "previous":
-        await navigate(-1);
-        break;
+        return navigate(-1);
       case "verify":
-        await verify();
-        break;
+        return verify();
       case "verify-again":
-        await verifyAgain();
-        break;
+        return verifyAgain();
       case "exit":
         await exitAR();
-        break;
+        return { ok: true, detail: "XR session ended; microphone stopped" };
       case "re-anchor":
       case "reanchor":
-        runtime.current?.reset();
-        break;
+        if (!runtime.current) return { ok: false, reason: "No active AR session — enter AR first" };
+        runtime.current.reset();
+        return { ok: true, detail: "Tabletop alignment reset — confirm the origin again" };
       case "recenter":
-        runtime.current?.recenterPanel();
-        break;
-      case "reference":
-        setShowReference((v) => {
-          runtime.current?.setShowReference(!v);
-          return !v;
-        });
-        break;
+        if (!runtime.current) return { ok: false, reason: "No active AR session — enter AR first" };
+        runtime.current.recenterPanel();
+        return { ok: true, detail: "Instruction panel recentered" };
+      case "reference": {
+        if (!refPath && !showReference)
+          return { ok: false, reason: "No reference photograph for this step" };
+        const nextValue = !showReference;
+        setShowReference(nextValue);
+        runtime.current?.setShowReference(nextValue);
+        return { ok: true, detail: nextValue ? "Reference shown" : "Reference hidden" };
+      }
       case "show-reference":
+        if (!refPath) return { ok: false, reason: "No reference photograph for this step" };
         setShowReference(true);
         runtime.current?.setShowReference(true);
-        break;
+        return { ok: true, detail: "Expected reference shown" };
       case "hide-reference":
         setShowReference(false);
         runtime.current?.setShowReference(false);
-        break;
+        return { ok: true, detail: "Expected reference hidden" };
       case "show-instructions":
         document.getElementById("ar-full-instruction")?.scrollIntoView({ block: "nearest" });
-        break;
-      case "read-instructions":
-        if (readAloud && step && "speechSynthesis" in window) {
-          window.speechSynthesis.cancel();
-          window.speechSynthesis.speak(new SpeechSynthesisUtterance(step.instruction));
-        } else if (!readAloud) {
-          setVoiceStatus("Read-aloud is off — enable “Read instructions aloud” to use this command.");
-        }
-        break;
+        return { ok: true, detail: `Step ${step?.position ?? "?"} instruction displayed` };
+      case "read-instructions": {
+        if (!readAloud)
+          return { ok: false, reason: "Read-aloud is off — enable “Read instructions aloud”" };
+        if (!step || !("speechSynthesis" in window))
+          return { ok: false, reason: "Speech synthesis is not supported in this browser" };
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(step.instruction));
+        return { ok: true, detail: "Reading the instruction aloud" };
+      }
       case "help":
         setHelpVisible((v) => !v);
-        break;
+        return { ok: true, detail: "Available commands toggled" };
       case "page":
-        break; // runtime cycles its own text page
+        return { ok: true, detail: "Next text page" };
       case "stop-listening":
         stopAllVoice();
-        break;
+        return { ok: true, detail: "Microphone recognition stopped" };
+    }
+  }
+  /** Single dispatch path for voice: always records a visible diagnostic. */
+  async function dispatchVoiceAction(
+    action: VoiceAction,
+    transcript: string,
+  ): Promise<ExecutionOutcome> {
+    setLastCommand(transcript);
+    setDiagnostic({ transcript, action, state: "executing" });
+    try {
+      const outcome = await handleAction(action);
+      setDiagnostic({
+        transcript,
+        action,
+        state: outcome.ok ? "completed" : "failed",
+        reason: outcome.ok ? undefined : outcome.reason,
+        detail: outcome.detail,
+      });
+      return outcome;
+    } catch (cause) {
+      const reason = errorMessage(cause);
+      setDiagnostic({ transcript, action, state: "failed", reason });
+      return { ok: false, reason };
     }
   }
   useEffect(() => {
     actionRef.current = (a) => handleAction(a);
+    dispatchRef.current = (a, t) => dispatchVoiceAction(a, t);
   });
 
   function enableVoice() {
@@ -433,15 +529,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       () => new Ctor(),
       {
         onCommand: (cmd) => {
-          setLastCommand(cmd.phrase);
-          setVoiceStatus(`Heard: “${cmd.phrase}”`);
           controller.gate.setPending(true);
-          // Always dispatch through the ref so the latest step/view closure runs.
-          void (
-            actionRef.current as unknown as (a: VoiceAction) => Promise<void>
-          )(cmd.action).catch((e) => {
-            if (alive.current) setVoiceStatus(`Command failed: ${errorMessage(e)}`);
-          }).finally(() => controller.gate.setPending(false));
+          void dispatchRef.current(cmd.action, cmd.phrase)
+            .catch((e) => {
+              if (alive.current) setVoiceStatus(`Command failed: ${errorMessage(e)}`);
+            })
+            .finally(() => controller.gate.setPending(false));
         },
         onStateChange: (snapshot) => {
           if (alive.current && voiceRef.current === controller) setVoice(snapshot);
@@ -458,13 +551,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     localRef.current?.dispose();
     const controller = new LocalVoiceController({
       language: voiceLang.startsWith("de") ? "de" : "en",
-      onCommand: async (cmd) => {
-        if (!alive.current) return;
-        setLastCommand(cmd.phrase);
-        setLocalStatus(`Heard: “${cmd.phrase}”`);
-        await (
-          actionRef.current as unknown as (a: VoiceAction) => Promise<void>
-        )(cmd.action);
+      onCommand: (cmd) => dispatchRef.current(cmd.action, cmd.phrase),
+      onDiagnostic: (d) => {
+        if (alive.current) setDiagnostic(d);
       },
       onStatus: (s) => {
         if (alive.current) setLocalStatus(s);
@@ -490,12 +579,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     if (!localRef.current) {
       localRef.current = new LocalVoiceController({
         language: voiceLang.startsWith("de") ? "de" : "en",
-        onCommand: async (cmd) => {
-          setLastCommand(cmd.phrase);
-          setLocalStatus(`Heard: “${cmd.phrase}”`);
-          await (
-            actionRef.current as unknown as (a: VoiceAction) => Promise<void>
-          )(cmd.action);
+        onCommand: (cmd) => dispatchRef.current(cmd.action, cmd.phrase),
+        onDiagnostic: (d) => {
+          if (alive.current) setDiagnostic(d);
         },
         onStatus: (s) => {
           if (alive.current) setLocalStatus(s);
@@ -656,6 +742,22 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
             Record one command (push-to-talk)
           </button>
         </div>
+        {diagnostic && (
+          <section aria-label="Voice command diagnostics" className="ar-diagnostics">
+            <h4>Last voice command</h4>
+            <p>Transcript: “{diagnostic.transcript}”</p>
+            <p>Matched action: {diagnostic.action ?? "none — No command matched"}</p>
+            <p role="status">
+              Execution:{" "}
+              {diagnostic.state === "completed"
+                ? "SUCCESS"
+                : diagnostic.state.toUpperCase()}
+              {diagnostic.detail ? ` · ${diagnostic.detail}` : ""}
+            </p>
+            {diagnostic.reason && <p>Reason: {diagnostic.reason}</p>}
+            <p>Current step: {step?.position ?? "—"} of {totalSteps || "—"}</p>
+          </section>
+        )}
         <h3>Browser speech recognition (legacy fallback — not reliable on HoloLens)</h3>
         <p role="status" aria-label="Voice state">Voice: {voiceLabel}</p>
         <p role={voiceState === "error" ? "alert" : "status"}>
@@ -709,7 +811,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           <p role="status" aria-label="Microphone test result">{micTest.message}</p>
         </div>
         {lastCommand && <p>Last recognized command: “{lastCommand}”</p>}
-        <details>
+        <details open={helpVisible} onToggle={(e) => setHelpVisible((e.target as HTMLDetailsElement).open)}>
           <summary>Available voice commands</summary>
           <ul>
             {VOICE_COMMANDS.map((c) => (
@@ -737,7 +839,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
             : "Verification status uncertain — connection unavailable"}
       </p>
       <h4>Expected assembly reference (guidance only — not proof of your build)</h4>
-      {refPath && selectedRef ? (
+      {!showReference && refPath ? (
+        <p>Reference hidden — say “Show reference” or use the Show reference button to display it again.</p>
+      ) : refPath && selectedRef ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           key={`${step?.id}:${selectedRef.id}`}

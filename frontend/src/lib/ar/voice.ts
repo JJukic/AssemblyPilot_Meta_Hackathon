@@ -24,19 +24,47 @@ export interface MatchedCommand {
   language: "en" | "de";
 }
 
+export type CommandExecutionState =
+  | "recognized"
+  | "executing"
+  | "completed"
+  | "failed"
+  | "rejected";
+export interface CommandDiagnostic {
+  transcript: string;
+  action: VoiceAction | null;
+  state: CommandExecutionState;
+  reason?: string;
+  detail?: string;
+}
+export interface ExecutionOutcome {
+  ok: boolean;
+  reason?: string;
+  detail?: string;
+}
+
 const PHRASES: Record<string, { action: VoiceAction; language: "en" | "de" }> = {};
 function add(action: VoiceAction, language: "en" | "de", phrases: string[]) {
   for (const p of phrases) PHRASES[p] = { action, language };
 }
-add("next", "en", ["next step", "go to next step", "go to the next step"]);
+add("next", "en", [
+  "next step",
+  "next steps",
+  "go to next step",
+  "go to the next step",
+  "go forward",
+]);
 add("previous", "en", [
   "previous step",
+  "previous steps",
   "go to previous step",
   "go to the previous step",
   "prev step",
+  "go back",
+  "back one step",
 ]);
-add("verify", "en", ["verify step", "verify this step", "verify the step"]);
-add("verify-again", "en", ["verify again", "verify it again", "verify step again"]);
+add("verify", "en", ["verify step", "verify this step", "verify the step", "inspect step"]);
+add("verify-again", "en", ["verify again", "verify it again", "verify step again", "inspect again"]);
 add("show-reference", "en", [
   "show reference",
   "show reference photo",
