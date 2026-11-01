@@ -382,3 +382,37 @@ a.brand, a.button { text-decoration: none; }
 .comparison-reference { margin: 16px 0; padding: 12px; border: 1px solid var(--border); border-radius: 7px; }
 .comparison-reference p { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 12px 0; }
 .comparison-reference img { display: block; max-width: 100%; max-height: 360px; height: auto; }
+
+/* Jury setup: progressively disclose precision tools, keep drafts legible on phones. */
+.jury-start { padding: 24px; margin-bottom: 24px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px; }
+.jury-start h2 { font-size: 1.3rem; }
+.setup-wizard { max-width: 1040px; margin: 0 auto 32px; padding: clamp(16px, 4vw, 36px); }
+.setup-wizard fieldset { border: 0; padding: 0; min-width: 0; }
+.setup-wizard h2, .setup-wizard h3 { margin: 20px 0 12px; }
+.setup-wizard p { margin: 12px 0; line-height: 1.65; }
+.setup-wizard .field { margin-bottom: 16px; }
+.setup-progress { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+.setup-progress span { border: 1px solid var(--border); padding: 8px 12px; border-radius: 8px; color: var(--muted); font-size: .85rem; }
+.setup-progress [aria-current] { color: #80dec0; background: #12332e; border-color: #397766; }
+.setup-block, .setup-step, .setup-limitations { padding: 18px; margin: 20px 0; border: 1px solid #304157; border-radius: 12px; background: #0c1522; }
+.setup-library { display: flex; flex-wrap: wrap; gap: 16px; margin: 20px 0; }
+.setup-part { display: flex; gap: 16px; align-items: center; justify-content: space-between; margin: 12px 0; }
+.setup-part input[type=number] { width: 90px; }
+.setup-wizard input[type=checkbox], .setup-wizard input[type=radio] { width: 18px; height: 18px; flex: 0 0 18px; accent-color: #8fe5c8; }
+.setup-wizard .button { margin: 6px 8px 6px 0; white-space: normal; }
+.setup-choices, .setup-mode-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+.setup-mode { display: flex; flex-direction: column; gap: 12px; flex: 1 1 280px; padding: 24px; border: 1px solid #304157; border-radius: 12px; }
+.setup-mode:has(input:checked) { border-color: #80dec0; background: #12332e; }
+.setup-confirm { display: flex; align-items: flex-start; gap: 12px; padding: 20px 0; line-height: 1.6; }
+.setup-review-step { padding: 12px 0; border-bottom: 1px solid #304157; }
+.setup-wizard ul, .setup-wizard ol { padding-left: 24px; line-height: 1.7; }
+.setup-wizard li { overflow-wrap: anywhere; }
+.draft-photo { margin: 18px 0; }
+.draft-photo img { max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 8px; }
+.draft-photo small, .draft-photo figcaption { display: block; color: #9faec3; }
+.setup-back { margin-top: 24px !important; }
+.setup-success .button { display: inline-flex; }
+@media (max-width: 600px) { .setup-wizard .form-grid { grid-template-columns: 1fr; } .setup-wizard input, .setup-wizard textarea, .setup-wizard select { min-width: 0; max-width: 100%; } .setup-wizard input[type=file] { width: 100%; } }
+.setup-wizard h2 { font-size: 1.35rem; }
+.setup-wizard h3 { font-size: 1.1rem; font-weight: 600; }
+.setup-wizard h4 { font-size: 1rem; font-weight: 600; letter-spacing: normal; }

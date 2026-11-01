@@ -2,6 +2,12 @@
 
 **Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
 
+Phase 5 adds **Try AssemblyPilot with Your Own Blocks**: describe a build, select
+or photograph blocks, review editable Meta-generated or manual steps, confirm rules,
+and launch the real camera workspace. Simple text checks need no dimensions or
+calibration. Advanced tools remain available through the existing editors.
+See the [jury setup guide and manual acceptance checklist](docs/jury-setup.md).
+
 Phase 4.1E adds **Meta-first printed-text and logo recognition** to the printed-face
 registry, contour overlays and independent Canny debug tools in PR #9. Configure
 expected text without a reference photo, inspect it in the existing Muse call, and

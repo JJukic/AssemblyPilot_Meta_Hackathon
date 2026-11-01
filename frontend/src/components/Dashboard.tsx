@@ -51,6 +51,7 @@ export function Dashboard({ assembly, initialProjectId = "" }: { assembly: Assem
           <div><p className="eyebrow">YOUR ASSEMBLY WORKSPACE</p><h1>Build with a clearer view.</h1><p className="muted">Observe your build. Follow each step. Keep moving forward.</p></div>
           <div className="phase-badge"><span className="status-dot" /> PHASE 4 <span>Verification</span></div>
         </div>
+        <section className="panel jury-start"><div><p className="eyebrow">YOUR FIRST BUILD</p><h2>Try AssemblyPilot with Your Own Blocks</h2><p>Bring your blocks. Describe your goal. Review a plan and start inspecting.</p></div><div className="form-actions"><Link className="button primary" href="/setup">Quick custom project</Link><Link className="button secondary" href="/setup">Demonstration template</Link><Link className="button secondary" href="/projects">Existing project</Link></div></section>
         <div className="project-selector panel">
           <label className="field"><span>Assembly project</span><select value={selectedProject} onChange={(event) => setSelectedProject(event.target.value)}>
             <option value="">Five-step practice demo</option>

@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useState } from "react";
 import { FolderPlus, Plus } from "lucide-react";
 import { useResource } from "@/hooks/useResource";
@@ -21,7 +22,7 @@ export function ProjectLibrary() {
     finally { setBusy(false); }
   }
   return <>
-    <div className="collection-toolbar"><p className="muted">{data ? `${data.length} projects in your workspace` : "Loading projects…"}</p><button className="button primary" onClick={() => setEditing("new")}><Plus size={16} /> New project</button></div>
+    <div className="collection-toolbar"><p className="muted">{data ? `${data.length} projects in your workspace` : "Loading projects…"}</p><Link className="button primary" href="/setup"><Plus size={16} /> New project</Link></div>
     {(error || actionError) && <p role="alert" className="form-error">{actionError || error} <button className="text-button" onClick={reload}>Retry loading</button></p>}
     {notice && <p role="status" className="success-note">{notice}</p>}
     <div className={`collection-layout ${editing ? "has-editor" : ""}`}>

@@ -19,7 +19,7 @@ test("complete registry → project → camera workflow persists and cleans up c
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/blocks");
-  await expect(page.getByRole("heading", { name: "Your block library starts here" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ocean brick revised", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Add block", exact: true }).click();
   const blockForm = page.getByRole("form", { name: "Block details" });
   await blockForm.getByRole("button", { name: "Save block" }).click();
@@ -52,11 +52,12 @@ test("complete registry → project → camera workflow persists and cleans up c
   await expect(page.getByRole("heading", { name: "Ocean brick revised", exact: true })).toBeVisible();
 
   await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Projects", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Make room for your next build" })).toBeVisible();
-  await page.getByRole("button", { name: "New project" }).click();
-  await page.getByLabel("Project name *").fill("Harbor bridge");
-  await page.getByRole("button", { name: "Save project" }).click();
-  await page.getByRole("link", { name: "Open project", exact: true }).click();
+  await expect(page.getByRole("link", { name: "New project", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "New project" }).click();
+  await expect(page.getByRole("region", { name: "Assembly setup wizard" })).toBeVisible();
+  // Legacy empty projects remain supported; wizard creation has its own end-to-end suite.
+  const created = await page.request.post("http://127.0.0.1:8000/api/projects", { data: { name: "Harbor bridge" } });
+  await page.goto(`/projects/${(await created.json()).id}`);
   await expect(page).toHaveURL(/\/projects\/[a-z0-9-]+$/);
   const projectPath = new URL(page.url()).pathname;
   await expect(page.getByRole("heading", { name: "Every build starts with a first step" })).toBeVisible();
@@ -118,12 +119,12 @@ test("complete registry → project → camera workflow persists and cleans up c
   await page.goto("/projects");
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Delete Harbor bridge", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Make room for your next build" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "New project", exact: true })).toBeVisible();
   await page.goto("/blocks");
   await expect(page.getByRole("heading", { name: "Ocean brick revised", exact: true })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Delete Ocean brick revised", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Your block library starts here" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ocean brick revised", exact: true })).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });
 

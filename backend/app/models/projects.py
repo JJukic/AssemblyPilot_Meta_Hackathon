@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.models.blocks import BlockRead, ImageRead, Name
 from app.models.faces import FaceConstraint
 from app.models.geometry import StudOffsetConstraintInput, StudOffsetConstraintRead
+from app.models.setup import SimplePrintConstraint
 
 
 class ProjectInput(BaseModel):
@@ -31,6 +32,7 @@ class StepBlockRead(StepBlockInput):
 
 
 class StepInput(BaseModel):
+    simple_print: SimplePrintConstraint | None = None
     model_config = ConfigDict(extra="forbid")
     title: Name
     instruction: str = Field(min_length=1, max_length=10000)
@@ -45,6 +47,14 @@ class StepInput(BaseModel):
         if not self.instruction:
             raise ValueError("Instruction cannot be empty")
         ids = [block.block_id for block in self.required_blocks]
+        if self.simple_print:
+            if self.face_constraint:
+                raise ValueError("Choose a simple text rule or physical face rule, not both")
+            if not any(
+                b.block_id == self.simple_print.target_block_id and b.required_quantity == 1
+                for b in self.required_blocks
+            ):
+                raise ValueError("Text recognition requires one assigned target instance")
         if self.face_constraint and self.face_constraint.target_block_id not in ids:
             raise ValueError("Face target must be assigned to this step")
         if len(ids) != len(set(ids)):
@@ -65,6 +75,7 @@ class StepInput(BaseModel):
 
 
 class StepRead(BaseModel):
+    simple_print: SimplePrintConstraint | None = Field(default=None, exclude_if=lambda v: v is None)
     id: str
     project_id: str
     position: int

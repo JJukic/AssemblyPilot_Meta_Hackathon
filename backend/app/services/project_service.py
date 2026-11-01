@@ -8,6 +8,7 @@ from app.db.tables import (
     BlockFace,
     BuildingBlock,
     StepFaceConstraint,
+    StepSimplePrint,
     StepSpatialConstraint,
     now,
 )
@@ -58,6 +59,9 @@ def public_step(session: Session, step: AssemblyStep) -> StepRead:
     ).first()
     return StepRead(
         **step.model_dump(),
+        simple_print=print_rule.model_dump(exclude={"step_id"})
+        if (print_rule := session.get(StepSimplePrint, step.id))
+        else None,
         face_constraint=FaceConstraint.model_validate(face.model_dump(exclude={"step_id"}))
         if (face := session.get(StepFaceConstraint, step.id))
         else None,
@@ -83,6 +87,24 @@ def replace_blocks(session: Session, step: AssemblyStep, data: StepInput):
     blocks = {item.block_id: require_block(session, item.block_id) for item in data.required_blocks}
     if data.spatial_constraint:
         validate_spatial_constraint(blocks, data.spatial_constraint)
+    simple = session.get(StepSimplePrint, step.id)
+    # Older editors preserve a simple rule unless it is explicitly changed.
+    if "simple_print" in data.model_fields_set:
+        if data.simple_print:
+            simple = simple or StepSimplePrint(step_id=step.id, **data.simple_print.model_dump())
+            simple.sqlmodel_update(data.simple_print.model_dump())
+            session.add(simple)
+        elif simple:
+            session.delete(simple)
+            simple = None
+    if simple and (
+        data.face_constraint
+        or not any(
+            b.block_id == simple.target_block_id and b.required_quantity == 1
+            for b in data.required_blocks
+        )
+    ):
+        raise HTTPException(422, "Remove or update the simple text rule before changing its target")
     face_rule = session.get(StepFaceConstraint, step.id)
     if data.face_constraint:
         face = session.get(BlockFace, data.face_constraint.required_face_id)

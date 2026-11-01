@@ -56,6 +56,8 @@ the assembly unchanged. For glare ask for diffuse lighting plus a useful changed
 occlusion ask for a view exposing the hidden area. If an assembled reference is missing, explain
 that another angle alone may not settle the expected arrangement. Never fabricate a request
 from a transport error. For correct/incorrect use active_vision=null. No automatic camera action.
+When simple_print is supplied, it is a required text-only print rule, with no physical side ID
+or dimensions. Transcribe its target text into print_observation; observed side IDs stay null.
 When print_rule is supplied on the required registered side, use the SAME current-image
 inspection to return print_observation. No human face recognition, biometrics or facial analysis.
 Meta Auto reads visible printed words without requiring a reference photograph. Meta + References
@@ -141,6 +143,7 @@ def inspection_task_data(request: MultimodalInspectionRequest) -> str:
         "face_constraint": context.face_constraint.model_dump()
         if context.face_constraint
         else None,
+        "simple_print": context.simple_print.model_dump() if context.simple_print else None,
         "registered_faces": [face.model_dump(mode="json") for face in context.faces],
         # Flat, unambiguous side_id -> expected_text mapping. The nested
         # registered_faces dump alone buries this inside each print_rule.
@@ -151,9 +154,7 @@ def inspection_task_data(request: MultimodalInspectionRequest) -> str:
                 "side_name": face.name,
                 "label": face.label,
                 "expected_text": face.print_rule.expected_text if face.print_rule else None,
-                "alternative_texts": face.print_rule.alternative_texts
-                if face.print_rule
-                else [],
+                "alternative_texts": face.print_rule.alternative_texts if face.print_rule else [],
             }
             for face in context.faces
         ],
@@ -161,9 +162,13 @@ def inspection_task_data(request: MultimodalInspectionRequest) -> str:
             "expected_side_id": context.face_constraint.required_face_id
             if context.face_constraint
             else None,
-            "target_block_id": context.face_constraint.target_block_id
-            if context.face_constraint
-            else None,
+            "target_block_id": (
+                context.simple_print.target_block_id
+                if context.simple_print
+                else context.face_constraint.target_block_id
+                if context.face_constraint
+                else None
+            ),
             "note": (
                 "expected_side_id is the required goal, not the observed side. "
                 "Transcribe first, then look the transcription up in print_side_registry."

@@ -15,6 +15,6 @@ export function ManagementLayout({ active, title, description, children }: {
       <div className="page-heading"><div><p className="eyebrow">BUILD YOUR OWN COLLECTION</p><h1>{title}</h1><p className="muted">{description}</p></div></div>
       {children}
     </main>
-    <footer><span>ASSEMBLYPILOT / PHASE 02</span><span>Your blocks. Your projects. Stored locally.</span></footer>
+    <footer><span>ASSEMBLYPILOT / YOUR WORKSPACE</span><span>Your blocks. Your projects. Stored locally.</span></footer>
   </div>;
 }

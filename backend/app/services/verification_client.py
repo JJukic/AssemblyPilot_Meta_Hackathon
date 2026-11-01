@@ -61,8 +61,12 @@ class VerificationClient(MetaClient):
                 ),
             },
         )
+        schema = VerificationEvidence.model_json_schema()
+        schema["properties"]["print_observation"] = payload["response_format"]["json_schema"][
+            "schema"
+        ]["properties"]["print_observation"]
         payload["response_format"]["json_schema"].update(
-            name="assembly_verification", schema=VerificationEvidence.model_json_schema()
+            name="assembly_verification", schema=schema
         )
         body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
         if len(body) > self.settings.meta_max_request_bytes:

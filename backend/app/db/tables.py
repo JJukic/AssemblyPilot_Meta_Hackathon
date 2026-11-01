@@ -102,9 +102,7 @@ class StepReferenceSelection(SQLModel, table=True):
     """Additive preference table; existing photos keep their creation-order fallback."""
 
     __tablename__ = "step_reference_selections"
-    step_id: str = Field(
-        primary_key=True, foreign_key="assembly_steps.id", ondelete="CASCADE"
-    )
+    step_id: str = Field(primary_key=True, foreign_key="assembly_steps.id", ondelete="CASCADE")
     image_id: str = Field(foreign_key="reference_images.id", ondelete="CASCADE")
 
 
@@ -182,3 +180,19 @@ class PrintedSideRule(SQLModel, table=True):
     __tablename__ = "printed_side_rules"
     face_id: str = Field(primary_key=True, foreign_key="block_faces.id", ondelete="CASCADE")
     configuration_json: str
+
+
+class StepSimplePrint(SQLModel, table=True):
+    """Text semantics without invented physical face measurements."""
+
+    __tablename__ = "step_simple_print_rules"
+    step_id: str = Field(primary_key=True, foreign_key="assembly_steps.id", ondelete="CASCADE")
+    target_block_id: str = Field(foreign_key="building_blocks.id", ondelete="RESTRICT")
+    expected_text: str
+
+
+class SetupReceipt(SQLModel, table=True):
+    __tablename__ = "setup_receipts"
+    request_id: str = Field(primary_key=True)
+    project_id: str = Field(foreign_key="assembly_projects.id", ondelete="CASCADE")
+    fingerprint: str

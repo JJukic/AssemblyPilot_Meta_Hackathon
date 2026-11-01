@@ -2,10 +2,12 @@
 
 import hashlib
 import unicodedata
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
 
+from app.models.print_config import PrintConfig
 from app.models.prints import PrintRecognitionResult
 from app.services.face_inspection import sam_consistent
 
@@ -42,6 +44,15 @@ def normalize_print(text):
 
 
 def configured_side(context):
+    if getattr(context, "simple_print", None):
+        check = context.simple_print
+        return SimpleNamespace(
+            id=None,
+            block_id=check.target_block_id,
+            name=check.expected_text,
+            references=[],
+            print_rule=PrintConfig(expected_text=check.expected_text),
+        )
     rule = context.face_constraint
     return next(
         (
@@ -182,7 +193,10 @@ def recognize_print(request, diagnosis, face, segmentations):
     if not expected:
         return result
     config = expected.print_rule
-    direction_required = request.context.face_constraint.facing_direction != "not_required"
+    direction_required = bool(
+        request.context.face_constraint
+        and request.context.face_constraint.facing_direction != "not_required"
+    )
     attached = {item.reference_id for item in request.images if item.reference_id}
     reference_ids = [
         photo.id
@@ -237,9 +251,7 @@ def recognize_print(request, diagnosis, face, segmentations):
         # never trust a model side ID that contradicts its own transcription.
         selected_id = observed.observed_registered_side_id
         if selected_id is not None:
-            claimed = next(
-                (side for side in request.context.faces if side.id == selected_id), None
-            )
+            claimed = next((side for side in request.context.faces if side.id == selected_id), None)
             if (
                 claimed is None
                 or claimed.block_id != expected.block_id
