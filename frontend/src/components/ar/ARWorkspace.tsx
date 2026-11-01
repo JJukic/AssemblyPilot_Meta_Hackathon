@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { registry } from "@/lib/registry";
-import { errorMessage } from "@/lib/api";
+import { errorMessage, mediaUrl } from "@/lib/api";
 import {
   capabilities,
   getPlacement,
@@ -13,40 +13,73 @@ import {
   type Placement,
   type ViewedStep,
 } from "@/lib/ar/data";
+import { selectedStepReference, trustedReferencePath } from "@/lib/ar/reference";
+import {
+  GERMAN_ALIASES,
+  VOICE_COMMANDS,
+  VoiceController,
+  detectSpeechSupport,
+  type RecognitionLike,
+  type VoiceAction,
+} from "@/lib/ar/voice";
 import { getProgress } from "@/lib/inspection";
 import type { ProjectDetail } from "@/types/projects";
 import type { SpatialSession, Action, Guidance } from "@/lib/ar/runtime";
+
+type SpeechCtor = new () => RecognitionLike;
+const CHECKING_SPEECH = {
+  supported: false,
+  apiName: null,
+  secureContext: false,
+  mayUseCloudService: false,
+  reason: "Checking speech support…",
+} as const;
+let speechCache: ReturnType<typeof detectSpeechSupport> | null = null;
+function detectSpeechSupportCached() {
+  if (!speechCache)
+    speechCache = detectSpeechSupport(window as unknown as Record<string, unknown>);
+  return speechCache;
+}
+
 export function ARWorkspace({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<ProjectDetail | null>(null),
     [view, setViewed] = useState<ViewedStep>({ step_id: null, revision: 0 });
   const router = useRouter();
   const [rawPlacement, setPlacement] = useState<Placement | null>(null),
     [loadedFor, setLoadedFor] = useState("");
-  const [verification, setVerification] = useState({
-      step: "",
-      verified: false,
-    }),
+  const [verification, setVerification] = useState({ step: "", verified: false }),
     [online, setOnline] = useState(false);
   const [device, setDevice] = useState("Checking");
-  const [cap, setCap] = useState({
-    available: false,
-    message: "Checking this device…",
-  });
+  const [cap, setCap] = useState({ available: false, message: "Checking this device…" });
   const [status, setStatus] = useState("No XR session started."),
     [busy, setBusy] = useState(false),
     [active, setActive] = useState(false),
     [error, setError] = useState("");
+  const [showReference, setShowReference] = useState(true),
+    [helpVisible, setHelpVisible] = useState(false),
+    [refError, setRefError] = useState("");
+  const voiceSupported = useSyncExternalStore(
+    () => () => {},
+    () => detectSpeechSupportCached(),
+    () => CHECKING_SPEECH,
+  );
+  const [voiceOn, setVoiceOn] = useState(false),
+    [voiceStatus, setVoiceStatus] = useState("Voice off"),
+    [lastCommand, setLastCommand] = useState(""),
+    [voiceLang, setVoiceLang] = useState("en-US"),
+    [consent, setConsent] = useState(false),
+    [readAloud, setReadAloud] = useState(false);
   const host = useRef<HTMLDivElement>(null),
     runtime = useRef<SpatialSession | null>(null),
     alive = useRef(true),
     generation = useRef(0);
-  const actionRef = useRef<(action: Action) => void>(() => {}),
-    info = useRef<Guidance>({
-      placement: null,
-      text: "Loading",
-      detail: "Unverified",
-    });
+  const voiceRef = useRef<VoiceController | null>(null);
+  const actionRef = useRef<(action: Action | VoiceAction) => void>(() => {});
+  const info = useRef<Guidance>({ placement: null, text: "Loading", detail: "Unverified" });
   const step = project?.steps.find((s) => s.id === view.step_id);
+  const totalSteps = project?.steps.length ?? 0;
+  const selectedRef = selectedStepReference(step);
+  const refPath = trustedReferencePath(selectedRef);
   const spec = JSON.stringify([
     step?.updated_at,
     step?.required_blocks.map((b) => b.block.updated_at),
@@ -61,10 +94,17 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       )
     : 200;
   const verified = verification.step === view.step_id && verification.verified;
-  const target = step?.required_blocks.find(
-    (b) => b.block_id === placement?.target_block_id,
-  );
+  const target = step?.required_blocks.find((b) => b.block_id === placement?.target_block_id);
   const verificationUrl = `/?project=${encodeURIComponent(projectId)}&step=${encodeURIComponent(view.step_id ?? "")}`;
+  const verificationStatus = !online ? "uncertain" : verified ? "verified" : "not_verified";
+
+  const stopVoice = useCallback(() => {
+    voiceRef.current?.dispose();
+    voiceRef.current = null;
+    setVoiceOn(false);
+    setVoiceStatus("Voice off");
+  }, []);
+
   useEffect(() => {
     alive.current = true;
     generation.current++;
@@ -76,6 +116,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     });
     return () => {
       alive.current = false;
+      voiceRef.current?.dispose();
+      voiceRef.current = null;
       void runtime.current?.end();
     };
   }, []);
@@ -94,16 +136,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         if (cancelled) return;
         setProject(p);
         setViewed((old) =>
-          v.revision >= old.revision ||
-          !p.steps.some((s) => s.id === old.step_id)
-            ? v
-            : old,
+          v.revision >= old.revision || !p.steps.some((s) => s.id === old.step_id) ? v : old,
         );
         setVerification({
           step: v.step_id ?? "",
-          verified: progress.some(
-            (s) => s.step_id === v.step_id && s.status === "verified",
-          ),
+          verified: progress.some((s) => s.step_id === v.step_id && s.status === "verified"),
         });
         setOnline(true);
       } catch (e) {
@@ -130,8 +167,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       if (!view.step_id) return;
       try {
         const p = await getPlacement(projectId, view.step_id);
-        if (p && !validPlacement(p))
-          throw new Error("Invalid AR dimensions or placement");
+        if (p && !validPlacement(p)) throw new Error("Invalid AR dimensions or placement");
         if (!cancelled) {
           setPlacement(p);
           setLoadedFor(`${view.step_id}:${spec}`);
@@ -144,23 +180,83 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       cancelled = true;
     };
   }, [projectId, view.step_id, spec]);
-  // Never leave an old step's target visible while its replacement is loading.
+
+  // Load the selected expected reference from the trusted media endpoint only.
+  // Clear the previous bitmap immediately on step change (no stale image).
   useEffect(() => {
+    let cancelled = false;
+    let objectUrl = "";
+    runtime.current?.setReferenceImage(null);
+    if (!refPath) return;
+    void (async () => {
+      setRefError("");
+      try {
+        const response = await fetch(mediaUrl(refPath));
+        if (!response.ok) throw new Error(`Reference image failed (HTTP ${response.status})`);
+        const blob = await response.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        const bitmap = await createImageBitmap(blob).catch(() => null);
+        if (cancelled) {
+          bitmap?.close();
+          return;
+        }
+        if (bitmap) {
+          runtime.current?.setReferenceImage(bitmap as unknown as { width: number; height: number });
+        } else {
+          const img = new Image();
+          img.src = objectUrl;
+          await img.decode();
+          if (cancelled) return;
+          const bmp = await createImageBitmap(img).catch(() => null);
+          if (bmp && !cancelled) runtime.current?.setReferenceImage(bmp as unknown as { width: number; height: number });
+          else if (bmp) bmp.close();
+        }
+      } catch (e) {
+        if (!cancelled) {
+          runtime.current?.setReferenceImage(null);
+          setRefError(`Expected reference could not be loaded: ${errorMessage(e)}`);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      // Runtime disposes/closes the bitmap when replaced or on session end.
+    };
+  }, [refPath, view.step_id]);
+
+  useEffect(() => {
+    const blockLabel = step
+      ? step.required_blocks
+          .map((b) => `${b.required_quantity} × ${b.block.color} ${b.block.name}`)
+          .join(", ") || "No block required"
+      : "";
     info.current = {
       placement: online ? placement : null,
-      text: step
-        ? `Step ${step.position} — ${step.instruction}`
-        : "Choose a project step",
+      text: step ? `Step ${step.position} — ${step.instruction}` : "Choose a project step",
       detail: `${placement?.evidence.toUpperCase() ?? "NO MODEL"} · ${verified && online ? "Inspection verified" : "Not verified"} · ${target?.block.color ?? ""} ${target?.block.name ?? ""} · ${placement?.instance ?? "?"}/${target?.required_quantity ?? "?"}`,
+      stepLabel: step ? `Step ${step.position} of ${totalSteps}` : "No step",
+      title: step ? step.title : "Choose a step",
+      instruction: step?.instruction ?? "",
+      blockLabel: `${blockLabel} · ${placement?.evidence.toUpperCase() ?? "NO MODEL"}${placement ? ` · #${placement.instance}/${target?.required_quantity ?? "?"}` : ""}`,
+      verification: verificationStatus as Guidance["verification"],
+      hasReference: !!refPath,
+      voiceLabel: voiceOn ? `🎤 Listening (${voiceLang}) — say “Help” for commands` : "Voice: off — enable voice on this page",
+      lastCommand: lastCommand || undefined,
     };
     runtime.current?.update(info.current);
-  }, [placement, step, target, verified, online]);
+    runtime.current?.setShowReference(showReference);
+    runtime.current?.setHelpVisible(helpVisible);
+  }, [placement, step, target, verified, online, totalSteps, refPath, voiceOn, voiceLang, lastCommand, showReference, helpVisible, verificationStatus]);
+
   async function navigate(offset: number) {
     if (!project || !online) return;
     const index = project.steps.findIndex((s) => s.id === view.step_id),
       next = project.steps[index + offset];
     if (!next) return;
     setPlacement(null);
+    runtime.current?.setReferenceImage(null);
     runtime.current?.update({ ...info.current, placement: null });
     try {
       const v = await setView(projectId, next.id, view.revision);
@@ -172,22 +268,127 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     }
   }
   async function verify() {
+    // Voice/button Verify never marks anything verified. It ends XR and opens
+    // the existing camera workspace; a fresh real photo is always required.
+    stopVoice();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     await runtime.current?.end();
     router.push(verificationUrl);
   }
+  async function exitAR() {
+    stopVoice();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    await runtime.current?.end();
+    setActive(false);
+    setStatus("XR session ended. Microphone stopped. Re-enter and re-anchor before continuing.");
+  }
+  async function handleAction(a: Action | VoiceAction) {
+    switch (a) {
+      case "next":
+        await navigate(1);
+        break;
+      case "previous":
+        await navigate(-1);
+        break;
+      case "verify":
+        await verify();
+        break;
+      case "exit":
+        await exitAR();
+        break;
+      case "re-anchor":
+      case "reanchor":
+        runtime.current?.reset();
+        break;
+      case "recenter":
+        runtime.current?.recenterPanel();
+        break;
+      case "reference":
+        setShowReference((v) => {
+          runtime.current?.setShowReference(!v);
+          return !v;
+        });
+        break;
+      case "show-reference":
+        setShowReference(true);
+        runtime.current?.setShowReference(true);
+        break;
+      case "hide-reference":
+        setShowReference(false);
+        runtime.current?.setShowReference(false);
+        break;
+      case "show-instructions":
+        document.getElementById("ar-full-instruction")?.scrollIntoView({ block: "nearest" });
+        break;
+      case "read-instructions":
+        if (readAloud && step && "speechSynthesis" in window) {
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(new SpeechSynthesisUtterance(step.instruction));
+        } else if (!readAloud) {
+          setVoiceStatus("Read-aloud is off — enable “Read instructions aloud” to use this command.");
+        }
+        break;
+      case "help":
+        setHelpVisible((v) => !v);
+        break;
+      case "page":
+        break; // runtime cycles its own text page
+      case "stop-listening":
+        stopVoice();
+        break;
+    }
+  }
   useEffect(() => {
-    actionRef.current = (a) => {
-      if (a === "verify") void verify();
-      else void navigate(a === "next" ? 1 : -1);
-    };
+    actionRef.current = (a) => handleAction(a);
   });
+
+  function enableVoice() {
+    if (!voiceSupported.supported || !consent || voiceOn) return;
+    const Ctor = (
+      window as unknown as { SpeechRecognition?: SpeechCtor; webkitSpeechRecognition?: SpeechCtor }
+    ).SpeechRecognition ??
+      (window as unknown as { webkitSpeechRecognition?: SpeechCtor }).webkitSpeechRecognition;
+    if (!Ctor) {
+      setVoiceStatus("Speech recognition unavailable in this browser.");
+      return;
+    }
+    const controller = new VoiceController(
+      () => new Ctor() as never,
+      {
+        onCommand: (cmd) => {
+          setLastCommand(cmd.phrase);
+          setVoiceStatus(`Heard: “${cmd.phrase}”`);
+          controller.gate.setPending(true);
+          // Always dispatch through the ref so the latest step/view closure runs.
+          void (
+            actionRef.current as unknown as (a: VoiceAction) => Promise<void>
+          )(cmd.action).finally(() => controller.gate.setPending(false));
+        },
+        onStatus: (s) => setVoiceStatus(s),
+        onError: (s) => {
+          setVoiceStatus(s);
+          if (s.includes("not-allowed")) setVoiceOn(false);
+        },
+        onListeningChange: (listening) => {
+          setVoiceOn(listening);
+          setVoiceStatus(listening ? `Listening (${voiceLang})…` : "Voice off");
+        },
+      },
+      { lang: voiceLang },
+    );
+    voiceRef.current = controller;
+    if (!controller.start()) {
+      setVoiceStatus("Speech recognition could not be started. Check microphone permission.");
+      voiceRef.current = null;
+    }
+  }
+
   async function enter() {
     if (!navigator.xr || !cap.available || busy || !host.current) return;
     setBusy(true);
     setError("");
     const epoch = ++generation.current;
     try {
-      // requestSession is invoked directly in this click handler, before any awaited import.
       const session = await navigator.xr.requestSession("immersive-ar", {
         requiredFeatures: ["local"],
         optionalFeatures: ["hit-test", "anchors", "local-floor"],
@@ -211,17 +412,29 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           (a) => actionRef.current(a),
           () => {
             runtime.current = null;
+            stopVoice();
             if (alive.current) {
               setActive(false);
-              setStatus(
-                "XR session ended. Re-enter and re-anchor before continuing.",
-              );
+              setStatus("XR session ended. Microphone stopped. Re-enter and re-anchor before continuing.");
             }
           },
         );
         runtime.current = instance;
         await instance.initialize();
         instance.update(info.current);
+        instance.setShowReference(showReference);
+        // Re-trigger reference load for the new session.
+        if (refPath) {
+          try {
+            const response = await fetch(mediaUrl(refPath));
+            if (response.ok) {
+              const bitmap = await createImageBitmap(await response.blob()).catch(() => null);
+              if (bitmap) instance.setReferenceImage(bitmap as unknown as { width: number; height: number });
+            }
+          } catch {
+            /* placeholder shown; DOM reference remains available */
+          }
+        }
         if (alive.current) setActive(true);
       } catch (e) {
         await session.end().catch(() => {});
@@ -251,100 +464,128 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     });
   }
   return (
-    <section
-      className="panel ar-workspace"
-      aria-label="Spatial assembly guidance"
-    >
+    <section className="panel ar-workspace" aria-label="Spatial assembly guidance">
       <h2>{project?.name ?? "Spatial guidance"}</h2>
       <p role="status">{cap.message}</p>
-      <p>
-        Device: {device}. Connection and physical alignment must be tested on
-        your HoloLens.
-      </p>
+      <p>Device: {device}. Connection and physical alignment must be tested on your HoloLens.</p>
       <div className="form-actions">
-        <button
-          className="button primary"
-          disabled={!cap.available || busy || active || !step || !online}
-          onClick={() => void enter()}
-        >
+        <button className="button primary" disabled={!cap.available || busy || active || !step || !online} onClick={() => void enter()}>
           Enter immersive AR
         </button>
         {active && (
           <>
-            <button
-              className="button secondary"
-              onClick={() => runtime.current?.reset()}
-            >
-              Re-anchor tabletop
-            </button>
-            <button
-              className="button secondary"
-              onClick={() => void runtime.current?.end()}
-            >
-              Exit AR
-            </button>
+            <button className="button secondary" onClick={() => runtime.current?.reset()}>Re-anchor tabletop</button>
+            <button className="button secondary" onClick={() => runtime.current?.recenterPanel()}>Recenter panel</button>
+            <button className="button danger ar-exit-large" onClick={() => void exitAR()}>Exit AR</button>
           </>
         )}
       </div>
       <p role="status">{status}</p>
-      <p>
-        {online
-          ? "Connected to project state"
-          : "Project state unavailable — hologram hidden and verification unknown"}
-      </p>
+      <p>{online ? "Connected to project state" : "Project state unavailable — hologram hidden and verification unknown"}</p>
+
+      <fieldset className="ar-voice">
+        <legend>Hands-free voice control</legend>
+        <p role="status">{voiceSupported.supported ? voiceStatus : voiceSupported.reason}</p>
+        {voiceSupported.mayUseCloudService && (
+          <p>
+            Privacy: browser speech recognition may send audio to your browser provider&apos;s
+            speech service (for Microsoft Edge, Microsoft) — not to AssemblyPilot. No audio is
+            sent to or stored by the AssemblyPilot backend, and no transcripts are stored. Only
+            the short-lived recognized command is shown. Voice is off until you enable it.
+          </p>
+        )}
+        <label>
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> I
+          understand and consent to browser speech recognition as described above.
+        </label>
+        <label>
+          Voice language{" "}
+          <select value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)} disabled={voiceOn}>
+            <option value="en-US">English (en-US)</option>
+            <option value="de-DE">Deutsch (de-DE)</option>
+          </select>
+        </label>
+        <label>
+          <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} /> Read
+          instructions aloud (“Read instructions” command)
+        </label>
+        <div className="form-actions">
+          {!voiceOn ? (
+            <button className="button primary" disabled={!voiceSupported.supported || !consent} onClick={enableVoice}>
+              Enable voice control
+            </button>
+          ) : (
+            <button className="button danger" onClick={stopVoice}>Stop listening</button>
+          )}
+        </div>
+        {lastCommand && <p>Last recognized command: “{lastCommand}”</p>}
+        <details>
+          <summary>Available voice commands</summary>
+          <ul>
+            {VOICE_COMMANDS.map((c) => (
+              <li key={c.spoken}>“{c.spoken}” — {c.description}</li>
+            ))}
+          </ul>
+          <p>German aliases ({voiceLang === "de-DE" ? "active language" : "set language to Deutsch to use"}): {GERMAN_ALIASES.map((g) => `“${g.spoken}”`).join(" · ")}</p>
+          <p>Optional prefix: say “AssemblyPilot” before a command, e.g. “AssemblyPilot, next step”.</p>
+        </details>
+        {!voiceSupported.supported && (
+          <p>Voice is unavailable in this browser. Use the large on-page and in-headset buttons. A native HoloLens Unity/OpenXR speech alternative is documented in docs/hololens.md.</p>
+        )}
+      </fieldset>
+
       <h3>
         Step {step?.position ?? "—"} — {step?.title}
       </h3>
-      <p>{step?.instruction}</p>
+      <p>Step {step?.position ?? "—"} of {totalSteps || "—"}</p>
+      <p id="ar-full-instruction">{step?.instruction}</p>
       <p>
         {verified && online
           ? "Inspection verified — this does not certify AR alignment."
-          : "Manually viewed / not verified"}
+          : online
+            ? "Manually viewed / not verified"
+            : "Verification status uncertain — connection unavailable"}
       </p>
+      <h4>Expected assembly reference (guidance only — not proof of your build)</h4>
+      {refPath && selectedRef ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={`${step?.id}:${selectedRef.id}`}
+          className="reference-image ar-reference"
+          src={mediaUrl(refPath)}
+          alt={`Expected assembly for ${step?.title}`}
+          style={{ objectFit: "contain" }}
+          onError={() => setRefError("Expected reference could not be loaded.")}
+        />
+      ) : (
+        <div className="reference-placeholder">
+          <strong>No reference photograph for this step</strong>
+          <p>Add or select a step reference photo in the project editor. The AR panel shows the same compact guidance without an image.</p>
+        </div>
+      )}
+      {selectedRef && <p>Selected reference: {selectedRef.original_filename} ({selectedRef.width}×{selectedRef.height})</p>}
+      {refError && <p role="alert">{refError}</p>}
       <div className="form-actions">
-        <button
-          className="button secondary"
-          disabled={!online || step?.position === 1}
-          onClick={() => void navigate(-1)}
-        >
-          Previous
-        </button>
-        <button
-          className="button secondary"
-          disabled={!online || step?.position === project?.steps.length}
-          onClick={() => void navigate(1)}
-        >
-          Next
-        </button>
-        <button
-          className="button primary"
-          disabled={!step || !online}
-          onClick={() => void verify()}
-        >
-          Verify Step — camera workspace
-        </button>
+        <button className="button secondary" disabled={!online || step?.position === 1} onClick={() => void navigate(-1)}>Previous</button>
+        <button className="button secondary" disabled={!online || step?.position === totalSteps} onClick={() => void navigate(1)}>Next</button>
+        <button className="button secondary" onClick={() => setShowReference((v) => !v)}>{showReference ? "Hide reference" : "Show reference"}</button>
+        <button className="button primary" disabled={!step || !online} onClick={() => void verify()}>Verify Step — camera workspace</button>
       </div>
       <p>
-        In AR, aim a supported hand/controller ray or gaze pointer at a floating
-        button and select/pinch. Verification exits AR and opens the existing
-        camera workflow. If this device cannot capture images, open the same
-        verification link on your iPhone/Mac and return here; verified status
-        refreshes automatically.
+        In AR, use the large panel buttons (Previous / Next / Verify Step / EXIT AR / Re-anchor /
+        Recenter / Reference / More text / Help) or voice. Tap the panel above the buttons to
+        confirm the tabletop origin. Verification exits AR and opens the existing camera
+        workflow — a fresh real photograph is always required; saying “Verify step” never
+        verifies a step by itself. If this device cannot capture images, open the same
+        verification link on your iPhone/Mac and return here; verified status refreshes
+        automatically. To exit without voice: use the large EXIT AR button or the HoloLens
+        Start gesture for the system menu. Exiting AR always stops the microphone.
       </p>
-      <Link href={verificationUrl}>
-        Verification link for this project and step
-      </Link>
+      <Link href={verificationUrl}>Verification link for this project and step</Link>
       {!placement && (
         <>
-          <p>
-            No usable 3D model or dimensions for this step. Nothing is drawn as
-            an exact block.
-          </p>
-          <button
-            className="button secondary"
-            disabled={!step?.required_blocks.length}
-            onClick={proxy}
-          >
+          <p>No usable 3D model or dimensions for this step. Nothing is drawn as an exact block.</p>
+          <button className="button secondary" disabled={!step?.required_blocks.length} onClick={proxy}>
             Use 10 cm alignment box (approximate)
           </button>
         </>
@@ -353,41 +594,19 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         <h3>2D preview only — not mixed reality</h3>
         {placement ? (
           <>
-            <svg
-              viewBox={`${-previewExtent} ${-previewExtent} ${previewExtent * 2} ${previewExtent * 2}`}
-              aria-label="2D intended placement"
-              role="img"
-            >
-              <path
-                d={`M${-previewExtent} 0H${previewExtent} M0 ${-previewExtent}V${previewExtent}`}
-                stroke="#879aaa"
-              />
-              <g
-                transform={`translate(${placement.position_m[0] * 1000} ${placement.position_m[2] * 1000}) rotate(${-placement.rotation_deg[1]})`}
-              >
-                <rect
-                  x={-placement.dimensions.x_mm / 2}
-                  y={-placement.dimensions.z_mm / 2}
-                  width={placement.dimensions.x_mm}
-                  height={placement.dimensions.z_mm}
-                  fill="#38d9ff"
-                  fillOpacity={0.3}
-                  stroke="#8af5ff"
-                />
+            <svg viewBox={`${-previewExtent} ${-previewExtent} ${previewExtent * 2} ${previewExtent * 2}`} aria-label="2D intended placement" role="img">
+              <path d={`M${-previewExtent} 0H${previewExtent} M0 ${-previewExtent}V${previewExtent}`} stroke="#879aaa" />
+              <g transform={`translate(${placement.position_m[0] * 1000} ${placement.position_m[2] * 1000}) rotate(${-placement.rotation_deg[1]})`}>
+                <rect x={-placement.dimensions.x_mm / 2} y={-placement.dimensions.z_mm / 2} width={placement.dimensions.x_mm} height={placement.dimensions.z_mm} fill="#38d9ff" fillOpacity={0.3} stroke="#8af5ff" />
               </g>
             </svg>
             <p>
-              {target?.block.name} · {target?.block.color} · instance{" "}
-              {placement.instance} / {target?.required_quantity} ·{" "}
-              {placement.evidence} · {placement.dimensions.x_mm} ×{" "}
-              {placement.dimensions.y_mm} × {placement.dimensions.z_mm} mm
+              {target?.block.name} · {target?.block.color} · instance {placement.instance} / {target?.required_quantity} ·{" "}
+              {placement.evidence} · {placement.dimensions.x_mm} × {placement.dimensions.y_mm} × {placement.dimensions.z_mm} mm
             </p>
           </>
         ) : (
-          <p>
-            Author confirmed dimensions in the step editor, or explicitly choose
-            an approximate proxy.
-          </p>
+          <p>Author confirmed dimensions in the step editor, or explicitly choose an approximate proxy.</p>
         )}
       </div>
       <Link href={`/projects/${projectId}`}>Edit project / AR placements</Link>

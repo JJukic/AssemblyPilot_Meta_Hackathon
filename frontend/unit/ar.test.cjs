@@ -111,6 +111,8 @@ global.document = {
     getContext: () => ({
       clearRect() {},
       fillRect() {},
+      strokeRect() {},
+      drawImage() {},
       fillText() {},
       measureText: (t) => ({ width: t.length * 10 }),
     }),
@@ -250,8 +252,13 @@ test("horizontal hit-test surface selection and input-driven navigation do not v
   runtime.frame(1, hit);
   assert.equal(runtime.fixed.elements[13], 0.8);
   runtime.scene.updateMatrixWorld(true);
+  const { PANEL_BUTTONS, PANEL_W, PANEL_H } = require("../src/lib/ar/runtime.ts");
+  const verifyBtn = PANEL_BUTTONS.find((b) => b.id === "verify");
+  // Convert the Verify button centre (canvas px, top-left origin) to panel-local metres.
+  const localX = ((verifyBtn.x + verifyBtn.w / 2) / PANEL_W - 0.5) * 0.72;
+  const localY = (0.5 - (verifyBtn.y + verifyBtn.h / 2) / PANEL_H) * 0.45;
   const q = new THREE.Quaternion();
-  const aim = new THREE.Vector3(0.08, -0.032, 0).applyMatrix4(
+  const aim = new THREE.Vector3(localX, localY, 0).applyMatrix4(
     runtime.panel.matrixWorld,
   );
   q.setFromUnitVectors(
@@ -293,4 +300,31 @@ test("visibility loss hides targets and a new session starts with no old origin"
   assert.equal(second.runtime.selected, false);
   assert.equal(second.runtime.anchor, null);
   await second.runtime.end();
+});
+
+test("phase6.1 reference bitmap replaces and closes previous; XR end cleans it up", async () => {
+  const { runtime, ended } = await setup();
+  let closedA = 0, closedB = 0;
+  const a = { width: 800, height: 600, close: () => closedA++ };
+  const b = { width: 400, height: 400, close: () => closedB++ };
+  runtime.setReferenceImage(a);
+  assert.equal(runtime.hasReferenceImage, true);
+  runtime.setReferenceImage(b); // step switch: stale image disposed immediately
+  assert.equal(closedA, 1);
+  runtime.setReferenceImage(null);
+  assert.equal(closedB, 1);
+  assert.equal(runtime.hasReferenceImage, false);
+  runtime.setReferenceImage(a);
+  await runtime.end(); // session exit cleanup
+  assert.equal(closedA, 2);
+  assert.equal(ended(), 1);
+  assert.equal(renderer.disposed, true);
+});
+test("phase6.1 large Exit button exists in panel layout and maps via panelButtonAt", async () => {
+  const { PANEL_BUTTONS, panelButtonAt } = require("../src/lib/ar/runtime.ts");
+  const exit = PANEL_BUTTONS.find((b) => b.id === "exit");
+  assert.ok(exit && exit.w >= 200 && exit.h >= 80);
+  assert.equal(panelButtonAt(exit.x + 5, exit.y + 5).id, "exit");
+  assert.ok(PANEL_BUTTONS.find((b) => b.id === "verify"));
+  assert.equal(panelButtonAt(10, 10), null);
 });

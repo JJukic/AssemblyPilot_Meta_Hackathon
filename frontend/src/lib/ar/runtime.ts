@@ -1,27 +1,92 @@
 import * as THREE from "three";
 import { disposeObject, ghost } from "./geometry";
 import type { Placement } from "./data";
+import { fitRect } from "./reference";
+import { paginate, verificationLabel, wrapText, type VerificationStatus } from "./panel";
 
-export type Action = "previous" | "next" | "verify";
+export type Action =
+  | "previous"
+  | "next"
+  | "verify"
+  | "exit"
+  | "reanchor"
+  | "recenter"
+  | "reference"
+  | "page"
+  | "help";
 export interface Guidance {
   placement: Placement | null;
   text: string;
   detail: string;
+  stepLabel?: string;
+  title?: string;
+  instruction?: string;
+  blockLabel?: string;
+  verification?: VerificationStatus;
+  hasReference?: boolean;
+  voiceLabel?: string;
+  lastCommand?: string;
 }
-const labels = [
-  "Previous",
-  "Next",
-  "Verify Step",
-  "Re-anchor",
-  "Confirm origin",
-  "Rotate -",
-  "Rotate +",
-  "Recenter panel",
-  "Nearer",
-  "Farther",
-  "Lower",
-  "Higher",
+
+export const PANEL_W = 1024;
+export const PANEL_H = 640;
+export interface PanelButton {
+  id: Action;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  danger?: boolean;
+}
+function row(ids: [Action, string][], y: number, dangerLast = false): PanelButton[] {
+  const gap = 8;
+  const w = Math.floor((PANEL_W - gap * (ids.length + 1)) / ids.length);
+  return ids.map(([id, label], i) => ({
+    id,
+    label,
+    x: gap + i * (w + gap),
+    y,
+    w,
+    h: 84,
+    danger: dangerLast && i === ids.length - 1,
+  }));
+}
+export const PANEL_BUTTONS: PanelButton[] = [
+  ...row(
+    [
+      ["previous", "◀ Previous"],
+      ["next", "Next ▶"],
+      ["verify", "Verify Step"],
+      ["exit", "EXIT AR"],
+    ],
+    452,
+    true,
+  ),
+  ...row(
+    [
+      ["reanchor", "Re-anchor"],
+      ["recenter", "Recenter"],
+      ["reference", "Reference"],
+      ["page", "More text"],
+      ["help", "Help"],
+    ],
+    544,
+  ),
 ];
+export function panelButtonAt(x: number, y: number): PanelButton | null {
+  return (
+    PANEL_BUTTONS.find((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) ??
+    null
+  );
+}
+
+type RefImage = {
+  width: number;
+  height: number;
+  close?: () => void;
+} & Record<string, unknown>;
+
 /** Real WebXR only: Three's XR manager renders each XRView with its tracked pose/projection. */
 export class SpatialSession {
   private renderer: THREE.WebGLRenderer;
@@ -48,9 +113,14 @@ export class SpatialSession {
   private panelPlaced = false;
   private ended = false;
   private message =
-    "Position the preview on your real table, then Confirm origin.";
+    "Position the preview on your real table, then tap the panel (above the buttons) to Confirm origin.";
   private info: Guidance = { placement: null, text: "", detail: "" };
   private lastStatus = "";
+  private refImage: RefImage | null = null;
+  private showReference = true;
+  private helpVisible = false;
+  private instructionPage = 0;
+  private lastInstruction = "";
   private reticle = new THREE.Mesh(
     new THREE.RingGeometry(0.035, 0.04, 24).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide }),
@@ -73,11 +143,12 @@ export class SpatialSession {
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType("local");
     host.appendChild(this.renderer.domElement);
-    this.canvas.width = 1024;
-    this.canvas.height = 512;
+    this.canvas.width = PANEL_W;
+    this.canvas.height = PANEL_H;
     this.texture = new THREE.CanvasTexture(this.canvas);
+    this.texture.colorSpace = THREE.SRGBColorSpace;
     this.panel = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.64, 0.32),
+      new THREE.PlaneGeometry(0.72, 0.45),
       new THREE.MeshBasicMaterial({
         map: this.texture,
         transparent: true,
@@ -125,6 +196,10 @@ export class SpatialSession {
   }
   update(info: Guidance) {
     this.info = info;
+    if (info.instruction !== this.lastInstruction) {
+      this.lastInstruction = info.instruction ?? "";
+      this.instructionPage = 0;
+    }
     if (this.target) {
       this.origin.remove(this.target);
       disposeObject(this.target);
@@ -136,46 +211,180 @@ export class SpatialSession {
     }
     this.draw();
   }
+  /** Replace the expected-reference bitmap. Previous bitmap is closed/disposed. */
+  setReferenceImage(image: RefImage | null) {
+    if (this.refImage && this.refImage !== image) {
+      try {
+        this.refImage.close?.();
+      } catch {
+        /* bitmap already closed */
+      }
+    }
+    this.refImage = image;
+    this.draw();
+  }
+  get hasReferenceImage() {
+    return this.refImage !== null;
+  }
+  setShowReference(value: boolean) {
+    this.showReference = value;
+    this.draw();
+  }
+  get referenceVisible() {
+    return this.showReference;
+  }
+  setHelpVisible(value: boolean) {
+    this.helpVisible = value;
+    this.draw();
+  }
+  recenterPanel() {
+    this.panelPlaced = false;
+    this.message = "Panel recentered in front of you. The assembly hologram did not move.";
+    this.draw();
+  }
+  // Legacy panel adjustment controls retained for manual alignment fallback.
+  adjustPanel(kind: "nearer" | "farther" | "lower" | "higher" | "rotate-left" | "rotate-right") {
+    if (kind === "nearer") this.distance = Math.max(0.2, this.distance - 0.05);
+    if (kind === "farther") this.distance = Math.min(1.5, this.distance + 0.05);
+    if (kind === "lower") this.height = THREE.MathUtils.clamp(this.height - 0.025, -1.5, 0.2);
+    if (kind === "higher") this.height = THREE.MathUtils.clamp(this.height + 0.025, -1.5, 0.2);
+    if (kind === "rotate-left") this.yaw -= 0.1;
+    if (kind === "rotate-right") this.yaw += 0.1;
+    if (kind.startsWith("rotate")) return;
+    this.hit?.cancel();
+    this.hit = null;
+    this.reset();
+  }
   private draw() {
     const c = this.canvas.getContext("2d")!;
-    c.clearRect(0, 0, 1024, 512);
-    c.fillStyle = "rgba(5,18,28,.94)";
-    c.fillRect(0, 0, 1024, 512);
-    c.fillStyle = "#bffaff";
-    c.font = "bold 32px sans-serif";
-    const words = this.info.text.split(/\s+/);
-    let line = "",
-      y = 40;
-    for (const word of words) {
-      if (c.measureText(line + word).width > 960) {
-        c.fillText(line, 20, y);
-        y += 38;
-        line = "";
-        if (y > 116) break;
-      }
-      line += word + " ";
-    }
-    c.fillText(line, 20, y);
-    c.font = "23px sans-serif";
+    c.clearRect(0, 0, PANEL_W, PANEL_H);
+    c.fillStyle = "rgba(4,16,26,.96)";
+    c.fillRect(0, 0, PANEL_W, PANEL_H);
+    const info = this.info;
+    const stepLabel = info.stepLabel ?? info.text.split("—")[0]?.trim() ?? "";
+    const title = info.title ?? info.text;
+    // Header
+    c.fillStyle = "#7df3ff";
+    c.font = "bold 30px sans-serif";
+    c.fillText(stepLabel.slice(0, 42), 20, 38);
+    const vLabel = verificationLabel(info.verification ?? "not_verified");
+    c.fillStyle =
+      info.verification === "verified"
+        ? "#6dffa8"
+        : info.verification === "uncertain"
+          ? "#ffd166"
+          : "#ffb3b3";
+    c.font = "bold 24px sans-serif";
+    c.fillText(vLabel, 560, 38);
+    // Title (2 lines)
     c.fillStyle = "#ffffff";
-    c.fillText(this.info.detail.slice(0, 88), 20, 165);
-    c.fillStyle = "#83e8eb";
-    c.fillText(this.message.slice(0, 92), 20, 203);
-    c.font = "20px sans-serif";
-    c.fillText(
-      "Guidance only. Pinch/select buttons; inspection never advances from a hologram.",
-      20,
-      239,
-    );
-    labels.forEach((label, i) => {
-      const x = (i % 4) * 256,
-        y = 266 + Math.floor(i / 4) * 82;
-      c.fillStyle = "#183f54";
-      c.fillRect(x + 4, y, 248, 74);
-      c.fillStyle = "#ffffff";
+    c.font = "bold 30px sans-serif";
+    wrapText(title, 62)
+      .slice(0, 2)
+      .forEach((line, i) => c.fillText(line, 20, 76 + i * 34));
+    const hasRef = !!info.hasReference;
+    const showRef = hasRef && this.showReference;
+    const maxChars = showRef ? 42 : 68;
+    if (this.helpVisible) {
       c.font = "23px sans-serif";
-      c.fillText(label, x + 14, y + 45);
-    });
+      c.fillStyle = "#bffaff";
+      const help = [
+        "Voice / button commands:",
+        "Next step · Previous step · Verify step",
+        "Show reference · Hide reference",
+        "Show instructions · Read instructions",
+        "Re-anchor · Recenter · Help · Stop listening · Exit AR",
+        "Exit without voice: use the large EXIT AR button,",
+        "or the HoloLens Start gesture (system menu).",
+        "Verify always needs a fresh real camera photo.",
+      ];
+      help.forEach((line, i) => c.fillText(line, 20, 138 + i * 32));
+    } else {
+      // Instruction, paginated (never truncated silently)
+      const instruction = info.instruction ?? info.text;
+      const lines = wrapText(instruction, maxChars);
+      const pages = paginate(lines, 7);
+      const page = pages[Math.min(this.instructionPage, pages.length - 1)] ?? [];
+      c.font = "25px sans-serif";
+      c.fillStyle = "#eafcff";
+      page.forEach((line, i) => c.fillText(line, 20, 138 + i * 32));
+      if (pages.length > 1) {
+        c.fillStyle = "#83e8eb";
+        c.font = "20px sans-serif";
+        c.fillText(
+          `Text page ${Math.min(this.instructionPage, pages.length - 1) + 1}/${pages.length} — tap “More text”`,
+          20,
+          138 + 7 * 32,
+        );
+      }
+      // Reference image box (right side) — guidance only, not camera evidence
+      if (hasRef) {
+        const box = { x: 664, y: 116, w: 340, h: 250 };
+        c.strokeStyle = "#38d9ff";
+        c.lineWidth = 3;
+        c.strokeRect(box.x, box.y, box.w, box.h);
+        c.fillStyle = "#83e8eb";
+        c.font = "bold 19px sans-serif";
+        c.fillText("EXPECTED REFERENCE", box.x + 8, box.y - 8);
+        if (this.showReference && this.refImage) {
+          const fit = fitRect(this.refImage.width, this.refImage.height, box.w - 8, box.h - 8);
+          try {
+            c.drawImage(
+              this.refImage as unknown as CanvasImageSource,
+              box.x + 4 + fit.x,
+              box.y + 4 + fit.y,
+              fit.w,
+              fit.h,
+            );
+          } catch {
+            c.fillStyle = "#ffd166";
+            c.font = "21px sans-serif";
+            c.fillText("Reference failed to load", box.x + 14, box.y + 60);
+          }
+        } else if (this.showReference) {
+          c.fillStyle = "#ffd166";
+          c.font = "21px sans-serif";
+          c.fillText("Loading reference…", box.x + 14, box.y + 60);
+        } else {
+          c.fillStyle = "#ffffff";
+          c.font = "21px sans-serif";
+          c.fillText("Reference hidden", box.x + 14, box.y + 60);
+          c.fillText("Say “Show reference”", box.x + 14, box.y + 90);
+        }
+      } else {
+        // Image-free compact note does not occupy the text area.
+        c.fillStyle = "#ffd166";
+        c.font = "20px sans-serif";
+        c.fillText("No reference photo for this step.", 20, 386);
+      }
+    }
+    // Detail / block / voice rows
+    c.font = "21px sans-serif";
+    c.fillStyle = "#ffffff";
+    c.fillText((info.blockLabel ?? info.detail).slice(0, 92), 20, 392);
+    c.fillStyle = "#83e8eb";
+    c.fillText((info.voiceLabel ?? "Voice: off").slice(0, 92), 20, 420);
+    if (info.lastCommand) {
+      c.fillStyle = "#6dffa8";
+      c.fillText(`Heard: “${info.lastCommand}”`.slice(0, 92), 520, 420);
+    }
+    c.fillStyle = "#bffaff";
+    c.font = "19px sans-serif";
+    c.fillText(this.message.slice(0, 96), 20, 444);
+    // Buttons
+    for (const b of PANEL_BUTTONS) {
+      const isRef = b.id === "reference";
+      c.fillStyle = b.danger ? "#8b1e2d" : isRef && !this.showReference ? "#33505f" : "#1b4a66";
+      c.fillRect(b.x, b.y, b.w, b.h);
+      c.strokeStyle = b.danger ? "#ff8fa3" : "#7df3ff";
+      c.lineWidth = 3;
+      c.strokeRect(b.x, b.y, b.w, b.h);
+      c.fillStyle = "#ffffff";
+      c.font = b.danger ? "bold 27px sans-serif" : "bold 23px sans-serif";
+      const label = isRef ? (this.showReference ? "Hide ref." : "Show ref.") : b.label;
+      const w = c.measureText(label).width;
+      c.fillText(label, b.x + Math.max(8, (b.w - w) / 2), b.y + 52);
+    }
     this.texture.needsUpdate = true;
     const status = this.message;
     if (this.lastStatus !== status) {
@@ -209,8 +418,11 @@ export class SpatialSession {
     this.origin.visible = false;
     this.reticle.visible = false;
     this.message =
-      "Re-anchor: align with the same physical assembly origin and Confirm origin.";
+      "Re-anchor: align with the same physical assembly origin, then tap the panel to Confirm origin.";
     this.draw();
+  }
+  confirmOrigin() {
+    if (this.candidateValid && !this.selected) this.confirming = true;
   }
   private onSelect = (event: XRInputSourceEvent) => {
     if (!this.reference || !this.tracking) return;
@@ -226,30 +438,32 @@ export class SpatialSession {
     );
     const hit = ray.intersectObject(this.panel)[0];
     if (!hit?.uv) return;
-    const y = (1 - hit.uv.y) * 512,
-      x = hit.uv.x * 1024;
-    if (y < 266) return;
-    const index = Math.floor((y - 266) / 82) * 4 + Math.floor(x / 256);
-    if (index <= 2) {
-      this.action((["previous", "next", "verify"] as Action[])[index]);
+    const y = (1 - hit.uv.y) * PANEL_H,
+      x = hit.uv.x * PANEL_W;
+    const button = panelButtonAt(x, y);
+    if (button) {
+      if (button.id === "reanchor") {
+        this.reset();
+      } else if (button.id === "recenter") {
+        this.recenterPanel();
+      } else if (button.id === "reference") {
+        this.showReference = !this.showReference;
+        this.draw();
+      } else if (button.id === "page") {
+        const lines = wrapText(this.info.instruction ?? this.info.text, this.showReference && this.info.hasReference ? 42 : 68);
+        const pages = paginate(lines, 7);
+        this.instructionPage = (this.instructionPage + 1) % pages.length;
+        this.draw();
+      } else if (button.id === "help") {
+        this.helpVisible = !this.helpVisible;
+        this.draw();
+      }
+      this.action(button.id);
       return;
     }
-    if (index === 3) this.reset();
-    if (index === 4 && this.candidateValid && !this.selected)
+    // Non-button panel tap above the button rows: confirm origin when pending.
+    if (y < 452 && this.candidateValid && !this.selected) {
       this.confirming = true;
-    if (index === 5 || index === 6) {
-      this.yaw += index === 5 ? -0.1 : 0.1;
-    }
-    if (index === 7) this.panelPlaced = false;
-    if (index >= 8) {
-      this.hit?.cancel();
-      this.hit = null;
-      this.reset();
-      if (index === 8) this.distance = Math.max(0.2, this.distance - 0.05);
-      if (index === 9) this.distance = Math.min(1.5, this.distance + 0.05);
-      if (index === 10) this.height -= 0.025;
-      if (index === 11) this.height += 0.025;
-      this.height = THREE.MathUtils.clamp(this.height, -1.5, 0.2);
     }
   };
   private frame = (_time: number, frame?: XRFrame) => {
@@ -363,6 +577,7 @@ export class SpatialSession {
     this.reference?.removeEventListener("reset", this.onReset);
     this.hit?.cancel();
     this.anchor?.delete();
+    this.setReferenceImage(null);
     this.session.removeEventListener("select", this.onSelect);
     this.session.removeEventListener("visibilitychange", this.onVisibility);
     this.session.removeEventListener("end", this.onEnd);

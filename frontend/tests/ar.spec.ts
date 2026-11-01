@@ -286,3 +286,61 @@ test("old placement is hidden on navigation and disconnection; reconnect restore
     page.getByText("Connected to project state", { exact: true }),
   ).toBeVisible({ timeout: 6000 });
 });
+
+const TINY_JPEG = Buffer.from(
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAwAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDxyiiiv3E8wKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD/9k=",
+  "base64",
+);
+
+test("phase6.1 selected step reference shown; voice next/previous/verify work without verifying", async ({ page, request }) => {
+  const a = await assembly(request);
+  // Upload two step references and explicitly select the second one.
+  const ids: string[] = [];
+  for (const name of ["first.jpg", "second.jpg"]) {
+    const res = await request.post(`${a.base}/steps/${a.steps[0].id}/images`, {
+      multipart: { image: { name, mimeType: "image/jpeg", buffer: TINY_JPEG } },
+    });
+    expect(res.ok()).toBe(true);
+    ids.push((await res.json()).id);
+  }
+  const sel = await request.put(`${a.base}/steps/${a.steps[0].id}/reference-image`, { data: { image_id: ids[1] } });
+  expect(sel.ok()).toBe(true);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "xr", { value: undefined, configurable: true });
+    class FakeRec {
+      lang = ""; continuous = false; interimResults = false; maxAlternatives = 1;
+      onresult: ((e: unknown) => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      onend: (() => void) | null = null;
+      start() { (window as unknown as { __rec: unknown }).__rec = this; }
+      stop() {} abort() {}
+    }
+    (window as unknown as { SpeechRecognition: unknown }).SpeechRecognition = FakeRec;
+  });
+  await page.goto(`/ar?project=${a.project.id}`);
+  await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
+  const refImg = page.locator("img.ar-reference");
+  await expect(refImg).toBeVisible();
+  await expect(refImg).toHaveAttribute("src", new RegExp(ids[1]));
+  // Enable voice (explicit consent) and drive finalized results only.
+  await page.getByRole("checkbox", { name: /I understand and consent/ }).check();
+  await page.getByRole("button", { name: "Enable voice control" }).click();
+  const fire = (transcript: string, isFinal = true) =>
+    page.evaluate(([t, fin]) => {
+      const rec = (window as unknown as { __rec: { onresult: (e: unknown) => void } }).__rec;
+      rec.onresult({ resultIndex: 0, results: [{ isFinal: fin, 0: { transcript: t }, length: 1 }] });
+    }, [transcript, isFinal] as const);
+  await fire("next step", false); // interim: must be ignored
+  await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
+  await fire("Next step");
+  await expect(page.getByRole("heading", { name: "Step 2 — Yellow on blue" })).toBeVisible();
+  await expect(page.locator("img.ar-reference")).toHaveCount(0); // step 2 has no reference: placeholder, no stale image
+  await expect(page.getByText("No reference photograph for this step")).toBeVisible();
+  await fire("Previous step");
+  await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
+  await expect(page.locator("img.ar-reference")).toHaveAttribute("src", new RegExp(ids[1]));
+  expect((await (await request.get(`${a.base}/progress`)).json()).every((s: { status: string }) => s.status !== "verified")).toBe(true);
+  await fire("Verify step");
+  await expect(page.getByRole("heading", { name: "Blue base", exact: true })).toBeVisible();
+  expect((await (await request.get(`${a.base}/progress`)).json()).every((s: { status: string }) => s.status !== "verified")).toBe(true);
+});

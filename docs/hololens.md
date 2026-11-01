@@ -196,3 +196,124 @@ check based on automated mocks.
       for actual evidence. Paid Meta requests here are manual, outside automated tests.
 - [ ] Unsupported Edge/browser: clear unavailable state and 2D fallback, no false AR
       success. Decide whether to proceed with the documented native OpenXR implementation.
+
+## Phase 6.1 — Reference photograph, readable panel and hands-free voice
+
+**Hardware update:** the owner has now opened the immersive experience on a real
+HoloLens and can see the holographic building block. That single observation is
+confirmed. Everything in this section (reference photo in-headset, voice,
+readability, anchoring while reading) still requires the personal real-device
+checklist at the end of this file. Do not treat automated tests as hardware
+validation.
+
+### Expected reference photograph in the panel
+
+- The panel shows the **selected** expected assembly photograph for the viewed
+  step: the backend orders a step's images with the explicitly selected
+  reference first (`StepReferenceSelection`, chosen in the project editor via
+  "select reference"), and the AR workspace uses exactly that first step image
+  (`selectedStepReference`). It never substitutes a block-library photograph.
+  With no explicit selection, the earliest registered step photo is the
+  existing fallback, matching inspection behaviour.
+- The image is loaded only from the trusted backend media endpoint
+  (`/api/media/{id}`, via `mediaUrl`), drawn into the panel canvas with its
+  aspect ratio preserved (letterboxed, never stretched), and labelled
+  "EXPECTED REFERENCE". It is guidance only — separate from the real camera
+  view and never evidence that the physical build is correct.
+- Switching steps immediately clears the previous bitmap (no stale photo),
+  closes/disposes the obsolete `ImageBitmap`, and shows a clear placeholder
+  ("No reference photo for this step") in an image-free compact layout when
+  none is registered. Loading errors show the placeholder plus an error note.
+  No reference images are generated or invented.
+
+### Instruction panel
+
+The holographic panel (72 × 45 cm, one fixed 1024 × 640 canvas texture — no
+per-frame texture allocation) shows: step *n* of *N*, step title, the full
+instruction paginated with a "More text" button (never silently truncated),
+the expected reference, required block(s) and quantity/instance, a high-contrast
+verified / not verified / uncertain status, listening status and the last
+recognized command. Large buttons (≥ 80 px canvas height): Previous, Next,
+Verify Step, a red **EXIT AR**, Re-anchor, Recenter, Reference show/hide,
+More text and Help. The ghost placement hologram lives in a separate spatial
+layer and is not moved by Recenter; Recenter only repositions the panel.
+Tap the panel above the buttons to confirm the tabletop origin.
+
+### Voice commands (browser SpeechRecognition)
+
+Voice is **off by default** and starts only after the user checks the consent
+box and taps **Enable voice control** on the AR page. Detection checks
+`SpeechRecognition`/`webkitSpeechRecognition`, secure context and microphone
+errors; desktop support does not prove HoloLens Edge support, and recognition
+inside immersive WebXR may be unavailable — an honest unsupported status is
+shown and all manual controls remain.
+
+| Spoken (English) | Action |
+|---|---|
+| Next step / Previous step | Browse steps (never verifies) |
+| Verify step | Ends XR and opens the existing camera verification for the current project+step |
+| Show reference / Hide reference | Toggle expected photograph |
+| Show instructions | Go to the full instruction |
+| Read instructions | Text-to-speech, only if the read-aloud toggle is enabled |
+| Re-anchor / Recenter | Reset tabletop alignment / recenter panel |
+| Help / Show commands | List commands |
+| Stop listening | Disable microphone immediately |
+| Exit AR | Stop microphone, end XR session cleanly |
+
+German aliases (set Voice language to Deutsch/de-DE): *Nächster Schritt,
+Vorheriger Schritt, Schritt prüfen, Referenz anzeigen, Anleitung vorlesen,
+AR beenden*. An optional "AssemblyPilot" prefix is accepted. Matching is a
+deterministic normalized allowlist (no LLM): only finalized results, exact
+phrases; ambiguous, negated, joined or unrelated speech is rejected;
+duplicates are debounced and repeats are blocked while an action is pending;
+the recognized command is shown on the panel and page.
+
+**Verify step limitation (first deliverable):** saying "Verify step" initiates
+the existing inspection workflow only. If the HoloLens cannot capture a
+suitable photo during immersive WebXR, the session ends safely, the correct
+project/step camera screen opens, and a **fresh real photograph is required**
+— use the Mac/iPhone camera workflow on the same project/step; the result
+synchronizes back to the HoloLens via server progress polling. The spoken
+command never marks a step verified, never reuses a stale snapshot, and never
+triggers repeated Meta inference. No cross-device automatic capture is
+implemented or claimed.
+
+### Microphone privacy
+
+No new AI provider is added; Meta remains the exclusive assembly-inference
+provider. Browser recognition (notably Microsoft Edge) may transmit audio to
+the **browser provider's** cloud speech service — this is disclosed before
+consent, cannot be reliably detected per-device, and is not AssemblyPilot
+inference. No raw audio is sent to or stored by the AssemblyPilot backend; no
+recordings or full transcripts are stored (only the short-lived last command
+is displayed). Recognition stops on XR exit, on "Stop listening", on opt-out
+and on page unmount; permission denial and errors are shown and never cause
+an uncontrolled restart loop (bounded restarts only).
+
+### Exiting AR
+
+Use the large red **EXIT AR** panel button, say "Exit AR", use the large
+**Exit AR** button on the page between sessions, or use the HoloLens Start
+gesture for the system menu — AssemblyPilot never intercepts system
+navigation. Every exit path stops the microphone, closes reference bitmaps,
+cancels hit testing/anchors and disposes the renderer.
+
+### Native alternative
+
+If Edge on the device exposes no usable `SpeechRecognition` in immersive
+WebXR, the documented fallback remains a native Unity/OpenXR client using the
+platform speech/command APIs against the same backend APIs (see "Native
+fallback" above). Browser voice must not be claimed HoloLens-validated until
+tested on the physical device.
+
+## Real HoloLens test checklist — Phase 6.1 (all pending personal testing)
+
+- [ ] A. Expected reference visible in both eyes, correct step, undistorted.
+- [ ] B. Readable full step description; "More text" pages long instructions.
+- [ ] C. "Next step" works through voice and shows the correct next step.
+- [ ] D. "Previous step" works through voice.
+- [ ] E. "Verify step" opens the correct project/step inspection; a fresh photo is required.
+- [ ] F. "Exit AR" works through voice, the large EXIT AR button, and the Start gesture.
+- [ ] G. Microphone stops on session exit (no listening indicator afterwards).
+- [ ] H. Physical hologram remains anchored while viewing the reference panel.
+- [ ] I. Voice Next/Previous/Verify do not advance verified progress by themselves.
