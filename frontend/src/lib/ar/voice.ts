@@ -7,6 +7,7 @@ export type VoiceAction =
   | "next"
   | "previous"
   | "verify"
+  | "verify-again"
   | "show-reference"
   | "hide-reference"
   | "show-instructions"
@@ -35,6 +36,7 @@ add("previous", "en", [
   "prev step",
 ]);
 add("verify", "en", ["verify step", "verify this step", "verify the step"]);
+add("verify-again", "en", ["verify again", "verify it again", "verify step again"]);
 add("show-reference", "en", [
   "show reference",
   "show reference photo",
@@ -88,6 +90,7 @@ add("exit", "en", ["exit ar", "leave ar", "close ar", "quit ar", "exit"]);
 add("next", "de", ["naechster schritt", "nachster schritt"]);
 add("previous", "de", ["vorheriger schritt"]);
 add("verify", "de", ["schritt pruefen", "schritt prufen"]);
+add("verify-again", "de", ["erneut pruefen", "nochmal pruefen", "schritt erneut pruefen"]);
 add("show-reference", "de", ["referenz anzeigen", "referenz zeigen"]);
 add("read-instructions", "de", ["anleitung vorlesen", "anleitung lesen"]);
 add("exit", "de", ["ar beenden", "beenden"]);
@@ -150,6 +153,7 @@ export const VOICE_COMMANDS: { spoken: string; action: VoiceAction; description:
   { spoken: "Next step", action: "next", description: "Show next assembly step" },
   { spoken: "Previous step", action: "previous", description: "Show previous step" },
   { spoken: "Verify step", action: "verify", description: "Open camera verification (fresh photo required)" },
+  { spoken: "Verify again", action: "verify-again", description: "Fresh-image verification against the previous inspection" },
   { spoken: "Show reference", action: "show-reference", description: "Display expected reference photograph" },
   { spoken: "Hide reference", action: "hide-reference", description: "Hide reference photograph" },
   { spoken: "Show instructions", action: "show-instructions", description: "Expand assembly description" },

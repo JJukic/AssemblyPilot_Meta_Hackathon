@@ -9,6 +9,8 @@ import { FaceResultPanel } from "./FaceResultPanel";
 import { useInspectionSession } from "./InspectionSession";
 import { inspectSnapshot, verifySnapshot } from "@/lib/inspection";
 import { isWorkflowInspection, transition } from "@/lib/workflow";
+import { isFreshFrame, saveLastInspection, type VoiceVerifyIntent } from "@/lib/ar/voiceVerify";
+import type { WorkflowInspection } from "@/types/workflow";
 import { ApiError, errorMessage } from "@/lib/api";
 import type { Snapshot } from "@/types/assembly";
 import type { InspectionResponse } from "@/types/inspection";
@@ -17,11 +19,14 @@ import type { GeometrySetup } from "@/types/calibration";
 
 // A manual capture/project/step/specification change remounts and aborts this component.
 // Capture & Verify obtains a separate fresh frame without changing that input boundary.
-export function InspectionPanel({ projectId, projectName, stepId, stepTitle, snapshot, captureFresh, cameraReady, geometrySetup, onContinue, onProgressChange }: {
+export function InspectionPanel({ projectId, projectName, stepId, stepTitle, snapshot, captureFresh, cameraReady, geometrySetup, onContinue, onProgressChange, autoIntent, onAutoIntentDone }: {
   projectId: string; projectName: string; stepId: string; stepTitle: string; snapshot: Snapshot | null;
   captureFresh: () => Snapshot | null; cameraReady: boolean; geometrySetup: GeometrySetup | null; onContinue?: () => void; onProgressChange: () => void;
+  autoIntent?: VoiceVerifyIntent | null; onAutoIntentDone?: () => void;
 }) {
-  const { add } = useInspectionSession();
+  const { add, entries } = useInspectionSession();
+  const [autoStatus, setAutoStatus] = useState("");
+  const autoStarted = useRef(false);
   const [phase, setPhase] = useState<WorkflowState>("idle");
   const [result, setResult] = useState<InspectionResponse | null>(null);
   const [fresh, setFresh] = useState<Snapshot | null>(null);
@@ -34,16 +39,19 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
 
   function remember(diagnosis: InspectionResponse, frame: Snapshot) {
     setResult(diagnosis);
+    if (isWorkflowInspection(diagnosis, stepId))
+      saveLastInspection({ projectId, stepId, inspectionId: diagnosis.inspection_id });
     add({ project_id: projectId, project_name: projectName, step_title: stepTitle, captured_at: frame.capturedAt, result: diagnosis });
   }
-  async function inspect() {
-    if (!snapshot || controllerRef.current) return;
+  async function inspect(frameOverride?: Snapshot) {
+    const frame = frameOverride ?? snapshot;
+    if (!frame || controllerRef.current) return;
     const controller = new AbortController(); controllerRef.current = controller;
     move("inspecting"); setError(null); setResult(null); setFresh(null);
     try {
-      const diagnosis = await inspectSnapshot(projectId, stepId, snapshot, controller.signal, geometrySetup);
+      const diagnosis = await inspectSnapshot(projectId, stepId, frame, controller.signal, geometrySetup);
       if (!controller.signal.aborted) {
-        remember(diagnosis, snapshot);
+        remember(diagnosis, frame);
         move(isWorkflowInspection(diagnosis, stepId) ? diagnosis.state : diagnosis.status === "correct" ? "correct" : diagnosis.status === "incorrect" ? "correction_required" : "uncertain");
         onProgressChange();
       }
@@ -53,6 +61,67 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
       if (controllerRef.current === controller) controllerRef.current = null;
     }
   }
+  async function verifyWithFrame(previous: WorkflowInspection, frame: Snapshot) {
+    if (controllerRef.current) return;
+    const controller = new AbortController(); controllerRef.current = controller;
+    move("verifying"); setError(null); setFresh(frame);
+    try {
+      const verification = await verifySnapshot(projectId, previous, frame, controller.signal, geometrySetup);
+      if (!controller.signal.aborted) {
+        remember(verification.inspection, frame); setFresh(null);
+        move(verification.status); onProgressChange();
+      }
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        setError(cause instanceof ApiError && [400, 404, 409, 410, 413, 415, 422].includes(cause.status)
+          ? errorMessage(cause) : `AI verification is temporarily unavailable. Please retry. ${errorMessage(cause)}`);
+        move("error"); onProgressChange();
+      }
+    } finally {
+      if (controllerRef.current === controller) controllerRef.current = null;
+    }
+  }
+  // Voice Verify / Verify Again: capture ONE fresh frame (never the WebXR
+  // canvas, never a stale snapshot) and run the existing pipeline exactly once.
+  useEffect(() => {
+    if (!autoIntent || autoStarted.current || !cameraReady || controllerRef.current) return;
+    autoStarted.current = true;
+    let cancelled = false;
+    void (async () => {
+      setAutoStatus("Voice verify: waiting for a fresh HoloLens camera frame…");
+      let frame: Snapshot | null = null;
+      for (let attempt = 0; attempt < 20 && !cancelled; attempt++) {
+        const candidate = captureFresh();
+        if (candidate && isFreshFrame(candidate.capturedAt, autoIntent.requestedAt)) { frame = candidate; break; }
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      if (cancelled) return;
+      if (!frame) {
+        setAutoStatus("");
+        setError("Voice verify: no fresh camera frame was available. Start the camera, then use Inspect or Capture & Verify.");
+        onAutoIntentDone?.();
+        return;
+      }
+      setAutoStatus(autoIntent.mode === "verify"
+        ? "Voice verify: fresh frame captured — running fresh-image verification…"
+        : "Voice verify: fresh frame captured — running Meta inspection…");
+      try {
+        if (autoIntent.mode === "verify") {
+          const previous = (workflow ?? entries
+            .map((entry) => entry.result)
+            .find((r): r is WorkflowInspection => isWorkflowInspection(r, stepId))) ?? null;
+          if (previous) await verifyWithFrame(previous, frame);
+          else await inspect(frame);
+        } else {
+          await inspect(frame);
+        }
+      } finally {
+        if (!cancelled) { setAutoStatus(""); onAutoIntentDone?.(); }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoIntent, cameraReady]);
   async function verify() {
     if (!workflow || controllerRef.current || phase !== "awaiting_rescan") return;
     const controller = new AbortController(); controllerRef.current = controller;
@@ -89,7 +158,8 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
       <button className="button primary inspect-button" disabled={!snapshot || busy} onClick={() => void inspect()}>
         {busy ? <LoaderCircle size={16} className="spinner" /> : <ScanLine size={16} />}{phase === "inspecting" ? "Inspecting with Meta…" : "Inspect with Meta AI"}
       </button>
-      {!snapshot && <p className="empty-caption">Capture a camera frame first.</p>}
+      {autoStatus && <p role="status" className="muted">{autoStatus}</p>}
+      {!snapshot && !autoStatus && <p className="empty-caption">Capture a camera frame first.</p>}
       {phase === "inspecting" && <p role="status" className="muted">Waiting for a diagnosis. You can keep using the camera; a new frame or step clears this request.</p>}
       {workflow && <section className={`correction-workflow workflow-${phase}`} aria-label="Correction and verification">
         <h3>{headings[phase]}</h3>

@@ -17,6 +17,7 @@ from app.api import (
     projects,
     setup,
     steps,
+    voice,
 )
 from app.core.config import Settings, get_settings
 from app.db.database import database_engine
@@ -45,9 +46,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
         allow_methods=["GET", "POST", "PUT", "DELETE"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "X-Voice-Session"],
     )
     application.include_router(health.router)
+    application.include_router(voice.router)
     application.include_router(ar.router)
     application.include_router(setup.router)
     application.include_router(inspection.router)

@@ -185,7 +185,9 @@ test("shared step navigation never verifies; direct camera launch selects that s
   await expect(
     page.getByRole("heading", { name: "Yellow on blue", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Start camera", exact: true }).click();
+  // Voice/button Verify now auto-starts the HoloLens camera and may already
+  // have submitted one auto inspection; capture a manual frame for this check.
+  await expect(page.getByRole("button", { name: "Capture", exact: true })).toBeEnabled({ timeout: 10000 });
   await page.getByRole("button", { name: "Capture", exact: true }).click();
   // Chromium exposes multipart file bodies to Playwright when interception is enabled.
   // Continue to the real disposable backend; do not replace the inspection response.

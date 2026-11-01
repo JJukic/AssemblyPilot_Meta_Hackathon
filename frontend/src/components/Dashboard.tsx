@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowUpRight, Boxes, CircleHelp, Eye, ScanLine } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Navigation } from "@/components/ui/Navigation";
 import { EdgeDebugPanel } from "@/components/inspection/EdgeDebugPanel";
@@ -15,6 +15,7 @@ import { CameraView } from "@/components/camera/CameraView";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
 import { useCamera } from "@/hooks/useCamera";
 import { checkHealth } from "@/lib/api";
+import { readVoiceVerifyIntent } from "@/lib/ar/voiceVerify";
 import type { Assembly, ConnectionStatus } from "@/types/assembly";
 import type { GeometrySetup } from "@/types/calibration";
 
@@ -22,6 +23,15 @@ export function Dashboard({ assembly, initialProjectId = "", initialStepId = "" 
   const projects = useResource(registry.projects);
   const [selectedProject, setSelectedProject] = useState(initialProjectId);
   const camera = useCamera();
+  const cameraStart = camera.start;
+  const autoCameraStarted = useRef("");
+  useEffect(() => {
+    if (!selectedProject || autoCameraStarted.current === selectedProject) return;
+    if (readVoiceVerifyIntent(selectedProject)) {
+      autoCameraStarted.current = selectedProject;
+      void cameraStart();
+    }
+  }, [selectedProject, cameraStart]);
   const [backend, setBackend] = useState<ConnectionStatus>("checking");
   const [geometrySetup, setGeometrySetup] = useState<GeometrySetup | null>(null);
   useEffect(() => {

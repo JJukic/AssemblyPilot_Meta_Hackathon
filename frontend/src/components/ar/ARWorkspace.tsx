@@ -24,6 +24,11 @@ import {
   type VoiceAction,
   type VoiceSnapshot,
 } from "@/lib/ar/voice";
+import { LocalVoiceController, backendVoiceApi } from "@/lib/ar/voiceLocal";
+import {
+  readLastInspection,
+  saveVoiceVerifyIntent,
+} from "@/lib/ar/voiceVerify";
 import { getProgress } from "@/lib/inspection";
 import type { ProjectDetail } from "@/types/projects";
 import type { SpatialSession, Action, Guidance } from "@/lib/ar/runtime";
@@ -81,6 +86,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     runtime = useRef<SpatialSession | null>(null),
     alive = useRef(true),
     generation = useRef(0);
+  const [localOn, setLocalOn] = useState(false),
+    [localStatus, setLocalStatus] = useState("Local voice off (recommended on HoloLens)."),
+    [localConsent, setLocalConsent] = useState(false),
+    [localEngine, setLocalEngine] = useState("");
+  const localRef = useRef<LocalVoiceController | null>(null);
   const voiceRef = useRef<VoiceController | null>(null);
   const actionRef = useRef<(action: Action | VoiceAction) => void>(() => {});
   const info = useRef<Guidance>({ placement: null, text: "Loading", detail: "Unverified" });
@@ -112,6 +122,37 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       voiceRef.current = null;
     } else voiceRef.current?.stop();
   }, []);
+  const stopLocalVoice = useCallback(() => {
+    localRef.current?.stop();
+    localRef.current = null;
+    setLocalOn(false);
+  }, []);
+  const stopAllVoice = useCallback(
+    (release = false) => {
+      stopVoice(release);
+      stopLocalVoice();
+    },
+    [stopVoice, stopLocalVoice],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void backendVoiceApi
+      .status()
+      .then((s) => {
+        if (!cancelled)
+          setLocalEngine(
+            s.available
+              ? `Local Whisper ready: ${s.engine} (${s.model}) on your Mac.`
+              : `Local Whisper unavailable: ${s.reason}`,
+          );
+      })
+      .catch(() => {
+        if (!cancelled) setLocalEngine("Local Whisper status unavailable (backend unreachable).");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     alive.current = true;
@@ -129,6 +170,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       microphoneSession.active = false;
       voiceRef.current?.dispose();
       voiceRef.current = null;
+      localRef.current?.dispose();
+      localRef.current = null;
       void runtime.current?.end();
     };
   }, []);
@@ -253,13 +296,15 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       blockLabel: `${blockLabel} · ${placement?.evidence.toUpperCase() ?? "NO MODEL"}${placement ? ` · #${placement.instance}/${target?.required_quantity ?? "?"}` : ""}`,
       verification: verificationStatus as Guidance["verification"],
       hasReference: !!refPath,
-      voiceLabel: `Voice: ${voiceLabel}${voice.errorCode ? ` (${voice.errorCode})` : ""} — ${voiceMessage}`,
+      voiceLabel: localOn
+        ? `🎤 Local voice listening — ${localStatus}`
+        : `Voice: ${voiceLabel}${voice.errorCode ? ` (${voice.errorCode})` : ""} — ${voiceMessage}`,
       lastCommand: lastCommand || undefined,
     };
     runtime.current?.update(info.current);
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
-  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus]);
+  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus]);
 
   async function navigate(offset: number) {
     if (!project || !online) return;
@@ -278,16 +323,31 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       setError(errorMessage(e));
     }
   }
-  async function verify() {
+  async function verify(mode: "inspect" | "verify" = "inspect") {
     // Voice/button Verify never marks anything verified. It ends XR and opens
-    // the existing camera workspace; a fresh real photo is always required.
-    stopVoice(true);
+    // the HoloLens camera workspace, which auto-captures ONE fresh real frame
+    // and runs the existing Meta inspection / fresh-image verification.
+    if (view.step_id)
+      saveVoiceVerifyIntent({
+        mode,
+        projectId,
+        stepId: view.step_id,
+        requestedAt: new Date().toISOString(),
+      });
+    stopAllVoice(true);
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     await runtime.current?.end();
     router.push(verificationUrl);
   }
+  async function verifyAgain() {
+    if (!view.step_id) return;
+    const last = readLastInspection(projectId, view.step_id);
+    if (!last)
+      setStatus("Verify Again: no previous inspection for this step yet — running a first inspection instead.");
+    await verify(last ? "verify" : "inspect");
+  }
   async function exitAR() {
-    stopVoice(true);
+    stopAllVoice(true);
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     await runtime.current?.end();
     setActive(false);
@@ -303,6 +363,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         break;
       case "verify":
         await verify();
+        break;
+      case "verify-again":
+        await verifyAgain();
         break;
       case "exit":
         await exitAR();
@@ -345,7 +408,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       case "page":
         break; // runtime cycles its own text page
       case "stop-listening":
-        stopVoice();
+        stopAllVoice();
         break;
     }
   }
@@ -390,6 +453,61 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     controller.start();
   }
 
+  function enableLocalVoice() {
+    if (!localConsent || localOn) return;
+    localRef.current?.dispose();
+    const controller = new LocalVoiceController({
+      language: voiceLang.startsWith("de") ? "de" : "en",
+      onCommand: async (cmd) => {
+        if (!alive.current) return;
+        setLastCommand(cmd.phrase);
+        setLocalStatus(`Heard: “${cmd.phrase}”`);
+        await (
+          actionRef.current as unknown as (a: VoiceAction) => Promise<void>
+        )(cmd.action);
+      },
+      onStatus: (s) => {
+        if (alive.current) setLocalStatus(s);
+      },
+      onError: (s) => {
+        if (alive.current) {
+          setLocalStatus(s);
+          setLocalOn(controller.isListening);
+        }
+      },
+      onListeningChange: (listening) => {
+        if (alive.current) setLocalOn(listening);
+      },
+    });
+    localRef.current = controller;
+    void controller.start().then((ok) => {
+      if (!ok && alive.current) setLocalOn(false);
+    });
+  }
+
+  async function recordOneLocalCommand() {
+    if (!localConsent || localOn) return;
+    if (!localRef.current) {
+      localRef.current = new LocalVoiceController({
+        language: voiceLang.startsWith("de") ? "de" : "en",
+        onCommand: async (cmd) => {
+          setLastCommand(cmd.phrase);
+          setLocalStatus(`Heard: “${cmd.phrase}”`);
+          await (
+            actionRef.current as unknown as (a: VoiceAction) => Promise<void>
+          )(cmd.action);
+        },
+        onStatus: (s) => {
+          if (alive.current) setLocalStatus(s);
+        },
+        onError: (s) => {
+          if (alive.current) setLocalStatus(s);
+        },
+      });
+    }
+    await localRef.current.recordOnce();
+  }
+
   async function testMicrophone() {
     if (micPending.current || voiceBusy) return;
     micPending.current = true;
@@ -430,7 +548,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           (a) => actionRef.current(a),
           () => {
             runtime.current = null;
-            stopVoice(true);
+            stopAllVoice(true);
             if (alive.current) {
               setActive(false);
               setStatus("XR session ended. Microphone stopped. Re-enter and re-anchor before continuing.");
@@ -503,6 +621,42 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
 
       <fieldset className="ar-voice">
         <legend>Hands-free voice control</legend>
+        <h3>Local voice control (Mac backend) — recommended on HoloLens</h3>
+        <p role="status" aria-label="Local microphone state">{localOn ? `Local voice: Listening — ${localStatus}` : `Local voice: Off — ${localStatus}`}</p>
+        {localEngine && <p>{localEngine}</p>}
+        <p>
+          How it works: short microphone clips from this device are sent over your
+          private HTTPS connection to Whisper running locally on your MacBook.
+          Clips are transcribed on the Mac and deleted immediately — no cloud
+          speech service, no Meta inference, and no audio or transcripts are
+          stored. Listening runs in bounded windows; you can stop it at any
+          time. If microphone access during immersive AR is unreliable on your
+          headset, enable local voice before entering AR or use the one-command
+          push-to-talk button.
+        </p>
+        <label>
+          <input type="checkbox" checked={localConsent} onChange={(e) => {
+            setLocalConsent(e.target.checked);
+            if (!e.target.checked) stopLocalVoice();
+          }} /> I agree to local voice transcription on my Mac as described above.
+        </label>
+        <div className="form-actions">
+          {!localOn ? (
+            <button className="button primary" disabled={!localConsent} onClick={enableLocalVoice}>
+              Enable local voice control
+            </button>
+          ) : (
+            <button className="button danger" onClick={stopLocalVoice}>Stop local listening</button>
+          )}
+          <button
+            className="button secondary"
+            disabled={!localConsent || localOn}
+            onClick={() => void recordOneLocalCommand()}
+          >
+            Record one command (push-to-talk)
+          </button>
+        </div>
+        <h3>Browser speech recognition (legacy fallback — not reliable on HoloLens)</h3>
         <p role="status" aria-label="Voice state">Voice: {voiceLabel}</p>
         <p role={voiceState === "error" ? "alert" : "status"}>
           {voice.errorCode && <strong>{voice.errorCode}: </strong>}{voiceMessage}
@@ -606,6 +760,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         <button className="button secondary" disabled={!online || step?.position === totalSteps} onClick={() => void navigate(1)}>Next</button>
         <button className="button secondary" onClick={() => setShowReference((v) => !v)}>{showReference ? "Hide reference" : "Show reference"}</button>
         <button className="button primary" disabled={!step || !online} onClick={() => void verify()}>Verify Step — camera workspace</button>
+        <button className="button secondary" disabled={!step || !online} onClick={() => void verifyAgain()}>Verify Again — fresh verification</button>
       </div>
       <p>
         In AR, use the large panel buttons (Previous / Next / Verify Step / EXIT AR / Re-anchor /

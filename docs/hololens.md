@@ -348,3 +348,96 @@ physical device.
 - [ ] G. Microphone stops on session exit (no listening indicator afterwards).
 - [ ] H. Physical hologram remains anchored while viewing the reference panel.
 - [ ] I. Voice Next/Previous/Verify do not advance verified progress by themselves.
+
+## Local voice control + HoloLens camera verification (Mac backend Whisper)
+
+Confirmed on the owner's HoloLens 2: immersive WebXR works, the microphone is
+reachable, but browser `webkitSpeechRecognition` fails with
+`language-not-supported` — **the Web Speech API is not usable for commands on
+this headset**, and a live camera image already works in the AssemblyPilot
+camera workspace on the HoloLens itself. The primary voice path is therefore
+local; no Unity app, Windows PC or cloud speech service is involved. (The
+earlier browser-speech UI remains only as a legacy fallback and must not be
+relied on for HoloLens.)
+
+### How it works
+
+1. On the AR page, check the local-voice consent box and tap **Enable local
+   voice control** (or **Record one command (push-to-talk)** for a single
+   bounded clip). The HoloLens microphone is captured with `getUserMedia`
+   in bounded ~4-second windows (16 kHz mono WAV, encoded in the browser).
+   Enable it before entering AR if mic access during immersive WebXR proves
+   unreliable on your headset — simultaneous mic/WebXR access must be tested
+   on the device and is not assumed.
+2. Clips are sent over the existing private HTTPS origin to
+   `POST /api/voice/transcribe` with a short-lived voice-session token
+   (`POST /api/voice/session`, 10-minute TTL, per-session rate limit, size
+   and duration limits). Whisper runs **locally on the MacBook**; temp audio
+   and transcript files are deleted immediately. Nothing is stored or logged.
+3. The transcript is matched by the same deterministic allowlist as before
+   (no LLM): Next Step, Previous Step, Verify Step, **Verify Again**, Show
+   Reference, Hide Reference, Re-anchor, Exit AR (plus the earlier panel
+   commands and German aliases). Unknown/ambiguous/negated speech is
+   rejected, duplicates are suppressed, and each clip triggers at most one
+   action. Recognized commands reuse the existing action dispatch.
+4. **Verify Step:** voice stops, XR ends safely, and the HoloLens camera
+   workspace opens for the current project/step with a voice-verify intent.
+   The camera starts automatically, one **new** frame is captured from the
+   actual HoloLens video stream (never the WebXR canvas, never a stale
+   snapshot — frames older than the voice command are rejected), and it is
+   submitted to the existing `/api/inspect` Meta pipeline. The real result
+   (correct / correction required / uncertain, with issues and corrective
+   guidance) is displayed on the HoloLens. No iPhone/Mac camera satisfies
+   this flow.
+5. **Verify Again:** after correcting the build, the same flow captures
+   another fresh frame and calls the existing `/api/verify` endpoint with
+   the previous inspection identity. Verified progress changes only under
+   the backend's existing rules; speaking a command never verifies a step.
+
+### Mac setup (Apple Silicon, no Windows)
+
+Preferred engine — whisper.cpp with Metal acceleration:
+
+```sh
+brew install whisper-cpp
+mkdir -p ~/.local/share/assemblypilot-voice
+curl -L -o ~/.local/share/assemblypilot-voice/ggml-base.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+```
+
+Then set in `backend/.env` (see `.env.example`): `VOICE_WHISPER_COMMAND=whisper-cli`
+and `VOICE_WHISPER_MODEL_PATH` to that file, and restart the backend.
+Measured on the owner's M1 MacBook Air: whisper.cpp `base` transcribed a
+1-second command in ~1.5 s with an exact match. openai-whisper (`whisper`,
+`VOICE_WHISPER_MODEL=tiny`) also works as a fallback but reloads its model
+per clip (~30 s first run; `medium` timed out) and is not recommended.
+Models are never committed (`*.bin` is gitignored). Check
+`GET /api/voice/status` for engine availability; the AR page shows it too.
+Without a local engine the endpoint returns an honest 503 and manual
+controls remain fully available.
+
+### Privacy and separation
+
+Microphone clips go only to your own Mac backend over the private LAN
+HTTPS origin. They are not sent to Meta (Meta remains the image-inspection
+provider only, key server-side), not to any cloud speech service, and are
+neither stored nor logged. Voice sessions are explicit, bounded,
+rate-limited and revocable; stopping voice, exiting XR or leaving the page
+releases the microphone and revokes the session.
+
+## Required HoloLens acceptance test (pending personal testing)
+
+1. Open AssemblyPilot and view the hologram.
+2. Enable local voice recognition.
+3. Say "Next Step" and confirm correct navigation.
+4. Say "Verify Step".
+5. Confirm a NEW actual HoloLens camera frame is captured.
+6. Confirm it is submitted to the existing Meta inspection backend.
+7. Confirm the actual result is displayed on the HoloLens.
+8. Correct an intentionally incorrect assembly.
+9. Say "Verify Again".
+10. Confirm a new image runs fresh-image verification.
+
+Automated tests cover the endpoint, matching, limits, intent freshness,
+auto-capture request submission and cleanup with mocked transcription and
+no Meta calls. They do not replace this device test.

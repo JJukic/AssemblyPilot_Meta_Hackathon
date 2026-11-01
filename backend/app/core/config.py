@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     inspection_session_capacity: int = Field(default=64, ge=1, le=256)
     inspection_session_ttl_seconds: int = Field(default=1800, ge=60, le=7200)
     frontend_origin: str = "http://localhost:3000"
+    # Local voice (Whisper on this Mac). Empty command = auto-detect
+    # whisper-cli/main (whisper.cpp) then whisper (openai-whisper).
+    voice_whisper_command: str = ""
+    voice_whisper_model: str = "tiny"
+    voice_whisper_model_path: str = ""
+    voice_max_audio_bytes: int = Field(default=1_000_000, gt=0, le=5_000_000)
+    voice_max_duration_seconds: float = Field(default=8, gt=0, le=30)
+    voice_session_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+    voice_rate_limit_per_minute: int = Field(default=30, ge=1, le=120)
+    voice_transcribe_timeout_seconds: float = Field(default=60, gt=0, le=180)
     max_upload_bytes: int = Field(default=8 * 1024 * 1024, gt=0)
     max_image_pixels: int = Field(default=20_000_000, gt=0)
     max_image_dimension: int = Field(default=8192, gt=0)
