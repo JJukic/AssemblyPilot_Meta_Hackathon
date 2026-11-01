@@ -102,7 +102,7 @@ test("7 English and German command aliases map to same actions", () => {
   assert.equal(matchCommand("Anleitung vorlesen").action, "read-instructions");
   assert.equal(matchCommand("AR beenden").action, "exit");
   assert.equal(GERMAN_ALIASES.length, 6);
-  assert.equal(VOICE_COMMANDS.length, 13);
+  assert.equal(VOICE_COMMANDS.length, 18);
 });
 // 8. Normalization + ambiguous rejection
 test("8 normalization, optional prefix, ambiguous/negated/unrelated rejection", () => {

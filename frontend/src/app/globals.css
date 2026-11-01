@@ -430,3 +430,5 @@ a.brand, a.button { text-decoration: none; }
 .ar-voice { border: 1px solid #4b7086; border-radius: 12px; padding: 16px; margin: 20px 0; }
 .ar-voice label { display: block; margin: 10px 0; line-height: 1.5; }
 .ar-reference { max-height: 260px; object-fit: contain; background: #0b1622; }
+.ar-inspection-result { border: 1px solid #4b7086; border-radius: 12px; padding: 16px; margin: 20px 0; }
+.ar-return-large { min-height: 56px; padding: 14px 22px; font-size: 15px; }

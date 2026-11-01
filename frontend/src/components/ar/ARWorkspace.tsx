@@ -31,6 +31,12 @@ import {
   readLastInspection,
   saveVoiceVerifyIntent,
 } from "@/lib/ar/voiceVerify";
+import {
+  loadInspectionSummary,
+  resultHeadline,
+  resultLines,
+  type InspectionSummary,
+} from "@/lib/ar/inspectionResult";
 import { getProgress } from "@/lib/inspection";
 import type { ProjectDetail } from "@/types/projects";
 import type { SpatialSession, Action, Guidance } from "@/lib/ar/runtime";
@@ -56,6 +62,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const router = useRouter();
   const [rawPlacement, setPlacement] = useState<Placement | null>(null),
     [loadedFor, setLoadedFor] = useState("");
+  const [resultSummary, setResultSummary] = useState<InspectionSummary | null>(null),
+    [resultMode, setResultMode] = useState<"guide" | "result">("guide"),
+    [resultErrorsOnly, setResultErrorsOnly] = useState(false);
   const [verification, setVerification] = useState({ step: "", verified: false }),
     [online, setOnline] = useState(false);
   const [device, setDevice] = useState("Checking");
@@ -208,6 +217,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           step: v.step_id ?? "",
           verified: progress.some((s) => s.step_id === v.step_id && s.status === "verified"),
         });
+        if (v.step_id)
+          setResultSummary((old) => {
+            const loaded = loadInspectionSummary(
+              projectId,
+              v.step_id!,
+              progress.find((s) => s.step_id === v.step_id)?.specification_id ?? null,
+            );
+            // Keep object identity when nothing changed to avoid render loops.
+            return JSON.stringify(old) === JSON.stringify(loaded) ? old : loaded;
+          });
         setOnline(true);
       } catch (e) {
         if (!cancelled) {
@@ -298,6 +317,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           .map((b) => `${b.required_quantity} × ${b.block.color} ${b.block.name}`)
           .join(", ") || "No block required"
       : "";
+    const headline = resultHeadline(resultSummary, verified && online);
     info.current = {
       placement: online ? placement : null,
       text: step ? `Step ${step.position} — ${step.instruction}` : "Choose a project step",
@@ -315,11 +335,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         ? `${diagnostic.state === "completed" ? "✓" : diagnostic.state === "failed" || diagnostic.state === "rejected" ? "✗" : "…"} ${diagnostic.action ?? "no command"} · ${diagnostic.state.toUpperCase()}${diagnostic.detail ? ` · ${diagnostic.detail}` : ""}${diagnostic.reason ? ` · ${diagnostic.reason}` : ""} · “${diagnostic.transcript}”`
         : undefined,
       lastCommand: lastCommand || undefined,
+      resultHeadline: headline?.text,
+      resultTone: headline?.tone,
+      resultLines: resultSummary ? resultLines(resultSummary, verified && online, resultErrorsOnly) : undefined,
+      resultErrorsOnly,
     };
     runtime.current?.update(info.current);
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
-  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic]);
+    runtime.current?.setViewMode(resultMode);
+  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, resultSummary, resultMode, resultErrorsOnly]);
 
   useEffect(() => {
     viewRef.current = view;
@@ -464,7 +489,58 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         setShowReference(false);
         runtime.current?.setShowReference(false);
         return { ok: true, detail: "Expected reference hidden" };
+      case "result": {
+        const mode = runtime.current?.panelViewMode ?? resultMode;
+        setResultMode(mode);
+        return { ok: true, detail: mode === "result" ? "Inspection result shown" : "Instructions shown" };
+      }
+      case "show-result":
+        if (!resultSummary) return { ok: false, reason: "No inspection result for this step yet — say Verify Step" };
+        setResultErrorsOnly(false);
+        setResultMode("result");
+        runtime.current?.setViewMode("result");
+        return { ok: true, detail: resultHeadline(resultSummary, verified)?.text ?? "Latest result shown" };
+      case "show-errors":
+        if (!resultSummary) return { ok: false, reason: "No inspection result for this step yet — say Verify Step" };
+        setResultErrorsOnly(true);
+        setResultMode("result");
+        runtime.current?.setViewMode("result");
+        return {
+          ok: resultSummary.issues.length > 0,
+          reason: resultSummary.issues.length ? undefined : "No issues were reported for this step",
+          detail: `${resultSummary.issues.length} issue(s) reported`,
+        };
+      case "read-result": {
+        if (!resultSummary) return { ok: false, reason: "No inspection result for this step yet — say Verify Step" };
+        if (!readAloud) return { ok: false, reason: "Read-aloud is off — enable “Read instructions aloud”" };
+        if (!("speechSynthesis" in window)) return { ok: false, reason: "Speech synthesis is not supported in this browser" };
+        const headline = resultHeadline(resultSummary, verified);
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(
+          `${headline?.text ?? ""}. ${resultSummary.explanation} ${resultSummary.nextAction}`,
+        ));
+        return { ok: true, detail: "Reading the result aloud" };
+      }
+      case "read-correction": {
+        if (!resultSummary) return { ok: false, reason: "No inspection result for this step yet — say Verify Step" };
+        if (!readAloud) return { ok: false, reason: "Read-aloud is off — enable “Read instructions aloud”" };
+        if (!("speechSynthesis" in window)) return { ok: false, reason: "Speech synthesis is not supported in this browser" };
+        const text = resultSummary.issues.length
+          ? resultSummary.issues.map((i) => `${i.description} Fix: ${i.suggested_fix}`).join(". ")
+          : resultSummary.correctionPlan.join(". ") || "No correction was reported.";
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+        return { ok: true, detail: "Reading the correction aloud" };
+      }
+      case "back-to-instructions":
+        setResultMode("guide");
+        setResultErrorsOnly(false);
+        runtime.current?.setViewMode("guide");
+        document.getElementById("ar-full-instruction")?.scrollIntoView({ block: "nearest" });
+        return { ok: true, detail: "Instructions shown" };
       case "show-instructions":
+        setResultMode("guide");
+        runtime.current?.setViewMode("guide");
         document.getElementById("ar-full-instruction")?.scrollIntoView({ block: "nearest" });
         return { ok: true, detail: `Step ${step?.position ?? "?"} instruction displayed` };
       case "read-instructions": {
@@ -847,6 +923,51 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
             ? "Manually viewed / not verified"
             : "Verification status uncertain — connection unavailable"}
       </p>
+      {resultSummary && (
+        <section aria-label="Latest Meta inspection result" className="ar-inspection-result">
+          <h4>Latest Meta inspection result</h4>
+          <p role="status"><strong>{resultHeadline(resultSummary, verified && online)?.text}</strong></p>
+          <p>
+            {verified && online
+              ? "Step verified: Yes (server progress)"
+              : resultSummary.status === "correct"
+                ? "Step verified: No — fresh verification required"
+                : resultSummary.kind === "error"
+                  ? "Inspection failed — this is not an incorrect assembly"
+                  : "Step verified: No"}
+          </p>
+          {resultSummary.kind === "error" ? (
+            <p role="alert">{resultSummary.errorMessage}</p>
+          ) : (
+            <>
+              {resultSummary.explanation && <p>{resultSummary.explanation}</p>}
+              {resultSummary.issues.map((issue, i) => (
+                <div key={i}>
+                  <p><strong>Issue {i + 1} ({issue.type}):</strong> {issue.description}</p>
+                  <p>Expected: {issue.expected}</p>
+                  <p>Observed: {issue.observed}</p>
+                  <p>Suggested fix: {issue.suggested_fix}</p>
+                </div>
+              ))}
+              {resultSummary.correctionPlan.length > 0 && (
+                <>
+                  <p><strong>Correction plan</strong></p>
+                  <ol>{resultSummary.correctionPlan.map((line, i) => <li key={i}>{line}</li>)}</ol>
+                </>
+              )}
+              {resultSummary.activeVision && (
+                <p>Additional view needed ({resultSummary.activeVision.requested_view}): {resultSummary.activeVision.reason} — {resultSummary.activeVision.instruction}</p>
+              )}
+              {resultSummary.nextAction && <p>Next action: {resultSummary.nextAction}</p>}
+            </>
+          )}
+          <p>Latest AI assessment for this step, {new Date(resultSummary.updatedAt).toLocaleTimeString()}. This is separate from officially verified progress.</p>
+          <div className="form-actions">
+            <button className="button secondary" onClick={() => { setResultErrorsOnly(false); setResultMode("result"); runtime.current?.setViewMode("result"); }}>Show result in AR panel</button>
+            <button className="button secondary" onClick={() => { setResultMode("guide"); runtime.current?.setViewMode("guide"); }}>Back to instructions</button>
+          </div>
+        </section>
+      )}
       <h4>Expected assembly reference (guidance only — not proof of your build)</h4>
       {!showReference && refPath ? (
         <p>Reference hidden — say “Show reference” or use the Show reference button to display it again.</p>

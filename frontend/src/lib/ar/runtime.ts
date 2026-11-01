@@ -13,7 +13,8 @@ export type Action =
   | "recenter"
   | "reference"
   | "page"
-  | "help";
+  | "help"
+  | "result";
 export interface Guidance {
   placement: Placement | null;
   text: string;
@@ -27,6 +28,10 @@ export interface Guidance {
   voiceLabel?: string;
   lastCommand?: string;
   diagnostic?: string;
+  resultHeadline?: string;
+  resultTone?: string;
+  resultLines?: string[];
+  resultErrorsOnly?: boolean;
 }
 
 export const PANEL_W = 1024;
@@ -69,6 +74,7 @@ export const PANEL_BUTTONS: PanelButton[] = [
       ["reanchor", "Re-anchor"],
       ["recenter", "Recenter"],
       ["reference", "Reference"],
+      ["result", "Result"],
       ["page", "More text"],
       ["help", "Help"],
     ],
@@ -120,6 +126,8 @@ export class SpatialSession {
   private refImage: RefImage | null = null;
   private showReference = true;
   private helpVisible = false;
+  private viewMode: "guide" | "result" = "guide";
+  private resultPage = 0;
   private instructionPage = 0;
   private lastInstruction = "";
   private reticle = new THREE.Mesh(
@@ -238,6 +246,14 @@ export class SpatialSession {
     this.helpVisible = value;
     this.draw();
   }
+  setViewMode(mode: "guide" | "result") {
+    if (this.viewMode !== mode) this.resultPage = 0;
+    this.viewMode = mode;
+    this.draw();
+  }
+  get panelViewMode() {
+    return this.viewMode;
+  }
   recenterPanel() {
     this.panelPlaced = false;
     this.message = "Panel recentered in front of you. The assembly hologram did not move.";
@@ -286,7 +302,62 @@ export class SpatialSession {
     const hasRef = !!info.hasReference;
     const showRef = hasRef && this.showReference;
     const maxChars = showRef ? 42 : 68;
-    if (this.helpVisible) {
+    if (this.viewMode === "result" && info.resultHeadline) {
+      // Real Meta result: headline answers "is it correct?", lines answer
+      // "what is wrong?" and "what next?", paginated — never truncated.
+      const toneColor: Record<string, string> = {
+        correct: "#6dffa8",
+        verified: "#6dffa8",
+        incorrect: "#ff9d9d",
+        uncertain: "#ffd166",
+        error: "#ff9d9d",
+        inspecting: "#7df3ff",
+      };
+      c.fillStyle = toneColor[info.resultTone ?? ""] ?? "#ffffff";
+      c.font = "bold 27px sans-serif";
+      c.fillText(info.resultHeadline.slice(0, 58), 20, 132);
+      const rawLines = info.resultLines ?? [];
+      const wrapped = rawLines.flatMap((line) => wrapText(line, maxChars));
+      const pages = paginate(wrapped, 6);
+      const page = pages[Math.min(this.resultPage, pages.length - 1)] ?? [];
+      c.font = "23px sans-serif";
+      c.fillStyle = "#eafcff";
+      page.forEach((line, i) => c.fillText(line, 20, 168 + i * 30));
+      if (pages.length > 1) {
+        c.fillStyle = "#83e8eb";
+        c.font = "20px sans-serif";
+        c.fillText(
+          `Result page ${Math.min(this.resultPage, pages.length - 1) + 1}/${pages.length} — tap “More text”`,
+          20,
+          168 + 6 * 30,
+        );
+      }
+      if (hasRef) {
+        const box = { x: 664, y: 116, w: 340, h: 250 };
+        c.strokeStyle = "#38d9ff";
+        c.lineWidth = 3;
+        c.strokeRect(box.x, box.y, box.w, box.h);
+        c.fillStyle = "#83e8eb";
+        c.font = "bold 19px sans-serif";
+        c.fillText("EXPECTED REFERENCE", box.x + 8, box.y - 8);
+        if (this.showReference && this.refImage) {
+          const fit = fitRect(this.refImage.width, this.refImage.height, box.w - 8, box.h - 8);
+          try {
+            c.drawImage(
+              this.refImage as unknown as CanvasImageSource,
+              box.x + 4 + fit.x,
+              box.y + 4 + fit.y,
+              fit.w,
+              fit.h,
+            );
+          } catch {
+            c.fillStyle = "#ffd166";
+            c.font = "21px sans-serif";
+            c.fillText("Reference failed to load", box.x + 14, box.y + 60);
+          }
+        }
+      }
+    } else if (this.helpVisible) {
       c.font = "23px sans-serif";
       c.fillStyle = "#bffaff";
       const help = [
@@ -388,7 +459,16 @@ export class SpatialSession {
       c.strokeRect(b.x, b.y, b.w, b.h);
       c.fillStyle = "#ffffff";
       c.font = b.danger ? "bold 27px sans-serif" : "bold 23px sans-serif";
-      const label = isRef ? (this.showReference ? "Hide ref." : "Show ref.") : b.label;
+      const label =
+        b.id === "result"
+          ? this.viewMode === "result"
+            ? "Guide"
+            : "Result"
+          : isRef
+            ? this.showReference
+              ? "Hide ref."
+              : "Show ref."
+            : b.label;
       const w = c.measureText(label).width;
       c.fillText(label, b.x + Math.max(8, (b.w - w) / 2), b.y + 52);
     }
@@ -456,10 +536,22 @@ export class SpatialSession {
       } else if (button.id === "reference") {
         this.showReference = !this.showReference;
         this.draw();
+      } else if (button.id === "result") {
+        this.viewMode = this.viewMode === "result" ? "guide" : "result";
+        this.resultPage = 0;
+        this.draw();
       } else if (button.id === "page") {
-        const lines = wrapText(this.info.instruction ?? this.info.text, this.showReference && this.info.hasReference ? 42 : 68);
-        const pages = paginate(lines, 7);
-        this.instructionPage = (this.instructionPage + 1) % pages.length;
+        if (this.viewMode === "result" && this.info.resultHeadline) {
+          const wrapped = (this.info.resultLines ?? []).flatMap((line) =>
+            wrapText(line, this.showReference && this.info.hasReference ? 42 : 68),
+          );
+          const pages = paginate(wrapped, 6);
+          this.resultPage = (this.resultPage + 1) % pages.length;
+        } else {
+          const lines = wrapText(this.info.instruction ?? this.info.text, this.showReference && this.info.hasReference ? 42 : 68);
+          const pages = paginate(lines, 7);
+          this.instructionPage = (this.instructionPage + 1) % pages.length;
+        }
         this.draw();
       } else if (button.id === "help") {
         this.helpVisible = !this.helpVisible;

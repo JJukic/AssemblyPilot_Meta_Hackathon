@@ -10,6 +10,14 @@ import { useInspectionSession } from "./InspectionSession";
 import { inspectSnapshot, verifySnapshot } from "@/lib/inspection";
 import { isWorkflowInspection, transition } from "@/lib/workflow";
 import { isFreshFrame, saveLastInspection, type VoiceVerifyIntent } from "@/lib/ar/voiceVerify";
+import {
+  errorSummary,
+  inspectingSummary,
+  saveInspectionSummary,
+  summarizeInspection,
+  summarizeVerification,
+} from "@/lib/ar/inspectionResult";
+import Link from "next/link";
 import type { WorkflowInspection } from "@/types/workflow";
 import { ApiError, errorMessage } from "@/lib/api";
 import type { Snapshot } from "@/types/assembly";
@@ -39,8 +47,11 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
 
   function remember(diagnosis: InspectionResponse, frame: Snapshot) {
     setResult(diagnosis);
-    if (isWorkflowInspection(diagnosis, stepId))
+    if (isWorkflowInspection(diagnosis, stepId)) {
       saveLastInspection({ projectId, stepId, inspectionId: diagnosis.inspection_id });
+      // Validated result -> bounded summary bridge for the AR panel.
+      saveInspectionSummary(summarizeInspection(diagnosis, projectId));
+    }
     add({ project_id: projectId, project_name: projectName, step_title: stepTitle, captured_at: frame.capturedAt, result: diagnosis });
   }
   async function inspect(frameOverride?: Snapshot) {
@@ -56,7 +67,11 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
         onProgressChange();
       }
     } catch (cause) {
-      if (!controller.signal.aborted) { setError(errorMessage(cause)); move("error"); onProgressChange(); }
+      if (!controller.signal.aborted) {
+        // A failed inspection replaces any previous success as "latest".
+        saveInspectionSummary(errorSummary(projectId, stepId, errorMessage(cause)));
+        setError(errorMessage(cause)); move("error"); onProgressChange();
+      }
     } finally {
       if (controllerRef.current === controller) controllerRef.current = null;
     }
@@ -68,13 +83,18 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
     try {
       const verification = await verifySnapshot(projectId, previous, frame, controller.signal, geometrySetup);
       if (!controller.signal.aborted) {
+        // remember() saves an inspection summary; overwrite with the
+        // verification-scoped summary (status + identity) as the latest.
         remember(verification.inspection, frame); setFresh(null);
+        saveInspectionSummary(summarizeVerification(verification, projectId));
         move(verification.status); onProgressChange();
       }
     } catch (cause) {
       if (!controller.signal.aborted) {
-        setError(cause instanceof ApiError && [400, 404, 409, 410, 413, 415, 422].includes(cause.status)
-          ? errorMessage(cause) : `AI verification is temporarily unavailable. Please retry. ${errorMessage(cause)}`);
+        const message = cause instanceof ApiError && [400, 404, 409, 410, 413, 415, 422].includes(cause.status)
+          ? errorMessage(cause) : `AI verification is temporarily unavailable. Please retry. ${errorMessage(cause)}`;
+        saveInspectionSummary(errorSummary(projectId, stepId, message, previous.specification_id));
+        setError(message);
         move("error"); onProgressChange();
       }
     } finally {
@@ -88,6 +108,7 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
     autoStarted.current = true;
     let cancelled = false;
     void (async () => {
+      saveInspectionSummary(inspectingSummary(projectId, stepId));
       setAutoStatus("Voice verify: waiting for a fresh HoloLens camera frame…");
       let frame: Snapshot | null = null;
       for (let attempt = 0; attempt < 20 && !cancelled; attempt++) {
@@ -134,12 +155,15 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
       const verification = await verifySnapshot(projectId, workflow, frame, controller.signal, geometrySetup);
       if (!controller.signal.aborted) {
         remember(verification.inspection, frame); setFresh(null);
+        saveInspectionSummary(summarizeVerification(verification, projectId));
         move(verification.status); onProgressChange();
       }
     } catch (cause) {
       if (!controller.signal.aborted) {
-        setError(cause instanceof ApiError && [400, 404, 409, 410, 413, 415, 422].includes(cause.status)
-          ? errorMessage(cause) : `AI verification is temporarily unavailable. Please retry. ${errorMessage(cause)}`);
+        const message = cause instanceof ApiError && [400, 404, 409, 410, 413, 415, 422].includes(cause.status)
+          ? errorMessage(cause) : `AI verification is temporarily unavailable. Please retry. ${errorMessage(cause)}`;
+        saveInspectionSummary(errorSummary(projectId, stepId, message, workflow.specification_id));
+        setError(message);
         move("error"); onProgressChange();
       }
     } finally {
@@ -184,6 +208,13 @@ export function InspectionPanel({ projectId, projectName, stepId, stepTitle, sna
       {fresh && <figure className="verification-capture"><img src={fresh.dataUrl} width={fresh.width} height={fresh.height} alt="Fresh verification snapshot" /><figcaption>Fresh verification capture · {new Date(fresh.capturedAt).toLocaleTimeString()}</figcaption></figure>}
       {result && !busy && <>
         {error && <p className="muted">Last completed diagnosis below; this retry did not verify the assembly.</p>}
+        <p>
+          <Link className="button primary ar-return-large" href={`/ar?project=${projectId}`}>
+            Return to AR with result
+          </Link>{" "}
+          Then tap “Enter immersive AR” on the AR page — the same validated result
+          appears in the holographic panel. Re-anchoring the tabletop is required.
+        </p>
         <DiagnosisDetails result={result} />
         {workflow?.geometry && <GeometricVerificationPanel result={workflow.geometry} />}
         {workflow?.print_recognition && workflow.print_recognition.recognition_status !== "not_applicable" &&

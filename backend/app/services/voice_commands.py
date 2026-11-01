@@ -89,6 +89,20 @@ _add("verify", "de", ["schritt pruefen", "schritt prufen"])
 _add("verify-again", "de", ["erneut pruefen", "nochmal pruefen", "schritt erneut pruefen"])
 _add("show-reference", "de", ["referenz anzeigen", "referenz zeigen"])
 _add("read-instructions", "de", ["anleitung vorlesen", "anleitung lesen"])
+_add(
+    "show-result",
+    "en",
+    ["show result", "show inspection result", "display result", "show the result"],
+)
+_add("show-errors", "en", ["show errors", "show issues", "what is wrong", "show the errors"])
+_add("read-result", "en", ["read result", "read the result"])
+_add("read-correction", "en", ["read correction", "read the correction"])
+_add("back-to-instructions", "en", ["back to instructions", "back to instruction"])
+_add("show-result", "de", ["ergebnis anzeigen", "ergebnis zeigen"])
+_add("show-errors", "de", ["fehler anzeigen", "fehler zeigen"])
+_add("read-result", "de", ["ergebnis vorlesen"])
+_add("read-correction", "de", ["korrektur vorlesen"])
+_add("back-to-instructions", "de", ["zurueck zur anleitung", "zuruck zur anleitung"])
 _add("exit", "de", ["ar beenden", "beenden"])
 
 _NEGATIONS = ("do not", "dont", "never")

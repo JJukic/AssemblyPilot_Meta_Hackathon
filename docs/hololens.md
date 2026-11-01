@@ -528,3 +528,54 @@ Confirm one transition per completed command and report the displayed raw
 transcript and rejection reason for any failure. Recheck the existing camera
 and Meta Inspect flow on the device; no camera/inspection implementation is
 changed by this restoration.
+
+## Phase 6.2 — Real Meta Inspect results in the AR panel
+
+After "Verify Step", the result no longer lives only in the desktop-oriented
+workspace:
+
+- **Result bridge.** When `/api/inspect` or `/api/verify` returns, the
+  response is validated by the existing frontend validators (workflow state,
+  specification and snapshot-hash identity). Only then is a bounded
+  **summary** handed to the AR page via sessionStorage (30-minute TTL):
+  project/step/specification/inspection/snapshot identity, state/status,
+  explanation, issues (type, description, expected, observed, suggested
+  fix), correction plan, next action and any requested additional view.
+  No camera frames, data URLs, SAM masks or full payloads are stored. The
+  summary is re-validated on load and dropped when the project, step or
+  specification does not match — so stale results cannot appear for another
+  step, and a failed or new inspection replaces any previous success as
+  "latest". This is the *latest AI assessment*, always shown separately from
+  officially verified server progress: a correct first inspection displays
+  "Step verified: No — fresh verification required".
+- **Camera workspace.** The real result appears immediately (existing
+  DiagnosisDetails), followed by a large **Return to AR with result** button.
+  WebXR cannot restart without a gesture: return to the AR page, then tap
+  **Enter immersive AR** (that tap is the gesture). Tabletop re-anchoring is
+  required on every new session; no anchor persistence is claimed.
+- **Holographic panel.** The floating panel gains a **Result/Guide** mode
+  (button or voice). It shows the status headline first — Correct,
+  Incorrect/Correction Required, Uncertain/Another View Needed, Inspecting,
+  Verified, or Inspection Failed — then the explanation, every issue with
+  expected vs. observed and its fix, the correction plan, the requested
+  additional view and the next action, paginated with "More text" (nothing
+  critical is truncated). The expected reference remains visible beside the
+  result; the tabletop hologram and anchor do not move when switching modes.
+- **Voice.** New deterministic commands (frontend/backend parity-tested):
+  "Show result", "Show errors", "Read result", "Read correction",
+  "Back to instructions" (German: Ergebnis anzeigen, Fehler anzeigen,
+  Ergebnis vorlesen, Korrektur vorlesen, Zurück zur Anleitung). They only
+  change what is displayed or read aloud — they never trigger another paid
+  inspection. A new inspection always requires an explicit Verify Step or
+  Verify Again.
+
+### Real HoloLens acceptance (Phase 6.2, pending personal testing)
+
+1. See the reference photo and hologram. 2. Say "Verify Step". 3. Confirm a
+fresh HoloLens frame is captured. 4–5. See the genuine Meta result on the
+headset (correct/incorrect/uncertain with the actual issue and correction).
+6–7. Return to AR and see the same result in the holographic panel.
+8–10. Understand the error, correct the blocks, say "Verify Again".
+11–13. See the updated verification result and continue building.
+Automated tests mock Meta inference and cover all of these states; they do
+not replace this device test.

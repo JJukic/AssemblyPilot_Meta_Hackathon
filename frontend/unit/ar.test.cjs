@@ -113,7 +113,9 @@ global.document = {
       fillRect() {},
       strokeRect() {},
       drawImage() {},
-      fillText() {},
+      fillText(text) {
+        (globalThis.__canvasTexts ??= []).push(String(text));
+      },
       measureText: (t) => ({ width: t.length * 10 }),
     }),
   }),
@@ -327,4 +329,36 @@ test("phase6.1 large Exit button exists in panel layout and maps via panelButton
   assert.equal(panelButtonAt(exit.x + 5, exit.y + 5).id, "exit");
   assert.ok(PANEL_BUTTONS.find((b) => b.id === "verify"));
   assert.equal(panelButtonAt(10, 10), null);
+});
+
+test("phase6.2 XR panel renders the real result headline, issue and fix in result mode", async () => {
+  const { runtime } = await setup();
+  globalThis.__canvasTexts = [];
+  runtime.update({
+    placement: placement(),
+    text: "Step 1 — Place the block",
+    detail: "Not verified",
+    resultHeadline: "✗ Incorrect — Correction Required",
+    resultTone: "incorrect",
+    resultLines: [
+      "Step verified: No",
+      "The assembly does not match the expected step.",
+      "Issue 1 (wrong_color): The top block is red instead of blue.",
+      "Expected: A blue block on top.",
+      "Observed: A red block on top.",
+      "Fix: Replace the red block with the blue block.",
+      "Next: Fix the top block, then verify again.",
+    ],
+  });
+  // Guide mode first: result must not leak into the instruction view.
+  assert.ok(!globalThis.__canvasTexts.some((t) => t.includes("Replace the red block")));
+  runtime.setViewMode("result");
+  assert.equal(runtime.panelViewMode, "result");
+  const drawn = globalThis.__canvasTexts.join("\n");
+  assert.match(drawn, /Incorrect — Correction Required/);
+  assert.match(drawn, /Replace the red block with the blue block/);
+  assert.match(drawn, /A red block on top/);
+  runtime.setViewMode("guide");
+  assert.equal(runtime.panelViewMode, "guide");
+  await runtime.end();
 });

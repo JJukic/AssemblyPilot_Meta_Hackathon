@@ -8,6 +8,11 @@ export type VoiceAction =
   | "previous"
   | "verify"
   | "verify-again"
+  | "show-result"
+  | "show-errors"
+  | "read-result"
+  | "read-correction"
+  | "back-to-instructions"
   | "show-reference"
   | "hide-reference"
   | "show-instructions"
@@ -65,6 +70,11 @@ add("previous", "en", [
 ]);
 add("verify", "en", ["verify step", "verify this step", "verify the step", "inspect step"]);
 add("verify-again", "en", ["verify again", "verify it again", "verify step again", "inspect again"]);
+add("show-result", "en", ["show result", "show inspection result", "display result", "show the result"]);
+add("show-errors", "en", ["show errors", "show issues", "what is wrong", "show the errors"]);
+add("read-result", "en", ["read result", "read the result"]);
+add("read-correction", "en", ["read correction", "read the correction"]);
+add("back-to-instructions", "en", ["back to instructions", "back to instruction"]);
 add("show-reference", "en", [
   "show reference",
   "show reference photo",
@@ -121,6 +131,11 @@ add("verify", "de", ["schritt pruefen", "schritt prufen"]);
 add("verify-again", "de", ["erneut pruefen", "nochmal pruefen", "schritt erneut pruefen"]);
 add("show-reference", "de", ["referenz anzeigen", "referenz zeigen"]);
 add("read-instructions", "de", ["anleitung vorlesen", "anleitung lesen"]);
+add("show-result", "de", ["ergebnis anzeigen", "ergebnis zeigen"]);
+add("show-errors", "de", ["fehler anzeigen", "fehler zeigen"]);
+add("read-result", "de", ["ergebnis vorlesen"]);
+add("read-correction", "de", ["korrektur vorlesen"]);
+add("back-to-instructions", "de", ["zurueck zur anleitung", "zuruck zur anleitung"]);
 add("exit", "de", ["ar beenden", "beenden"]);
 
 /** Normalize a transcript for exact allowlist matching. */
@@ -182,6 +197,11 @@ export const VOICE_COMMANDS: { spoken: string; action: VoiceAction; description:
   { spoken: "Previous step", action: "previous", description: "Show previous step" },
   { spoken: "Verify step", action: "verify", description: "Open camera verification (fresh photo required)" },
   { spoken: "Verify again", action: "verify-again", description: "Fresh-image verification against the previous inspection" },
+  { spoken: "Show result", action: "show-result", description: "Show the latest Meta inspection result" },
+  { spoken: "Show errors", action: "show-errors", description: "Show reported issues for this step" },
+  { spoken: "Read result", action: "read-result", description: "Read the latest result aloud (if enabled)" },
+  { spoken: "Read correction", action: "read-correction", description: "Read the correction plan aloud (if enabled)" },
+  { spoken: "Back to instructions", action: "back-to-instructions", description: "Return to the assembly instructions" },
   { spoken: "Show reference", action: "show-reference", description: "Display expected reference photograph" },
   { spoken: "Hide reference", action: "hide-reference", description: "Hide reference photograph" },
   { spoken: "Show instructions", action: "show-instructions", description: "Expand assembly description" },
