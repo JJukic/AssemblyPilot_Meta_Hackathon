@@ -91,6 +91,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [diagnostic, setDiagnostic] = useState<CommandDiagnostic | null>(null);
   const viewRef = useRef<ViewedStep>({ step_id: null, revision: 0 });
   const [localOn, setLocalOn] = useState(false),
+    [localBusy, setLocalBusy] = useState(false),
     [localStatus, setLocalStatus] = useState("Local voice off (recommended on HoloLens)."),
     [localConsent, setLocalConsent] = useState(false),
     [localEngine, setLocalEngine] = useState("");
@@ -136,6 +137,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     localRef.current?.stop();
     localRef.current = null;
     setLocalOn(false);
+    setLocalBusy(false);
   }, []);
   const stopAllVoice = useCallback(
     (release = false) => {
@@ -547,7 +549,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   }
 
   function enableLocalVoice() {
-    if (!localConsent || localOn) return;
+    if (!localConsent || localOn || localRef.current?.isBusy || voiceBusy || micPending.current) return;
+    setLocalBusy(true);
     localRef.current?.dispose();
     const controller = new LocalVoiceController({
       language: voiceLang.startsWith("de") ? "de" : "en",
@@ -570,28 +573,34 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     });
     localRef.current = controller;
     void controller.start().then((ok) => {
-      if (!ok && alive.current) setLocalOn(false);
+      if (alive.current && localRef.current === controller) {
+        setLocalBusy(false);
+        if (!ok) setLocalOn(false);
+      }
     });
   }
 
   async function recordOneLocalCommand() {
-    if (!localConsent || localOn) return;
-    if (!localRef.current) {
-      localRef.current = new LocalVoiceController({
-        language: voiceLang.startsWith("de") ? "de" : "en",
-        onCommand: (cmd) => dispatchRef.current(cmd.action, cmd.phrase),
-        onDiagnostic: (d) => {
-          if (alive.current) setDiagnostic(d);
-        },
-        onStatus: (s) => {
-          if (alive.current) setLocalStatus(s);
-        },
-        onError: (s) => {
-          if (alive.current) setLocalStatus(s);
-        },
-      });
-    }
-    await localRef.current.recordOnce();
+    if (!localConsent || localOn || localRef.current?.isBusy || voiceBusy || micPending.current) return;
+    setLocalBusy(true);
+    // A new explicit recording uses the currently selected language.
+    localRef.current?.dispose();
+    const controller = new LocalVoiceController({
+      language: voiceLang.startsWith("de") ? "de" : "en",
+      onCommand: (cmd) => dispatchRef.current(cmd.action, cmd.phrase),
+      onDiagnostic: (d) => {
+        if (alive.current) setDiagnostic(d);
+      },
+      onStatus: (s) => {
+        if (alive.current && localRef.current === controller) setLocalStatus(s);
+      },
+      onError: (s) => {
+        if (alive.current && localRef.current === controller) setLocalStatus(s);
+      },
+    });
+    localRef.current = controller;
+    try { await controller.recordOnce(); }
+    finally { if (alive.current && localRef.current === controller) setLocalBusy(false); }
   }
 
   async function testMicrophone() {
@@ -708,8 +717,15 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       <fieldset className="ar-voice">
         <legend>Hands-free voice control</legend>
         <h3>Local voice control (Mac backend) — recommended on HoloLens</h3>
-        <p role="status" aria-label="Local microphone state">{localOn ? `Local voice: Listening — ${localStatus}` : `Local voice: Off — ${localStatus}`}</p>
+        <p role="status" aria-label="Local microphone state">{localOn || localBusy ? `Local voice: ${localStatus}` : `Local voice: Off — ${localStatus}`}</p>
         {localEngine && <p>{localEngine}</p>}
+        <label>
+          Voice language{" "}
+          <select value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)} disabled={voiceBusy || localOn || localBusy}>
+            <option value="en-US">English (en-US)</option>
+            <option value="de-DE">Deutsch (de-DE)</option>
+          </select>
+        </label>
         <p>
           How it works: short microphone clips from this device are sent over your
           private HTTPS connection to Whisper running locally on your MacBook.
@@ -728,7 +744,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         </label>
         <div className="form-actions">
           {!localOn ? (
-            <button className="button primary" disabled={!localConsent} onClick={enableLocalVoice}>
+            <button className="button primary" disabled={!localConsent || localBusy || voiceBusy || micTest.state === "testing"} onClick={enableLocalVoice}>
               Enable local voice control
             </button>
           ) : (
@@ -736,7 +752,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           )}
           <button
             className="button secondary"
-            disabled={!localConsent || localOn}
+            disabled={!localConsent || localOn || localBusy || voiceBusy || micTest.state === "testing"}
             onClick={() => void recordOneLocalCommand()}
           >
             Record one command (push-to-talk)
@@ -783,19 +799,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           understand and consent to browser speech recognition as described above.
         </label>
         <label>
-          Voice language{" "}
-          <select value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)} disabled={voiceBusy}>
-            <option value="en-US">English (en-US)</option>
-            <option value="de-DE">Deutsch (de-DE)</option>
-          </select>
-        </label>
-        <label>
           <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} /> Read
           instructions aloud (“Read instructions” command)
         </label>
         <div className="form-actions">
           {!voiceBusy ? (
-            <button className="button primary" disabled={!voiceSupported.supported || !consent || micTest.state === "testing"} onClick={enableVoice}>
+            <button className="button primary" disabled={!voiceSupported.supported || !consent || localOn || localBusy || micTest.state === "testing"} onClick={enableVoice}>
               Enable voice control
             </button>
           ) : (
@@ -807,7 +816,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         {voiceStatus && <p>{voiceStatus}</p>}
         <div className="ar-microphone-test">
           <p>Microphone test (separate permission): clicking below briefly requests microphone audio access, then immediately stops all test tracks. It does not record, transcribe or upload audio, and does not start speech recognition.</p>
-          <button className="button secondary" disabled={voiceBusy || micTest.state === "testing"} onClick={() => void testMicrophone()}>Test microphone access</button>
+          <button className="button secondary" disabled={voiceBusy || localOn || localBusy || micTest.state === "testing"} onClick={() => void testMicrophone()}>Test microphone access</button>
           <p role="status" aria-label="Microphone test result">{micTest.message}</p>
         </div>
         {lastCommand && <p>Last recognized command: “{lastCommand}”</p>}

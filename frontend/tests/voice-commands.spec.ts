@@ -197,3 +197,36 @@ test("voice Verify Step auto-captures one fresh frame and submits one inspection
   await expect(page.getByRole("status", { name: "Local microphone state" })).toContainText("Off", { timeout: 15000 });
   expect(await page.evaluate(() => (window as unknown as { __micStops: number }).__micStops)).toBeGreaterThan(0);
 });
+
+test("one-command mode uses the selected language and executes consecutive Next commands once each", async ({ page, request }) => {
+  test.setTimeout(45000);
+  const a = await project3(request);
+  const { queue, state } = await mockVoice(page);
+  const languages: string[] = [];
+  let navigationWrites = 0;
+  page.on("request", r => {
+    if (r.method() === "PUT" && r.url().endsWith("/ar-view")) navigationWrites++;
+    if (r.url().endsWith("/voice/transcribe")) {
+      languages.push(r.postDataBuffer()?.toString().match(/name="language"\r\n\r\n([^\r]+)/)?.[1] ?? "missing");
+    }
+  });
+  await page.goto(`/ar?project=${a.project.id}`);
+  await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
+  await page.getByRole("checkbox", { name: /I agree to local voice/ }).check();
+  const language = page.getByRole("combobox", { name: "Voice language" });
+  const record = page.getByRole("button", { name: /Record one command/ });
+  queue.push("Next step");
+  await record.click();
+  await expect(record).toBeDisabled();
+  await expect(language).toBeDisabled();
+  await expect(page.getByRole("heading", { name: "Step 2 — Second" })).toBeVisible({ timeout: 15000 });
+  await expect(record).toBeEnabled();
+  await language.selectOption("de-DE");
+  queue.push("Next step"); // Matcher/dispatch is tested here; real Whisper is a separate test.
+  await record.click();
+  await expect(page.getByRole("heading", { name: "Step 3 — Third" })).toBeVisible({ timeout: 15000 });
+  await expectDiag(page, "SUCCESS");
+  expect(languages).toEqual(["en", "de"]);
+  expect(state.transcribes).toBe(2);
+  expect(navigationWrites).toBe(2);
+});

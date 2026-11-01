@@ -476,8 +476,8 @@ Safe Whisper variants added (exact phrases only, frontend/backend parity
 fixture `voice-commands.json` asserted by tests on both sides):
 "previous steps", "go back", "back one step", "next steps", "go forward",
 "inspect step", "inspect again". Negated, ambiguous, joined or unrelated
-speech still executes nothing. Recording also stops ~0.7 s after speech
-ends instead of always waiting out the full window.
+speech still executes nothing. Recording uses the original fixed four-second
+window; the premature silence-based cutoff was reverted (see below).
 
 Automated end-to-end tests with mocked Whisper
 (`frontend/tests/voice-commands.spec.ts`) assert actual results — step,
@@ -486,3 +486,45 @@ exactly one inspection request for Verify Step, and microphone cleanup on
 Exit AR — for every command. Real-device retest still required: repeat the
 acceptance list above, especially "Previous Step" after "Next Step" and
 consecutive "Previous Step" commands.
+
+### Recording regression and restoration
+
+`e7f03b4` added an early stop after a buffer exceeded RMS 0.02 followed by
+roughly 700 ms below that threshold. A click, breath or pause between words
+could end capture before the command was complete. This was reproduced by
+replaying identical generated English/German speech through the recorders
+from `4cd9848`, `e7f03b4`, and the correction, then running the actual locally
+installed whisper.cpp `ggml-base.bin` model:
+
+| Input after a short initial noise | Original / restored capture (~3.93 s of PCM) | Regressed capture (~0.85 s of PCM) |
+| --- | --- | --- |
+| Next step | Next step → next | [Music] → rejected |
+| Exit A R | Exit AR → exit | [Music] → rejected |
+| Nächster Schritt (de) | Nächster Schritt → next | *Klingel* → rejected |
+
+This is generated speech with simulated WebAudio delivery and **real Whisper
+inference**, not a physical headset recording. It proves the reproducible
+cutoff defect, not general HoloLens recognition accuracy. The Whisper engine,
+model selection, resampling and command allowlist are unchanged.
+
+The full four-second recording window is restored. One operation now owns
+session creation, capture, transcription and execution; overlapping clicks
+cannot capture the same utterance twice. A later intentional utterance remains
+valid without a same-action cooldown. Stop cancels capture, revokes late
+sessions, and ignores late transcription responses. The shared matcher remains
+strict; a backend replacement phrase cannot override rejected raw speech.
+
+Select English for "Next Step" / "Exit AR" and Deutsch for German commands.
+The language selector is shared by both voice modes, locked during a local
+operation, and applied freshly on the next one-command recording. The page
+shows the current recording/processing stage and retains transcript, matched
+action, execution result and rejection reason in temporary UI state. Speech
+during processing is not captured: wait for the next Listening window.
+
+Physical HoloLens acceptance remains required: Next → Next → Previous,
+Next/Previous at boundaries, Exit AR, a command after a breath/pause,
+unknown/negated speech (no action), and Stop while processing (no late action).
+Confirm one transition per completed command and report the displayed raw
+transcript and rejection reason for any failure. Recheck the existing camera
+and Meta Inspect flow on the device; no camera/inspection implementation is
+changed by this restoration.

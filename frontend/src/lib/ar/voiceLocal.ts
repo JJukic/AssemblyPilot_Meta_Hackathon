@@ -102,7 +102,7 @@ export interface RecordedClip {
 export interface LocalVoiceDeps {
   api?: VoiceApi;
   /** Record one bounded clip. Default uses getUserMedia + WebAudio in-browser. */
-  recordClip?: (maxMs: number) => Promise<RecordedClip>;
+  recordClip?: (maxMs: number, signal?: AbortSignal) => Promise<RecordedClip>;
   onCommand: (cmd: MatchedCommand) => Promise<ExecutionOutcome | void>;
   onDiagnostic?: (diagnostic: CommandDiagnostic) => void;
   onStatus?: (status: string) => void;
@@ -123,6 +123,10 @@ export class LocalVoiceController {
   private api: VoiceApi;
   private token: string | null = null;
   private running = false;
+  private starting = false;
+  private busy = false;
+  private generation = 0;
+  private recording: AbortController | null = null;
   private clipCleanup: (() => void) | null = null;
   private failures = 0;
   constructor(private deps: LocalVoiceDeps) {
@@ -131,48 +135,75 @@ export class LocalVoiceController {
   get isListening() {
     return this.running;
   }
-  async start(): Promise<boolean> {
-    if (this.running) return true;
+  get isBusy() { return this.running || this.starting || this.busy; }
+  private async openSession(epoch: number): Promise<boolean> {
+    if (this.token) return true;
     try {
       const session = await this.api.createSession();
+      if (epoch !== this.generation) {
+        void this.api.revokeSession(session.token);
+        return false;
+      }
       this.token = session.token;
+      return true;
     } catch {
-      this.deps.onError?.("Could not start a local voice session. Check the backend connection.");
+      if (epoch === this.generation)
+        this.deps.onError?.("Could not start a local voice session. Check the backend connection.");
       return false;
     }
+  }
+  async start(): Promise<boolean> {
+    if (this.running) return true;
+    if (this.isBusy) return false;
+    this.starting = true;
+    const epoch = this.generation;
+    try {
+      if (!await this.openSession(epoch)) return false;
+    } finally {
+      this.starting = false;
+    }
+    if (epoch !== this.generation) return false;
     this.running = true;
     this.failures = 0;
     this.deps.onListeningChange?.(true);
-    void this.loop();
+    void this.loop(epoch);
     return true;
   }
   /** One explicit push-to-talk clip (also used as the bounded-window fallback). */
   async recordOnce(): Promise<void> {
-    if (!this.token) {
-      const session = await this.api.createSession().catch(() => null);
-      if (!session) {
-        this.deps.onError?.("Could not start a local voice session.");
-        return;
-      }
-      this.token = session.token;
+    if (this.isBusy) {
+      this.deps.onStatus?.("A voice command is already recording, processing or executing. Wait for the next listening window.");
+      return;
     }
-    await this.processOneClip();
+    await this.runClip(this.generation);
   }
-  private async loop() {
-    while (this.running) {
-      const keepGoing = await this.processOneClip();
+  private async loop(epoch: number) {
+    while (this.running && epoch === this.generation) {
+      const keepGoing = await this.runClip(epoch);
       if (!keepGoing) break;
       if (this.running) await new Promise((r) => setTimeout(r, 350));
     }
-    if (this.running) this.stop();
+    if (this.running && epoch === this.generation) this.stop();
   }
-  private async processOneClip(): Promise<boolean> {
-    if (!this.token) return false;
-    let clip: RecordedClip;
+  private async runClip(epoch: number): Promise<boolean> {
+    if (this.busy || epoch !== this.generation) return false;
+    this.busy = true;
     try {
-      this.deps.onStatus?.("Listening… speak a command (e.g. “Next step”).");
-      clip = await (this.deps.recordClip ?? recordMicClip)(this.deps.windowMs ?? 4000);
+      if (!await this.openSession(epoch)) return false;
+      return await this.processOneClip(epoch);
+    } finally { this.busy = false; }
+  }
+  private async processOneClip(epoch: number): Promise<boolean> {
+    if (!this.token) return false;
+    const token = this.token;
+    let clip: RecordedClip;
+    const recording = new AbortController();
+    this.recording = recording;
+    try {
+      this.deps.onStatus?.(`Listening (${this.deps.language ?? "en"})… speak one complete command during this four-second window.`);
+      clip = await (this.deps.recordClip ?? recordMicClip)(this.deps.windowMs ?? 4000, recording.signal);
     } catch (cause) {
+      if (epoch !== this.generation) return false;
       const name = (cause as { name?: string } | null)?.name ?? "";
       this.deps.onError?.(
         name === "NotAllowedError"
@@ -180,21 +211,26 @@ export class LocalVoiceController {
           : "Microphone is unavailable on this device/browser.",
       );
       return false; // permission/device errors never loop
+    } finally {
+      if (this.recording === recording) this.recording = null;
     }
     this.clipCleanup = clip.cleanup;
     try {
+      clip.cleanup(); // Capture ends before waiting for Whisper or dispatch.
+      if (epoch !== this.generation) return false;
       const samples = downsample(clip.samples, clip.sampleRate, 16000);
       if (rms(samples) < SILENCE_RMS) {
         this.deps.onStatus?.("Listening… no speech heard in that window.");
         return true;
       }
       const wav = encodeWav(samples, 16000);
-      this.deps.onStatus?.("Processing locally on your Mac…");
+      this.deps.onStatus?.(`Processing ${(samples.length / 16000).toFixed(1)} s locally (${this.deps.language ?? "en"}) — wait before the next command.`);
       const result = await this.api.transcribe(
         new Blob([wav.buffer as ArrayBuffer], { type: "audio/wav" }),
-        this.token,
+        token,
         this.deps.language ?? "en",
       );
+      if (epoch !== this.generation) return false;
       this.failures = 0;
       if (!result.matched || !result.action) {
         // Empty transcripts (silence) never overwrite a real command result.
@@ -212,11 +248,9 @@ export class LocalVoiceController {
         phrase: result.phrase ?? result.transcript,
         language: result.language === "de" ? "de" : "en",
       };
-      // Second, consistent guard: the frontend matcher must agree with the
-      // backend action for the transcript (or its normalized phrase).
-      const localMatch =
-        matchCommand(result.transcript) ??
-        (result.phrase ? matchCommand(result.phrase) : null);
+      // Validate the actual transcript, never a backend-supplied replacement
+      // phrase that could hide negation or unrelated speech.
+      const localMatch = matchCommand(result.transcript);
       if (!localMatch || localMatch.action !== matched.action) {
         this.deps.onDiagnostic?.({
           transcript: result.transcript,
@@ -264,6 +298,7 @@ export class LocalVoiceController {
       }
       return true;
     } catch (cause) {
+      if (epoch !== this.generation) return false;
       this.failures++;
       this.deps.onError?.(
         `Local voice failed (${this.failures}/3): ${cause instanceof Error ? cause.message : "backend unavailable"}`,
@@ -275,7 +310,10 @@ export class LocalVoiceController {
     }
   }
   stop() {
+    this.generation++;
     this.running = false;
+    this.recording?.abort();
+    this.recording = null;
     this.gate.reset();
     this.clipCleanup?.();
     this.clipCleanup = null;
@@ -293,59 +331,53 @@ export class LocalVoiceController {
 }
 
 /** Browser recorder: getUserMedia + AudioContext -> one bounded PCM clip. */
-export async function recordMicClip(maxMs: number): Promise<RecordedClip> {
+export async function recordMicClip(maxMs: number, signal?: AbortSignal): Promise<RecordedClip> {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone unavailable");
+  if (signal?.aborted) throw new DOMException("Recording cancelled", "AbortError");
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   const AudioCtor: typeof AudioContext =
     window.AudioContext ??
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  const context = new AudioCtor();
-  const source = context.createMediaStreamSource(stream);
-  const processor = context.createScriptProcessor(4096, 1, 1);
-  const chunks: Float32Array[] = [];
-  // Voice-activity early stop: finish ~0.7 s after speech ends instead of
-  // always waiting out the full bounded window (lower latency, less overlap).
-  const chunkMs = (4096 / context.sampleRate) * 1000;
-  let heardSpeech = false;
-  let silentChunks = 0;
-  let finish: (() => void) | null = null;
-  processor.onaudioprocess = (event) => {
-    const data = new Float32Array(event.inputBuffer.getChannelData(0));
-    chunks.push(data);
-    if (rms(data) > 0.02) {
-      heardSpeech = true;
-      silentChunks = 0;
-    } else if (heardSpeech) {
-      silentChunks++;
-      if (silentChunks * chunkMs > 700) finish?.();
-    }
-  };
-  source.connect(processor);
-  processor.connect(context.destination);
+  let context: AudioContext | undefined;
+  let source: MediaStreamAudioSourceNode | undefined;
+  let processor: ScriptProcessorNode | undefined;
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
     try {
-      processor.disconnect();
-      source.disconnect();
+      processor?.disconnect();
+      source?.disconnect();
     } catch {
       /* already disconnected */
     }
     stream.getTracks().forEach((track) => track.stop());
-    void context.close().catch(() => {});
+    void context?.close().catch(() => {});
   };
-  await new Promise<void>((resolve) => {
-    finish = resolve;
-    setTimeout(resolve, maxMs);
-  });
-  const total = chunks.reduce((n, c) => n + c.length, 0);
-  const samples = new Float32Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    samples.set(chunk, offset);
-    offset += chunk.length;
+  try {
+    if (signal?.aborted) throw new DOMException("Recording cancelled", "AbortError");
+    context = new AudioCtor();
+    source = context.createMediaStreamSource(stream);
+    processor = context.createScriptProcessor(4096, 1, 1);
+    const chunks: Float32Array[] = [];
+    processor.onaudioprocess = (event) => {
+      if (!cleaned) chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+    };
+    source.connect(processor);
+    processor.connect(context.destination);
+    // Restore the known working bounded window. A click/breath or quiet
+    // syllable must not close the clip before the command is complete.
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(new DOMException("Recording cancelled", "AbortError")); };
+      const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, maxMs);
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+    const total = chunks.reduce((n, c) => n + c.length, 0);
+    const samples = new Float32Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { samples.set(chunk, offset); offset += chunk.length; }
+    return { samples, sampleRate: context.sampleRate, stream, cleanup };
+  } finally {
+    cleanup();
   }
-  // Stream stays open only for this clip; cleanup is called by the controller.
-  return { samples, sampleRate: context.sampleRate, stream, cleanup };
 }
