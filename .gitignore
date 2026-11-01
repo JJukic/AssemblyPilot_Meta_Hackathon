@@ -18,6 +18,7 @@ htmlcov/
 playwright-report/
 test-results/
 .DS_Store
+.local-https/
 next-env.d.ts
 
 # Local registry data and reference photos
