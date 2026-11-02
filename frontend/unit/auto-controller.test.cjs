@@ -51,7 +51,7 @@ function harness(over = {}) {
       frame: { snapshot: { dataUrl: "data:image/jpeg;base64,AA", width: 1280, height: 720, capturedAt: "x" }, clock: env.lastClock, reason: "best of 4", roiPx: { x: 0, y: 0, w: 1, h: 1 }, sharpness: 100 },
     },
     inspect: async (intent, frame, stepId) => {
-      env.calls.push({ intent, stepId, clock: frame.clock });
+      env.calls.push({ intent, stepId, clock: frame.clock, t: env.t });
       return typeof env.respond === "function" ? env.respond(intent, stepId) : env.respond;
     },
     context: () => ({ ...env.ctx }),
@@ -221,8 +221,9 @@ test("errors back off; frame-selection rejection spends no budget; manual inspec
   assert.equal(env.calls.length, 1);
   assert.match(last(env).headline, /TRANSPORT ERROR/);
   env.scene = block(world, 70, 60, 10, 8);
-  await tick(3);
-  assert.equal(env.calls.length, 1, "no immediate retry after a failure");
+  await tick(12);
+  assert.equal(env.calls.length, 2, "the real change is retried after the back-off");
+  assert.ok(env.calls[1].t - env.calls[0].t >= 2000, "no retry before the back-off expired");
 });
 
 test("Inspect Now bypasses only the cooldown — never budgets or single flight", async () => {

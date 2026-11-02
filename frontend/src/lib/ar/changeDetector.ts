@@ -60,17 +60,17 @@ export interface DetectorConfig {
 
 export const DEFAULT_DETECTOR: DetectorConfig = {
   roi: CENTER_ROI,
-  motionShift: 6,
+  motionShift: 8,
   baselineShift: 10,
   pixelThreshold: 0.14,
-  stableSamples: 3,
+  stableSamples: 2,
   activityFraction: 0.02,
-  movingBackground: 0.05,
+  movingBackground: 0.08,
   changeFraction: 0.004,
   minChangedPixels: 5,
-  movingShift: 8,
-  stillRoi: 0.01,
-  stillBackground: 0.02,
+  movingShift: 12,
+  stillRoi: 0.03,
+  stillBackground: 0.05,
   alignBackground: 0.06,
 };
 
