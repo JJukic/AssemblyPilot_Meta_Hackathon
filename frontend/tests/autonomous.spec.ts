@@ -50,11 +50,12 @@ test("autonomous monitoring never inspects an unchanged scene; Inspect Now makes
   await page.goto(`/ar?project=${project.id}`);
   await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
   await page.getByRole("button", { name: "Start Autonomous Assembly" }).click();
-  await expect(autoStatus(page)).toContainText("monitoring active", { timeout: 20000 });
+  await expect(autoStatus(page)).toContainText("Watching for physical assembly changes", { timeout: 20000 });
   await page.waitForTimeout(3000);
   expect(state.inspects).toBe(0);
   await page.getByRole("button", { name: "Inspect Now" }).click();
-  await expect(autoStatus(page)).toContainText("Inspection failed", { timeout: 20000 });
+  // 422 from the mocked backend is a REJECTED request — never a visual verdict.
+  await expect(autoStatus(page)).toContainText("REQUEST REJECTED", { timeout: 20000 });
   expect(state.inspects).toBe(1);
   // Transport failure must be diagnosable as "Meta not successfully assessed",
   // never as a genuine uncertain visual judgment.
@@ -77,7 +78,7 @@ test("manual camera mode enables autonomous advance watching without continuous 
   await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
   await page.getByLabel(/Camera source/).selectOption("manual");
   await page.getByRole("button", { name: "Start Autonomous Assembly" }).click();
-  await expect(autoStatus(page)).toContainText("Manual camera mode", { timeout: 15000 });
+  await expect(autoStatus(page)).toContainText("MANUAL CAMERA MODE", { timeout: 15000 });
   await page.getByRole("button", { name: "Stop Autonomous Assembly" }).click();
   await expect(autoStatus(page)).toContainText("stopped");
 });
@@ -90,7 +91,7 @@ test("initial assessment: already-placed stable construction is assessed once, n
   await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
   await page.getByLabel(/Assess blocks already placed/).check();
   await page.getByRole("button", { name: "Start Autonomous Assembly" }).click();
-  await expect(autoStatus(page)).toContainText("monitoring active", { timeout: 20000 });
+  await expect(autoStatus(page)).toContainText("Watching for physical assembly changes", { timeout: 20000 });
   await expect.poll(() => state.inspects, { timeout: 20000 }).toBe(1);
   await page.waitForTimeout(3000);
   expect(state.inspects).toBe(1);

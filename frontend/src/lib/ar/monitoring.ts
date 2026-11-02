@@ -1,138 +1,16 @@
 /**
- * Lightweight local frame gate for continuous monitoring (pure).
+ * Camera capability, frame quality and burst frame selection (pure).
  *
- * The browser computes cheap per-sample statistics from a downscaled
- * frame; this gate decides whether a Meta inspection is justified.
- * It never decides correctness. No frames are stored here — only the
- * last hash and scalar statistics (bounded memory).
+ * Change detection lives in changeDetector.ts. Nothing here stores image
+ * data beyond the arguments it is given.
  */
 
+/** Minimal per-sample record used by the freshness probe. */
 export interface FrameSample {
-  /** FNV-style hash of the downscaled frame; identical frame => identical hash. */
   hash: string;
-  /** Mean absolute difference inside the assembly ROI, 0..1. */
-  roiDiff: number;
-  /** Mean absolute difference outside the ROI, 0..1 (camera-motion signal). */
-  outsideDiff: number;
-  /** Sharpness estimate (higher is sharper). */
-  sharpness: number;
-  /** Video frame clock (e.g. HTMLVideoElement.currentTime); must advance. */
+  /** Video frame clock; must advance for a live camera. */
   frameTime: number;
-  /** Wall-clock timestamp ms. */
   at: number;
-  occluded?: boolean;
-}
-
-export interface FrameGateConfig {
-  changeThreshold: number;
-  stableThreshold: number;
-  cameraMoveThreshold: number;
-  minSharpness: number;
-  stableSamples: number;
-}
-
-export const DEFAULT_GATE: FrameGateConfig = {
-  changeThreshold: 0.03,
-  stableThreshold: 0.008,
-  cameraMoveThreshold: 0.04,
-  minSharpness: 4,
-  stableSamples: 3,
-};
-
-export type GateDecision =
-  | { kind: "unchanged" }
-  | { kind: "frozen"; reason: string }
-  | { kind: "camera-moved" }
-  | { kind: "occluded" }
-  | { kind: "blurry" }
-  | { kind: "changed" }
-  | { kind: "stabilizing"; stableCount: number }
-  | { kind: "qualified"; hash: string };
-
-export class FrameGate {
-  private prev: FrameSample | null = null;
-  private changed = false;
-  private stableCount = 0;
-  private lastFrameTime: number | null = null;
-  private inspectedHash: string | null = null;
-  private armed = true;
-  constructor(private config: FrameGateConfig = DEFAULT_GATE) {}
-
-  reset() {
-    this.prev = null;
-    this.changed = false;
-    this.stableCount = 0;
-    this.lastFrameTime = null;
-    this.armed = true;
-  }
-
-  /** Mark a frame as sent for inspection; it can never qualify again. */
-  noteInspected(hash: string) {
-    this.inspectedHash = hash;
-    this.armed = false;
-    this.changed = false;
-    this.stableCount = 0;
-  }
-
-  assess(sample: FrameSample): GateDecision {
-    if (this.lastFrameTime !== null && sample.frameTime <= this.lastFrameTime) {
-      return { kind: "frozen", reason: "Camera frame time is not advancing (stalled or frozen track)" };
-    }
-    this.lastFrameTime = sample.frameTime;
-    const prev = this.prev;
-    this.prev = sample;
-    if (!prev) return { kind: "unchanged" };
-    if (sample.hash === this.inspectedHash) return { kind: "unchanged" };
-    if (sample.occluded) {
-      this.stableCount = 0;
-      return { kind: "occluded" };
-    }
-    // Camera movement moves the whole image; an assembly change is local.
-    if (
-      sample.outsideDiff >= this.config.cameraMoveThreshold &&
-      sample.outsideDiff >= sample.roiDiff * 0.9
-    ) {
-      this.changed = false;
-      this.stableCount = 0;
-      return { kind: "camera-moved" };
-    }
-    if (!this.changed) {
-      if (sample.roiDiff < this.config.changeThreshold) return { kind: "unchanged" };
-      if (sample.sharpness < this.config.minSharpness) return { kind: "blurry" };
-      this.changed = true;
-      this.armed = true;
-      this.stableCount = 0;
-      return { kind: "changed" };
-    }
-    // Changed: wait for stillness (hysteresis), sharpness and visibility.
-    if (sample.roiDiff <= this.config.stableThreshold) {
-      if (sample.sharpness < this.config.minSharpness) {
-        this.stableCount = 0;
-        return { kind: "blurry" };
-      }
-      this.stableCount++;
-      if (this.armed && this.stableCount >= this.config.stableSamples) {
-        this.armed = false;
-        return { kind: "qualified", hash: sample.hash };
-      }
-      return { kind: "stabilizing", stableCount: this.stableCount };
-    }
-    this.stableCount = 0;
-    return { kind: "stabilizing", stableCount: 0 };
-  }
-
-  /**
-   * A genuinely fresh frame for verification: new frame clock, not the
-   * inspected hash, sharp and still — no assembly change required.
-   */
-  freshFrame(sample: FrameSample): boolean {
-    return (
-      sample.hash !== this.inspectedHash &&
-      sample.sharpness >= this.config.minSharpness &&
-      !sample.occluded &&
-      sample.roiDiff <= this.config.stableThreshold * 2
-    );
-  }
 }
 
 /* ---------------- Camera + WebXR capability assessment ---------------- */
@@ -246,134 +124,93 @@ export function classifyUncertain(input: {
   return { cause: "none", reason: "" };
 }
 
-/* --------- Global-motion compensation on downscaled gray frames --------- */
+/* ---------------- Burst frame selection ---------------- */
 
-export interface RoiRect { x0: number; y0: number; x1: number; y1: number }
-
-/**
- * Best integer translation of `curr` relative to `prev` (searched on a
- * stride-2 grid). Head sway mostly translates the whole image; aligning
- * by this shift removes that global motion before local diffing. This
- * is a cheap registration, not a claim of exact camera calibration.
- */
-export function estimateGlobalShift(
-  prev: Uint8Array, curr: Uint8Array, w: number, h: number, maxShift = 3,
-): { dx: number; dy: number; alignedDiff: number } {
-  let best = { dx: 0, dy: 0, alignedDiff: Number.POSITIVE_INFINITY };
-  for (let dy = -maxShift; dy <= maxShift; dy++) {
-    for (let dx = -maxShift; dx <= maxShift; dx++) {
-      let sum = 0, n = 0;
-      for (let y = 2; y < h - 2; y += 2) {
-        for (let x = 2; x < w - 2; x += 2) {
-          const cx = x + dx, cy = y + dy;
-          if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
-          sum += Math.abs(curr[cy * w + cx] - prev[y * w + x]) / 255;
-          n++;
-        }
-      }
-      const diff = n ? sum / n : 1;
-      if (diff < best.alignedDiff) best = { dx, dy, alignedDiff: diff };
-    }
-  }
-  return best;
-}
-
-/** ROI/outside diffs AFTER compensating the estimated global shift. */
-export function alignedDiffs(
-  prev: Uint8Array, curr: Uint8Array, w: number, h: number, roi: RoiRect,
-): { dx: number; dy: number; roiDiff: number; outsideDiff: number } {
-  const { dx, dy } = estimateGlobalShift(prev, curr, w, h);
-  // Global exposure/lighting shift is not an assembly change: estimate
-  // and remove the mean brightness delta before diffing.
-  let deltaSum = 0, deltaN = 0;
-  for (let y = 0; y < h; y += 2) {
-    for (let x = 0; x < w; x += 2) {
-      const cx = x + dx, cy = y + dy;
-      if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
-      deltaSum += curr[cy * w + cx] - prev[y * w + x];
-      deltaN++;
-    }
-  }
-  const meanDelta = deltaN ? deltaSum / deltaN : 0;
-  let roiSum = 0, roiN = 0, outSum = 0, outN = 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const cx = x + dx, cy = y + dy;
-      if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
-      const d = Math.abs(curr[cy * w + cx] - meanDelta - prev[y * w + x]) / 255;
-      if (x >= roi.x0 && x < roi.x1 && y >= roi.y0 && y < roi.y1) { roiSum += d; roiN++; }
-      else { outSum += d; outN++; }
-    }
-  }
-  return {
-    dx, dy,
-    roiDiff: roiN ? roiSum / roiN : 0,
-    outsideDiff: outN ? outSum / outN : 0,
-  };
-}
-
-/** Normalized bounding box of locally changed pixels (after alignment). */
-export function diffBoundingBox(
-  prev: Uint8Array, curr: Uint8Array, w: number, h: number,
-  threshold = 0.12, dx = 0, dy = 0,
-): { x: number; y: number; w: number; h: number; fraction: number } | null {
-  let minX = w, minY = h, maxX = -1, maxY = -1, count = 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const cx = x + dx, cy = y + dy;
-      if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
-      if (Math.abs(curr[cy * w + cx] - prev[y * w + x]) / 255 > threshold) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        count++;
-      }
-    }
-  }
-  if (maxX < 0 || count < 8) return null;
-  return {
-    x: minX / w, y: minY / h,
-    w: (maxX - minX + 1) / w, h: (maxY - minY + 1) / h,
-    fraction: count / (w * h),
-  };
-}
-
-/* ---------------- Bounded best-frame selection ---------------- */
-
-export interface FrameCandidate {
-  at: number;
-  frameTime: number;
-  hash: string;
+export interface CandidateStats {
+  /** Camera frame clock of this candidate. */
+  clock: number;
+  /** Variance of the 4-neighbour Laplacian over the ROI (focus / motion blur). */
   sharpness: number;
   meanBrightness: number;
-  roiDiff: number;
+  /** Standard deviation of ROI luminance (content / contrast). */
+  contrast: number;
+  /** Fraction of ROI pixels near black or white. */
+  clipped: number;
 }
 
-export function frameQualityScore(c: FrameCandidate): number {
-  const sharp = Math.min(1, c.sharpness / 40);
-  const exposure = 1 - Math.min(1, Math.abs(c.meanBrightness - 128) / 128);
-  const still = 1 - Math.min(1, c.roiDiff / 0.05);
-  return sharp * 0.55 + exposure * 0.25 + still * 0.2;
-}
-
-/** Small ring of recent candidate metadata — never stores image data. */
-export class BestFrameWindow {
-  private items: FrameCandidate[] = [];
-  constructor(private capacity = 10) {}
-  add(c: FrameCandidate) {
-    this.items.push(c);
-    if (this.items.length > this.capacity) this.items.shift();
+/** Statistics of one candidate from its ROI luminance. */
+export function candidateStats(gray: ArrayLike<number>, w: number, h: number, clock: number): CandidateStats {
+  let sum = 0, sq = 0, clipped = 0;
+  const n = w * h;
+  for (let i = 0; i < n; i++) {
+    const v = gray[i];
+    sum += v;
+    sq += v * v;
+    if (v <= 6 || v >= 249) clipped++;
   }
-  get size() { return this.items.length; }
-  best(minScore = 0.35): FrameCandidate | null {
-    let winner: FrameCandidate | null = null;
-    let score = -1;
-    for (const item of this.items) {
-      const s = frameQualityScore(item);
-      if (s > score) { score = s; winner = item; }
+  const mean = n ? sum / n : 0;
+  const contrast = n ? Math.sqrt(Math.max(0, sq / n - mean * mean)) : 0;
+  let ls = 0, lsq = 0, ln = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const lap = gray[i - 1] + gray[i + 1] + gray[i - w] + gray[i + w] - 4 * gray[i];
+      ls += lap;
+      lsq += lap * lap;
+      ln++;
     }
-    return winner && score >= minScore ? winner : null;
   }
-  clear() { this.items = []; }
+  const lm = ln ? ls / ln : 0;
+  return { clock, sharpness: ln ? lsq / ln - lm * lm : 0, meanBrightness: mean, contrast, clipped: n ? clipped / n : 1 };
+}
+
+/** Why a single candidate is unusable, or null when usable. */
+export function candidateDefect(c: CandidateStats): string | null {
+  if (c.meanBrightness < 18) return "too dark";
+  if (c.meanBrightness > 240) return "overexposed";
+  if (c.contrast < 6) return "no visible content (uniform frame)";
+  if (c.clipped > 0.35) return "large clipped (black/white) area";
+  return null;
+}
+
+/**
+ * Pick the most suitable candidate: fresh (newer than the last sent frame,
+ * no duplicate clocks), not defective, then highest relative sharpness,
+ * exposure and contrast. Sharpness is ranked RELATIVE to the burst so a
+ * low-texture tabletop is never rejected outright (no deadlock); only
+ * reliably broken frames are rejected.
+ */
+export function pickBestCandidate(
+  candidates: CandidateStats[],
+  minClock = Number.NEGATIVE_INFINITY,
+): { ok: true; index: number; reason: string } | { ok: false; reason: string } {
+  const seen = new Set<number>();
+  const usable: { c: CandidateStats; i: number }[] = [];
+  const defects: string[] = [];
+  candidates.forEach((c, i) => {
+    if (!(c.clock > minClock)) { defects.push("not newer than the last sent frame"); return; }
+    if (seen.has(c.clock)) { defects.push("duplicate frame"); return; }
+    seen.add(c.clock);
+    const defect = candidateDefect(c);
+    if (defect) defects.push(defect);
+    else usable.push({ c, i });
+  });
+  if (!usable.length) {
+    const reason = defects.length ? Array.from(new Set(defects)).join(", ") : "no candidate frames";
+    return { ok: false, reason: `No usable fresh frame in the burst (${reason}).` };
+  }
+  const maxSharp = Math.max(...usable.map((u) => u.c.sharpness), 1e-6);
+  let best = usable[0], bestScore = -1;
+  for (const u of usable) {
+    const score = 0.6 * (u.c.sharpness / maxSharp)
+      + 0.25 * (1 - Math.min(1, Math.abs(u.c.meanBrightness - 128) / 128))
+      + 0.15 * Math.min(1, u.c.contrast / 50);
+    if (score > bestScore) { bestScore = score; best = u; }
+  }
+  const others = usable.filter((u) => u !== best).map((u) => u.c.sharpness.toFixed(0));
+  return {
+    ok: true,
+    index: best.i,
+    reason: `best of ${candidates.length}: sharpness ${best.c.sharpness.toFixed(0)}${others.length ? ` (others ${others.join(", ")})` : ""}, brightness ${best.c.meanBrightness.toFixed(0)}, contrast ${best.c.contrast.toFixed(0)}${defects.length ? `; rejected ${defects.length} (${Array.from(new Set(defects)).join(", ")})` : ""}`,
+  };
 }

@@ -160,7 +160,7 @@ async function setup(session = new Session()) {
   });
   return { runtime, session, messages, actions, ended: () => ended };
 }
-test("mocked XR renderer lifecycle: manual local origin stays fixed under head movement; tracking loss requires confirmation", async () => {
+test("mocked XR renderer lifecycle: origin stays fixed under head movement; a head-tracking dropout keeps the placement", async () => {
   const { runtime, session, ended } = await setup();
   assert.equal(renderer.xr.enabled, true);
   runtime.frame(0, frame());
@@ -169,13 +169,19 @@ test("mocked XR renderer lifecycle: manual local origin stays fixed under head m
   const origin = runtime.origin.matrix.clone();
   runtime.frame(2, frame(0.4));
   assert.deepEqual(runtime.origin.matrix.elements, origin.elements);
+  // HoloLens regression: a missing viewer pose used to reset() the field.
   runtime.frame(3, { getViewerPose: () => null });
-  assert.equal(runtime.origin.visible, false);
-  assert.equal(runtime.selected, false);
+  assert.equal(runtime.selected, true, "placement survives a viewer-pose dropout");
   runtime.frame(4, frame(0.4));
-  assert.equal(runtime.selected, false);
+  assert.equal(runtime.selected, true);
+  assert.equal(runtime.origin.visible, true);
+  assert.deepEqual(runtime.origin.matrix.elements, origin.elements, "no relocation after recovery");
+  // Session-local (no native anchor) + reference reset: kept, marked LOST, never relocated.
   session.space.dispatchEvent(new Event("reset"));
-  assert.equal(runtime.candidateValid, false);
+  assert.equal(runtime.anchorState, "tracking_lost");
+  runtime.frame(5, frame(0.2));
+  assert.equal(runtime.origin.visible, true, "lost field stays visible (red), not silently deleted");
+  assert.deepEqual(runtime.origin.matrix.elements, origin.elements);
   await runtime.end();
   assert.equal(ended(), 1);
   assert.equal(renderer.disposed, true);
@@ -194,7 +200,9 @@ test("optional hit test failure falls back and missing geometry renders nothing"
     detail: "No model",
   });
   runtime.frame(0, frame());
-  assert.equal(runtime.origin.visible, false);
+  assert.equal(runtime.target, null, "no exact block is drawn without dimensions");
+  assert.equal(runtime.origin.visible, true, "the field preview itself never depends on step content");
+  assert.equal(runtime.fieldDiagnostics.stepContentAvailable, false);
   await session.end();
 });
 test("anchor creation, lost anchor, rejected anchors, and late anchors after reset are bounded", async () => {
@@ -226,7 +234,15 @@ test("anchor creation, lost anchor, rejected anchors, and late anchors after res
   assert.equal(runtime.origin.visible, true);
   assert.equal(runtime.anchorState, "tracking_degraded");
   for (let i = 0; i < 50; i++) runtime.frame(4 + i, { ...frame(), getPose: () => null });
-  assert.equal(runtime.selected, false);
+  assert.equal(runtime.anchorState, "tracking_lost");
+  assert.equal(runtime.selected, true, "sustained loss is explicit but never deletes the anchor");
+  assert.equal(deleted, 1);
+  assert.equal(runtime.origin.visible, true);
+  // The SAME anchor recovers by itself.
+  runtime.frame(60, { ...frame(), getPose: () => ({ transform: { matrix: runtime.fixed.toArray() } }) });
+  assert.equal(runtime.anchorState, "anchored");
+  // Explicit re-anchor is the only path that discards it.
+  runtime.reset();
   assert.equal(deleted, 2);
   runtime.frame(5, frame());
   runtime.confirming = true;
@@ -293,16 +309,27 @@ test("horizontal hit-test surface selection and input-driven navigation do not v
   await runtime.end();
 });
 
-test("visibility loss hides targets and a new session starts with no old origin", async () => {
+test("HoloLens regression: visible-blurred (2D slate / permission prompt) keeps the anchored field; new session starts clean", async () => {
   const first = await setup();
   first.runtime.frame(0, frame());
   first.runtime.confirming = true;
   first.runtime.frame(1, frame());
+  const pose = first.runtime.origin.matrix.clone();
   first.session.visibilityState = "visible-blurred";
   first.session.dispatchEvent(new Event("visibilitychange"));
-  first.runtime.frame(2, frame());
-  assert.equal(first.runtime.origin.visible, false);
-  assert.equal(first.runtime.selected, false);
+  first.runtime.frame(2, frame(0.3));
+  assert.equal(first.runtime.selected, true);
+  assert.equal(first.runtime.origin.visible, true);
+  assert.equal(first.runtime.fieldDiagnostics.fieldRendered, true);
+  assert.equal(first.runtime.fieldDiagnostics.visibilityState, "visible-blurred");
+  assert.deepEqual(first.runtime.origin.matrix.elements, pose.elements);
+  first.session.visibilityState = "hidden";
+  first.session.dispatchEvent(new Event("visibilitychange"));
+  first.session.visibilityState = "visible";
+  first.session.dispatchEvent(new Event("visibilitychange"));
+  first.runtime.frame(3, frame());
+  assert.equal(first.runtime.selected, true);
+  assert.deepEqual(first.runtime.origin.matrix.elements, pose.elements);
   await first.runtime.end();
   const second = await setup();
   assert.equal(second.runtime.selected, false);
@@ -367,4 +394,167 @@ test("phase6.2 XR panel renders the real result headline, issue and fix in resul
   runtime.setViewMode("guide");
   assert.equal(runtime.panelViewMode, "guide");
   await runtime.end();
+});
+
+/* ---------- Spatial field lifecycle regression suite (HoloLens field-disappearance bug) ---------- */
+const sceneHas = (runtime, name) => {
+  let found = false;
+  runtime.scene.traverse((o) => { if (o.name === name) found = true; });
+  return found;
+};
+const hitFrame = (y = 0.8, x = 0) => ({
+  ...frame(),
+  getHitTestResults: () => [{ getPose: () => ({ transform: { matrix: new THREE.Matrix4().makeTranslation(x, y, -0.6).toArray() } }) }],
+});
+async function anchoredSetup() {
+  const ctx = await setup();
+  const anchor = { delete() { this.deleted = (this.deleted ?? 0) + 1; }, anchorSpace: {} };
+  ctx.anchor = anchor;
+  ctx.runtime.hit = { cancel() {} };
+  ctx.runtime.frame(0, hitFrame());
+  ctx.runtime.confirming = true;
+  ctx.runtime.frame(1, { ...hitFrame(), createAnchor: async () => anchor });
+  await Promise.resolve();
+  await Promise.resolve();
+  ctx.tracked = (head = 0) => ({ ...frame(head), getPose: () => ({ transform: { matrix: new THREE.Matrix4().makeTranslation(0, 0.8, -0.6).toArray() } }) });
+  return ctx;
+}
+
+test("lifecycle 1-3: field created on entry, preview visible, confirmation anchors it", async () => {
+  const { runtime } = await setup();
+  assert.ok(sceneHas(runtime, "assembly-field"), "field mesh exists from session start");
+  assert.equal(runtime.anchorState, "unplaced");
+  runtime.hit = { cancel() {} };
+  runtime.frame(0, hitFrame());
+  assert.equal(runtime.anchorState, "awaiting_confirmation");
+  assert.equal(runtime.origin.visible, true, "placement preview rendered");
+  assert.equal(runtime.fieldDiagnostics.placementMode, "surface");
+  runtime.confirmOrigin();
+  runtime.frame(1, hitFrame());
+  assert.equal(runtime.anchorState, "anchored");
+  assert.equal(runtime.fieldDiagnostics.fieldRendered, true);
+  assert.equal(runtime.fieldDiagnostics.transformValid, true);
+  await runtime.end();
+});
+
+test("lifecycle 4: head movement never moves the anchored field", async () => {
+  const { runtime, tracked } = await anchoredSetup();
+  const pose = runtime.origin.matrix.clone();
+  for (let i = 0; i < 20; i++) runtime.frame(2 + i, tracked(Math.sin(i) * 0.5));
+  assert.deepEqual(runtime.origin.matrix.elements, pose.elements);
+  await runtime.end();
+});
+
+test("lifecycle 5-7: autonomous start/pause/stop status updates and camera permission blur never touch the field", async () => {
+  const { runtime, session, tracked, anchor } = await anchoredSetup();
+  const pose = runtime.origin.matrix.clone();
+  const fieldGroup = runtime.fieldGroup;
+  for (const autoLabel of ["CAMERA STARTING — …", "MONITORING — Watching", "PAUSED — …", undefined]) {
+    // Starting the camera on HoloLens can show a permission prompt => visible-blurred.
+    session.visibilityState = autoLabel === "CAMERA STARTING — …" ? "visible-blurred" : "visible";
+    session.dispatchEvent(new Event("visibilitychange"));
+    runtime.update({ placement: placement(), text: "Step 1", detail: "", autoLabel, autoButton: "Pause" });
+    runtime.frame(10, tracked(0.2));
+    assert.equal(runtime.anchorState, "anchored");
+    assert.equal(runtime.fieldDiagnostics.fieldRendered, true, `field rendered (${autoLabel})`);
+    assert.equal(runtime.fieldGroup, fieldGroup, "field never rebuilt");
+    assert.deepEqual(runtime.origin.matrix.elements, pose.elements);
+  }
+  assert.equal(anchor.deleted ?? 0, 0, "anchor never deleted by autonomous mode");
+  await runtime.end();
+});
+
+test("lifecycle 8: step transition replaces only the step hologram, never the field or anchor", async () => {
+  const { runtime, tracked, anchor } = await anchoredSetup();
+  const pose = runtime.origin.matrix.clone();
+  const fieldGroup = runtime.fieldGroup;
+  const firstTarget = runtime.target;
+  runtime.update({ placement: null, text: "loading", detail: "" }); // navigate() clears step content first
+  runtime.frame(2, tracked());
+  assert.equal(runtime.fieldDiagnostics.fieldRendered, true, "field stays while the next step loads");
+  runtime.update({ placement: { ...placement(), position_m: [0.05, 0.0096, 0] }, text: "Step 2", detail: "" });
+  runtime.frame(3, tracked());
+  assert.notEqual(runtime.target, firstTarget);
+  assert.equal(runtime.fieldGroup, fieldGroup);
+  assert.deepEqual(runtime.origin.matrix.elements, pose.elements);
+  assert.equal(anchor.deleted ?? 0, 0);
+  // status-only updates do not churn the step hologram
+  const target = runtime.target;
+  runtime.update({ placement: { ...placement(), position_m: [0.05, 0.0096, 0] }, text: "Step 2", detail: "", autoLabel: "x" });
+  assert.equal(runtime.target, target);
+  await runtime.end();
+});
+
+test("lifecycle 9 + 11: Re-anchor after a placement shows a visible preview again and reconstructs the field", async () => {
+  const { runtime, tracked, anchor } = await anchoredSetup();
+  runtime.frame(2, tracked());
+  runtime.reset();
+  assert.equal(anchor.deleted, 1);
+  assert.equal(runtime.anchorState, "reanchoring");
+  runtime.frame(3, hitFrame(0.7, 0.1));
+  assert.equal(runtime.origin.visible, true, "preview reappears");
+  assert.equal(runtime.anchorState, "awaiting_confirmation");
+  runtime.confirmOrigin();
+  const second = { delete() {}, anchorSpace: {} };
+  runtime.frame(4, { ...hitFrame(0.7, 0.1), createAnchor: async () => second });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(runtime.anchor, second);
+  assert.equal(runtime.anchorState, "anchored");
+  assert.equal(runtime.fieldDiagnostics.fieldRendered, true);
+  assert.ok(Math.abs(runtime.origin.matrix.elements[13] - 0.7) < 1e-9, "new tabletop height adopted only after explicit confirm");
+  await runtime.end();
+});
+
+test("lifecycle 9b: Re-anchor with surface detection but no surface hits still shows a gaze preview (no dead end)", async () => {
+  const { runtime, tracked } = await anchoredSetup();
+  runtime.frame(2, tracked());
+  runtime.reset();
+  const empty = { ...frame(), getHitTestResults: () => [] };
+  for (let i = 0; i < 95; i++) runtime.frame(3 + i, empty);
+  assert.equal(runtime.origin.visible, true);
+  assert.equal(runtime.fieldDiagnostics.placementMode, "gaze");
+  runtime.confirmOrigin();
+  runtime.frame(200, empty);
+  assert.equal(runtime.anchorState, "anchored");
+  await runtime.end();
+});
+
+test("lifecycle 10: Re-anchor after tracking loss works and the old anchor is released", async () => {
+  const { runtime, anchor } = await anchoredSetup();
+  for (let i = 0; i < 60; i++) runtime.frame(2 + i, { ...frame(), getPose: () => null });
+  assert.equal(runtime.anchorState, "tracking_lost");
+  assert.match(runtime.fieldDiagnostics.lastEvent, /lost/);
+  runtime.reset();
+  assert.equal(anchor.deleted, 1);
+  runtime.frame(70, hitFrame());
+  runtime.confirmOrigin();
+  runtime.frame(71, hitFrame());
+  assert.equal(runtime.anchorState, "anchored");
+  assert.equal(runtime.origin.visible, true);
+  await runtime.end();
+});
+
+test("lifecycle 12: no unrelated scene disposal — panel, field and rays survive updates; end() disposes once", async () => {
+  const { runtime, tracked } = await anchoredSetup();
+  const panel = runtime.panel;
+  for (let i = 0; i < 5; i++) {
+    runtime.update({ placement: placement(), text: `t${i}`, detail: "", resultHeadline: "x", resultLines: ["a"] });
+    runtime.setViewMode(i % 2 ? "guide" : "result");
+    runtime.frame(2 + i, tracked());
+  }
+  assert.ok(runtime.scene.children.includes(panel));
+  assert.ok(sceneHas(runtime, "assembly-field"));
+  await runtime.end();
+  assert.equal(runtime.fieldDiagnostics.xrSessionActive, false);
+});
+
+test("panel Auto button exists in the first row, keeps a large EXIT, and dispatches the auto action", () => {
+  const { PANEL_BUTTONS, panelButtonAt } = require("../src/lib/ar/runtime.ts");
+  const auto = PANEL_BUTTONS.find((b) => b.id === "auto");
+  const exit = PANEL_BUTTONS.find((b) => b.id === "exit");
+  assert.ok(auto && auto.y === exit.y);
+  assert.equal(panelButtonAt(auto.x + 4, auto.y + 4).id, "auto");
+  assert.ok(exit.w >= 200);
+  assert.ok(PANEL_BUTTONS.every((b) => b.x + b.w <= 1024));
 });

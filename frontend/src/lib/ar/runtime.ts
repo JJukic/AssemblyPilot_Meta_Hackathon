@@ -3,7 +3,10 @@ import { disposeObject, ghost } from "./geometry";
 import type { Placement } from "./data";
 import { fitRect } from "./reference";
 import { paginate, verificationLabel, wrapText, type VerificationStatus } from "./panel";
-import { AnchorTracker, DEFAULT_FIELD, fieldCorners, type AssemblyFieldConfig } from "./field";
+import {
+  AnchorTracker, DEFAULT_FIELD, EMPTY_FIELD_DIAGNOSTICS, fieldCorners, fieldInView, fieldViewGeometry,
+  validPose, type AssemblyFieldConfig, type FieldDiagnostics,
+} from "./field";
 import {
   EMPTY_DIAGNOSTICS, SelectDebouncer, effectiveHover, rayEndpoint, uvToPanel,
   type InteractionDiagnostics,
@@ -23,7 +26,8 @@ export type Action =
   | "page"
   | "help"
   | "voice"
-  | "result";
+  | "result"
+  | "auto";
 export interface Guidance {
   placement: Placement | null;
   text: string;
@@ -38,6 +42,8 @@ export interface Guidance {
   voiceDetail?: string;
   anchorLabel?: string;
   autoLabel?: string;
+  /** Label for the in-AR Autonomous button (start / pause / resume). */
+  autoButton?: string;
   lastCommand?: string;
   diagnostic?: string;
   resultHeadline?: string;
@@ -57,26 +63,26 @@ export interface PanelButton {
   h: number;
   danger?: boolean;
 }
-function row(ids: [Action, string][], y: number, dangerLast = false): PanelButton[] {
+function row(ids: [Action, string, number?][], y: number, dangerLast = false): PanelButton[] {
   const gap = 8;
-  const w = Math.floor((PANEL_W - gap * (ids.length + 1)) / ids.length);
-  return ids.map(([id, label], i) => ({
-    id,
-    label,
-    x: gap + i * (w + gap),
-    y,
-    w,
-    h: 84,
-    danger: dangerLast && i === ids.length - 1,
-  }));
+  const total = ids.reduce((sum, [, , weight]) => sum + (weight ?? 1), 0);
+  const unit = (PANEL_W - gap * (ids.length + 1)) / total;
+  let x = gap;
+  return ids.map(([id, label, weight], i) => {
+    const w = Math.floor(unit * (weight ?? 1));
+    const button = { id, label, x, y, w, h: 84, danger: dangerLast && i === ids.length - 1 };
+    x += w + gap;
+    return button;
+  });
 }
 export const PANEL_BUTTONS: PanelButton[] = [
   ...row(
     [
-      ["previous", "◀ Previous"],
-      ["next", "Next ▶"],
-      ["verify", "Verify Step"],
-      ["exit", "EXIT AR"],
+      ["previous", "◀ Previous", 0.95],
+      ["next", "Next ▶", 0.85],
+      ["verify", "Verify Step", 1.05],
+      ["auto", "Auto ▶", 1.0],
+      ["exit", "EXIT AR", 1.2],
     ],
     452,
     true,
@@ -126,6 +132,15 @@ export class SpatialSession {
   private confirming = false;
   private tracking = false;
   private candidateValid = false;
+  /** Frames since the hit-test source last produced a usable tabletop hit. */
+  private hitMisses = 0;
+  private placementMode: "surface" | "gaze" | "none" = "none";
+  private visibility = "visible";
+  private viewerLostFrames = 0;
+  private framesRendered = 0;
+  private fieldRendered = false;
+  private viewGeometry: { distanceM: number; angleDeg: number } | null = null;
+  private targetKey = "";
   private epoch = 0;
   private yaw = 0;
   private distance = 0.65;
@@ -163,6 +178,8 @@ export class SpatialSession {
   get currentPanelScale() { return this.panelScale; }
   private fieldConfig: AssemblyFieldConfig = { ...DEFAULT_FIELD };
   private fieldGroup: THREE.Group | null = null;
+  private fieldTint: { line: THREE.LineBasicMaterial; plane: THREE.MeshBasicMaterial; front: THREE.MeshBasicMaterial } | null = null;
+  private currentTint = -1;
   private reticle = new THREE.Mesh(
     new THREE.RingGeometry(0.035, 0.04, 24).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide }),
@@ -259,24 +276,32 @@ export class SpatialSession {
     const group = new THREE.Group();
     const corners = fieldCorners(this.fieldConfig);
     const points = [...corners, corners[0]].map(([x, y, z]) => new THREE.Vector3(x, y, z));
-    const boundary = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(points),
-      new THREE.LineBasicMaterial({ color: 0xffd166 }),
-    );
+    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffd166 });
+    const boundary = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), lineMaterial);
     boundary.position.y = 0.002;
+    const planeMaterial = new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.07, depthWrite: false });
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(this.fieldConfig.widthM, this.fieldConfig.depthM).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.07, depthWrite: false }),
+      planeMaterial,
     );
     plane.position.y = 0.001;
-    const front = new THREE.Mesh(
-      new THREE.BoxGeometry(0.05, 0.004, 0.012),
-      new THREE.MeshBasicMaterial({ color: 0xffd166 }),
-    );
+    const frontMaterial = new THREE.MeshBasicMaterial({ color: 0xffd166 });
+    const front = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.004, 0.012), frontMaterial);
     front.position.set(0, 0.003, this.fieldConfig.depthM / 2 - 0.01);
     group.add(plane, boundary, front);
+    group.name = "assembly-field";
     this.fieldGroup = group;
+    this.fieldTint = { line: lineMaterial, plane: planeMaterial, front: frontMaterial };
+    this.currentTint = -1;
     this.origin.add(group);
+  }
+  /** Field colour encodes trust: cyan preview, yellow anchored, orange held, red lost. */
+  private tintField(color: number) {
+    if (!this.fieldTint || this.currentTint === color) return;
+    this.currentTint = color;
+    this.fieldTint.line.color.setHex(color);
+    this.fieldTint.plane.color.setHex(color);
+    this.fieldTint.front.color.setHex(color);
   }
   private applyPanelTransform() {
     this.panel.matrixAutoUpdate = false;
@@ -311,20 +336,27 @@ export class SpatialSession {
       if (Number.isFinite(raw) && raw > 0) this.panelScale = clampPanelScale(raw);
     } catch { /* keep the default */ }
   }
+  /** Step content only. The field, its anchor and the origin pose are never touched here. */
   update(info: Guidance) {
     this.info = info;
     if (info.instruction !== this.lastInstruction) {
       this.lastInstruction = info.instruction ?? "";
       this.instructionPage = 0;
     }
-    if (this.target) {
-      this.origin.remove(this.target);
-      disposeObject(this.target);
-      this.target = null;
-    }
-    if (info.placement) {
-      this.target = ghost(info.placement);
-      this.origin.add(this.target);
+    // Rebuild the step hologram only when the placement really changed —
+    // status-only re-renders (autonomous ticks, voice) must not churn GPU objects.
+    const key = info.placement ? JSON.stringify(info.placement) : "";
+    if (key !== this.targetKey) {
+      this.targetKey = key;
+      if (this.target) {
+        this.origin.remove(this.target);
+        disposeObject(this.target);
+        this.target = null;
+      }
+      if (info.placement) {
+        this.target = ghost(info.placement);
+        this.origin.add(this.target);
+      }
     }
     this.draw();
   }
@@ -486,8 +518,8 @@ export class SpatialSession {
         "Show reference · Hide reference",
         "Show instructions · Read instructions",
         "Re-anchor · Recenter · Help · Stop listening · Exit AR",
-        "Exit without voice: use the large EXIT AR button,",
-        "or the HoloLens Start gesture (system menu).",
+        "Auto ▶ starts hands-free monitoring (tap again to pause).",
+        "Exit: the large EXIT AR button or the HoloLens Start gesture.",
         "Verify always needs a fresh real camera photo.",
       ];
       help.forEach((line, i) => c.fillText(line, 20, 138 + i * 32));
@@ -600,7 +632,9 @@ export class SpatialSession {
       c.fillStyle = pressed ? "#04202f" : "#ffffff";
       c.font = b.danger ? "bold 27px sans-serif" : "bold 23px sans-serif";
       const rawLabel =
-        b.id === "result"
+        b.id === "auto"
+          ? (info.autoButton ?? b.label)
+          : b.id === "result"
           ? this.viewMode === "result"
             ? "Guide"
             : "Result"
@@ -647,30 +681,43 @@ export class SpatialSession {
       this.status(status);
     }
   }
+  /**
+   * HoloLens Edge reports "visible-blurred" whenever the 2D Edge slate, a
+   * camera/microphone permission prompt or system UI takes focus. That is
+   * an INPUT-focus change, not tracking loss: rendering continues and the
+   * anchored field must stay exactly where it is. "hidden" pauses frames;
+   * the anchor is kept and resumes when frames return.
+   */
   private onVisibility = () => {
-    if (this.session.visibilityState !== "visible") this.loseTracking();
+    const next = this.session.visibilityState ?? "visible";
+    if (next === this.visibility) return;
+    const previous = this.visibility;
+    this.visibility = next;
+    this.anchorTracker.lastEvent = `XR visibility ${previous} → ${next}`;
+    if (next !== "visible") {
+      this.message =
+        next === "visible-blurred"
+          ? "AR input paused while another window or prompt has focus. The assembly field stays anchored."
+          : "AR hidden by the system. The anchor is kept and resumes when AR is visible again.";
+    } else if (previous !== "visible") {
+      this.message = this.selected
+        ? "AR focus restored. The assembly field kept its tabletop position."
+        : "AR focus restored. Position the preview on your tabletop and tap the panel to confirm.";
+    }
+    this.draw();
   };
   private onReset = () => {
     if (this.selected) {
-      this.anchorTracker.onReferenceReset();
-      this.message =
-        "TABLETOP TRACKING UNAVAILABLE — reference space reset. Field held at its last confirmed pose as LOST; re-anchor deliberately when tracking recovers.";
+      this.anchorTracker.onReferenceReset(!!this.anchor);
+      this.message = this.anchor
+        ? "Reference space reset — re-locating the native anchor; the field is held meanwhile."
+        : "TABLETOP TRACKING UNAVAILABLE — reference space reset and this field has no native anchor. It is shown red at its old pose; Re-anchor it.";
       this.draw();
       return;
     }
     this.reset();
   };
-  private loseTracking() {
-    if (this.tracking) {
-      this.tracking = false;
-      this.reset();
-      this.message =
-        "Tracking lost. Hologram hidden. Re-align and confirm the origin after recovery.";
-      this.draw();
-    }
-    this.origin.visible = false;
-    this.reticle.visible = false;
-  }
+  /** Explicit re-anchor (panel/voice/2D button). The ONLY path that discards a placement. */
   reset() {
     this.epoch++;
     this.anchor?.delete();
@@ -681,12 +728,43 @@ export class SpatialSession {
     this.selected = false;
     this.confirming = false;
     this.candidateValid = false;
+    this.hitMisses = 0;
+    this.placementMode = "none";
     this.panelPlaced = false;
     this.origin.visible = false;
     this.reticle.visible = false;
+    this.fieldRendered = false;
     this.message =
-      "Re-anchor: align with the same physical assembly origin, then tap the panel to Confirm origin.";
+      "Re-anchor: look at your tabletop until the preview appears, then tap the panel above the buttons to confirm.";
     this.draw();
+  }
+  /** Measured, not inferred: what the last rendered XR frame actually contained. */
+  get fieldDiagnostics(): FieldDiagnostics {
+    if (this.ended) return { ...EMPTY_FIELD_DIAGNOSTICS, lastEvent: this.anchorTracker.lastEvent };
+    const pose = this.origin.matrix.elements;
+    return {
+      lifecycle: this.anchorTracker.state,
+      nativeAnchor: !!this.anchor,
+      anchorConfirmed: this.selected,
+      fieldMeshExists: !!this.fieldGroup && this.origin.children.includes(this.fieldGroup),
+      fieldRendered: this.fieldRendered,
+      transformValid: validPose(pose),
+      xrSessionActive: !this.ended,
+      visibilityState: this.visibility,
+      viewerTracked: this.tracking,
+      reanchorPending: !this.selected,
+      stepContentAvailable: !!this.target,
+      placementMode: this.selected ? this.placementMode : this.candidateValid ? this.placementMode : "none",
+      distanceM: this.viewGeometry?.distanceM ?? null,
+      angleDeg: this.viewGeometry?.angleDeg ?? null,
+      inView: this.selected ? fieldInView(this.viewGeometry) : null,
+      framesRendered: this.framesRendered,
+      lastEvent: this.anchorTracker.lastEvent,
+    };
+  }
+  /** Approximate head-gaze gate for autonomous inspection (null = unknown). */
+  get fieldInView(): boolean | null {
+    return this.selected && this.anchorTracker.isAnchored ? fieldInView(this.viewGeometry) : null;
   }
   confirmOrigin() {
     if (this.candidateValid && !this.selected) this.confirming = true;
@@ -966,13 +1044,36 @@ export class SpatialSession {
     }
     this.interaction.lastFailure = "Select on the panel but outside any button — nothing activated";
   };
+  /** Frames without a usable surface hit before the gaze-placed preview is shown instead. */
+  static readonly HIT_FALLBACK_FRAMES = 90;
+  private gazeCandidate(head: THREE.Matrix4) {
+    const position = new THREE.Vector3(0, 0, -this.distance).applyMatrix4(head);
+    position.y += this.height;
+    this.candidate.makeTranslation(position.x, position.y, position.z);
+    this.candidateValid = true;
+    this.placementMode = "gaze";
+  }
   private frame = (_time: number, frame?: XRFrame) => {
     if (!frame || !this.reference || this.ended) return;
     const pose = frame.getViewerPose(this.reference);
-    if (!pose || this.session.visibilityState !== "visible") {
-      this.loseTracking();
+    if (!pose) {
+      // Head tracking temporarily unavailable. Never discard the placement:
+      // keep the origin/anchor exactly as they are and resume next frame.
+      this.tracking = false;
+      if (++this.viewerLostFrames === 1) {
+        this.anchorTracker.lastEvent = "viewer pose unavailable";
+        this.message = this.selected
+          ? "Head tracking temporarily unavailable — the assembly field is kept and will resume."
+          : "Head tracking temporarily unavailable — look around slowly to recover.";
+        this.draw();
+      }
+      this.fieldRendered = false;
       this.renderer.render(this.scene, this.camera);
       return;
+    }
+    if (this.viewerLostFrames > 0) {
+      this.viewerLostFrames = 0;
+      this.anchorTracker.lastEvent = "viewer pose recovered";
     }
     this.tracking = true;
     const head = new THREE.Matrix4().fromArray(pose.transform.matrix);
@@ -983,29 +1084,29 @@ export class SpatialSession {
       this.applyPanelTransform();
       this.panelPlaced = true;
     }
-    this.updateInputRays(frame);
+    // Hand rays only while the session has input focus (blurred = no input).
+    if (this.visibility === "visible") this.updateInputRays(frame);
     if (this.selected && this.anchor) {
       const tracked = frame.getPose(this.anchor.anchorSpace, this.reference);
+      const before = this.anchorTracker.state;
       const held = this.anchorTracker.onPose(tracked ? tracked.transform.matrix : null);
       if (held.pose) this.fixed.fromArray(held.pose);
-      if (held.state === "tracking_lost") {
-        this.loseTracking();
+      if (held.state !== before) {
         this.message =
-          "TABLETOP TRACKING UNAVAILABLE — tracking lost after a sustained dropout. Re-anchor the assembly field deliberately.";
+          held.state === "tracking_lost"
+            ? "TRACKING LOST — the field is shown red at its last pose and is not trustworthy. It recovers automatically if the anchor is found again; otherwise Re-anchor."
+            : held.state === "tracking_degraded"
+              ? "Tracking degraded — holding the assembly field at its last confirmed pose."
+              : "Anchor tracking recovered — the assembly field is back on the tabletop.";
         this.draw();
-        this.renderer.render(this.scene, this.camera);
-        return;
-      }
-      if (held.state === "tracking_degraded") {
-        this.message = "Tracking degraded — holding the assembly field at its last confirmed pose.";
       }
     }
     if (!this.selected) {
       this.candidateValid = false;
-      this.anchorTracker.preview(false);
       const hit =
         this.hit &&
         frame.getHitTestResults(this.hit)[0]?.getPose(this.reference);
+      let surface = false;
       if (hit) {
         const matrix = new THREE.Matrix4().fromArray(hit.transform.matrix),
           position = new THREE.Vector3().setFromMatrixPosition(matrix);
@@ -1017,16 +1118,25 @@ export class SpatialSession {
         ) {
           this.candidate.copy(matrix);
           this.candidateValid = true;
-          this.anchorTracker.preview(true);
+          this.placementMode = "surface";
+          surface = true;
         }
-      } else if (!this.hit) {
-        const position = new THREE.Vector3(0, 0, -this.distance).applyMatrix4(
-          head,
-        );
-        position.y += this.height;
-        this.candidate.makeTranslation(position.x, position.y, position.z);
-        this.candidateValid = true;
       }
+      if (surface) {
+        this.hitMisses = 0;
+      } else if (!this.hit) {
+        this.gazeCandidate(head);
+      } else if (++this.hitMisses > SpatialSession.HIT_FALLBACK_FRAMES) {
+        // Surface detection is available but finds nothing: never leave the
+        // user without a visible preview (the Re-anchor dead end).
+        if (this.hitMisses === SpatialSession.HIT_FALLBACK_FRAMES + 1) {
+          this.message =
+            "No tabletop surface detected yet — the preview is placed ahead of your gaze. Look at the table to snap it, or tap the panel to confirm here.";
+          this.draw();
+        }
+        this.gazeCandidate(head);
+      }
+      this.anchorTracker.preview(this.candidateValid);
       if (this.confirming && this.candidateValid) {
         this.confirming = false;
         this.selected = true;
@@ -1064,6 +1174,7 @@ export class SpatialSession {
                 }
               });
           } catch {
+            this.anchorTracker.confirm(this.fixed.elements, true);
             this.message =
               "Anchor API unavailable; confirmed local tracking space only.";
             this.draw();
@@ -1075,12 +1186,28 @@ export class SpatialSession {
     this.origin.matrix
       .copy(this.selected ? this.fixed : this.candidate)
       .multiply(new THREE.Matrix4().makeRotationY(this.yaw));
-    this.origin.visible =
-      !!this.target && (this.selected || this.candidateValid);
-    this.reticle.visible = !this.selected && this.candidateValid;
+    // The field is visible whenever a placement or a preview exists —
+    // independent of step content (the ghost may legitimately be absent).
+    const poseOk = validPose(this.origin.matrix.elements);
+    this.origin.visible = poseOk && (this.selected || this.candidateValid);
+    if (this.fieldGroup) this.fieldGroup.visible = true;
+    const state = this.anchorTracker.state;
+    this.tintField(
+      !this.selected ? 0x38d9ff
+        : state === "tracking_lost" ? 0xff4d4d
+          : state === "tracking_degraded" ? 0xffa64d
+            : 0xffd166,
+    );
+    if (this.target) this.target.visible = this.selected ? state !== "tracking_lost" : true;
+    this.reticle.visible = !this.selected && this.candidateValid && this.placementMode === "surface";
     this.reticle.matrixAutoUpdate = false;
     this.reticle.matrix.copy(this.candidate);
+    this.viewGeometry = this.selected
+      ? fieldViewGeometry(head.elements, this.origin.matrix.elements)
+      : null;
     this.renderer.render(this.scene, this.camera);
+    this.framesRendered++;
+    this.fieldRendered = this.origin.visible && !!this.fieldGroup?.visible;
   };
   private onEnd = () => {
     if (this.ended) return;

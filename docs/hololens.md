@@ -70,10 +70,12 @@ legibility and supported input must be checked before demoing.
 - No model or public asset downloads occur. Three.js is bundled; the renderer uses
   the XR compositor's tracked views/projection, a single target, simple unlit
   geometry and low-resolution stud cylinders. No continuous inference or new models.
-- Tracking loss, visibility loss, reference-space reset and lost anchor hide the
-  target and require fresh confirmation. New steps clear the previous target before
-  loading metadata. Failed state polling hides the hologram and removes verified
-  status. Anchors are session-only and deleted on reset/exit; persistence is not claimed.
+- Tracking problems never delete the placement (see "Spatial field lifecycle"
+  below): a dropout holds the field, a sustained loss shows it red as LOST, and only
+  an explicit Re-anchor discards it. New steps clear only the previous step
+  hologram. Two consecutive failed state polls hide the step hologram (the field
+  stays) and remove verified status. Anchors are session-only and deleted on
+  Re-anchor/exit; persistence is not claimed.
 - Virtual placement never supplies physical inspection evidence. Existing Muse Spark,
   SAM 3.1, exact-snapshot identity, OpenCV, Active Vision, corrections and fresh-image
   verification remain authoritative. Viewed steps and verified progress are separate.
@@ -607,7 +609,8 @@ To use Autonomous Assembly on the MacBook + HoloLens setup:
    inspection after the scene is stable and sharp; a correct result
    still needs a separate fresh verification frame. Only the backend's
    verified progress advances the step — automatically, in the same
-   field. Pause/Stop release the camera and stop all Meta requests.
+   field. Pause keeps the camera open but analyses nothing and makes no
+   Meta requests; Stop releases the camera.
 
 Simultaneous HoloLens camera + immersive WebXR reliability, and physical
 field stability while walking around the table, remain device checks —
@@ -692,17 +695,11 @@ inspection error, not an uncertain diagnosis.
 
 ## Fully autonomous monitoring (head-motion tolerant)
 
-Autonomous Assembly now compensates global camera motion before
-judging change: each downscaled frame is registered to the previous
-one by its best integer translation, brightness-normalized, and only
-the remaining local difference inside the assembly region counts.
-Natural head sway therefore neither triggers Meta nor resets the
-stability wait, while a placed/removed/rotated block still qualifies
-after three stable observations. Recent candidate frames are scored
-(sharpness, exposure, stillness) in a bounded window of ten; the
-changed object's bounding box is estimated locally — if it is tiny in
-frame, the panel asks you to move closer instead of spending a Meta
-call that would return "print not read". The full frame is always the
+(Superseded by "Phase 7.1" below: change detection is now referenced to
+the last inspected scene, and frame selection is a real burst whose
+winner is the uploaded frame.) The changed object's bounding box is
+estimated locally — if it is tiny in frame, the panel asks you to move
+closer instead of spending a Meta call that would return "print not read". The full frame is always the
 Meta image (the backend zoom-crops the print server-side); no crop is
 fabricated or substituted. One InspectionCoordinator lease serializes
 manual Verify, autonomous triggers and companion captures per step,
@@ -711,3 +708,76 @@ Budgets: 20 s cooldown, 4 automatic calls per step, 12 per session.
 Tick "Assess blocks already placed" to allow one controlled initial
 inspection of a stable scene. Registration is approximate — the panel
 never claims camera pixels and hologram coordinates are identical.
+
+## Phase 7.1 — Spatial field lifecycle and autonomous pipeline repair
+
+### Root cause of the disappearing assembly field (hardware report)
+
+`SpatialSession` treated every XR `visibilitychange` away from `"visible"`
+as tracking loss and called `reset()`: the anchor was deleted, the field
+un-confirmed and hidden. HoloLens Edge reports `"visible-blurred"` whenever
+the 2D Edge page, a camera/microphone permission prompt or system UI takes
+focus — exactly what happens when Autonomous Assembly is started from the
+2D page (there was no in-AR control) and the camera opens. While blurred,
+the frame loop also returned early, so no preview was drawn and panel taps
+were rejected: Re-anchor and Confirm could not bring the field back. The
+field was also hidden whenever the step hologram was absent.
+
+### Lifecycle now
+
+`unplaced → preview / awaiting_confirmation → anchored ⇄ tracking_degraded
+⇄ tracking_lost`, and `reanchoring` only through an explicit Re-anchor.
+
+- `visible-blurred` / `hidden`: rendering and the anchor are kept; input is
+  paused; the panel says why.
+- Viewer-pose dropout: nothing is reset; tracking resumes in place.
+- Anchor-pose dropout: held (orange), then LOST (red) — still drawn at the
+  last pose, never relocated, recovers automatically with the same anchor.
+- Reference-space reset: a native anchor is re-queried; a session-local pose
+  is marked LOST (red) until you Re-anchor.
+- Re-anchor: deletes the old anchor and always shows a visible preview —
+  surface hit if available, otherwise a gaze-placed preview after ~1.5 s.
+- The field is independent of step content; step changes swap only the
+  ghost block. Status-only updates no longer rebuild GPU objects.
+- **Auto ▶** on the AR panel starts/pauses/resumes Autonomous Assembly
+  without touching the 2D page.
+- Live diagnostics (2D page, "Monitoring & field diagnostics"): lifecycle,
+  native anchor, mesh exists, rendered in the last XR frame, transform valid,
+  XR visibility, head tracked, re-anchor pending, step hologram, placement
+  mode, head-to-field distance/angle, last lifecycle event.
+
+### Autonomous pipeline now
+
+- Camera health comes from an advancing frame clock (media time; the
+  video-frame callback is an extra signal and FPS source). "Monitoring" is
+  never shown before frames advance; a stall pauses inspections and
+  recovers automatically.
+- Change detection (`changeDetector.ts`) compares each stable view with the
+  reference view of the last inspected scene after robust translation and
+  gain/offset registration. Head motion only re-references (no call); a hand
+  passing through without a change clears itself (no call); local activity
+  is latched so a placement survives later head motion; "another view
+  needed" makes the next clearly different viewpoint qualify (moving closer).
+- The monitoring ROI is the image centre. HoloLens Edge exposes no camera
+  intrinsics/extrinsics for `getUserMedia` frames, so it is NOT projected
+  from the field. Instead an approximate head-gaze gate (field within ~32°
+  of head forward and ≤1.6 m) blocks inspections while you look elsewhere.
+- Frame selection captures a bounded burst (≤4 full-resolution frames),
+  ranks them by Laplacian sharpness, exposure and contrast, rejects only
+  reliably broken/stale/duplicate frames, and uploads the winner — the
+  full frame (the backend crops the print from face localisation).
+- Verification: only after a "correct" inspection, with a newer frame,
+  ≥5 s later. After incorrect/uncertain the next call is a fresh inspect.
+  Only backend-verified progress advances; the last step stops all calls
+  and releases the camera, keeping the hologram.
+- Failures are classified (camera, transport, Meta provider, revision
+  conflict, stale, rejected, invalid response) and never shown as
+  "Uncertain"; they back off exponentially and stop after 3 in a row.
+- Results for a step that is no longer current are discarded; a step
+  change cancels the in-flight request. A 409 restarts with a fresh inspect.
+- Budgets (unchanged values): 20 s between automatic inspections, 4
+  automatic calls per step, 12 per session; Inspect Now skips only the
+  cooldown. One inspection is not one provider request: Muse may be
+  attempted up to 3 times (retries on 429/5xx), and SAM runs only when
+  issues are reported (≤2 concepts) — worst case about 5 requests.
+

@@ -11,93 +11,42 @@ require.extensions[".ts"] = (module, filename) =>
     }).outputText,
     filename,
   );
-const {
-  estimateGlobalShift, alignedDiffs, diffBoundingBox, FrameGate,
-  BestFrameWindow, frameQualityScore,
-} = require("../src/lib/ar/monitoring.ts");
+const { candidateStats, candidateDefect, pickBestCandidate } = require("../src/lib/ar/monitoring.ts");
 const { InspectionCoordinator } = require("../src/lib/ar/coordinator.ts");
 const { AutonomousMachine } = require("../src/lib/ar/autonomous.ts");
 
-const W = 64, H = 48;
-const ROI = { x0: 16, y0: 12, x1: 48, y1: 36 };
-function scene(seedFn) {
-  const a = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) a[y * W + x] = seedFn(x, y);
-  return a;
-}
-const pattern = () => scene((x, y) => (x * 37 + y * 91 + ((x * y) % 13) * 7) % 180 + 30);
-function shifted(src, dx, dy, brightness = 0) {
-  const out = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const sx = x - dx, sy = y - dy;
-    out[y * W + x] = sx >= 0 && sy >= 0 && sx < W && sy < H
-      ? Math.max(0, Math.min(255, src[sy * W + sx] + brightness)) : 30;
-  }
-  return out;
-}
-function paintBlock(a, x0, y0, x1, y1, v = 240) {
-  const b = new Uint8Array(a);
-  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) b[y * W + x] = v;
-  return b;
-}
+/* Burst frame selection (replaces the metadata-only BestFrameWindow). */
+const SW = 48, SH = 36;
+const img = (fn) => Uint8Array.from({ length: SW * SH }, (_, i) => fn(i % SW, Math.floor(i / SW)));
+const sharpImg = () => img((x, y) => ((Math.floor(x / 3) + Math.floor(y / 3)) % 2 ? 200 : 60));
+const blurImg = () => img((x, y) => 130 + 40 * Math.sin(x / 9) * Math.cos(y / 9));
 
-test("head motion: global shift is estimated and compensated; no local change reported", () => {
-  const base = pattern();
-  const moved = shifted(base, 2, 1);
-  const est = estimateGlobalShift(base, moved, W, H);
-  assert.equal(est.dx, 2);
-  assert.equal(est.dy, 1);
-  const aligned = alignedDiffs(base, moved, W, H, ROI);
-  assert.ok(aligned.roiDiff < 0.02, `aligned ROI diff ${aligned.roiDiff} must stay below the change threshold`);
-  // Gate level: pure head motion never becomes a change candidate.
-  const gate = new FrameGate();
-  let ft = 0;
-  const feed = (roiDiff, outsideDiff) => gate.assess({ hash: `h${ft}`, roiDiff, outsideDiff, sharpness: 12, frameTime: ++ft, at: ft });
-  feed(0, 0);
-  for (let i = 0; i < 6; i++) assert.notEqual(feed(aligned.roiDiff, aligned.outsideDiff).kind, "changed");
+test("burst selection: the sharpest well-exposed fresh candidate wins, with an explained reason", () => {
+  const cands = [candidateStats(blurImg(), SW, SH, 1), candidateStats(sharpImg(), SW, SH, 2), candidateStats(blurImg(), SW, SH, 3)];
+  assert.ok(cands[1].sharpness > cands[0].sharpness * 5, "Laplacian variance separates focus/motion blur");
+  const pick = pickBestCandidate(cands);
+  assert.equal(pick.ok, true);
+  assert.equal(pick.index, 1);
+  assert.match(pick.reason, /best of 3: sharpness/);
 });
 
-test("local placement/removal/rotation under head motion still qualifies after stability", () => {
-  const base = pattern();
-  const moved = shifted(base, -2, 0);
-  const placed = paintBlock(moved, 28, 20, 40, 30);
-  const aligned = alignedDiffs(base, placed, W, H, ROI);
-  assert.ok(aligned.roiDiff > 0.05, `local change survives alignment (${aligned.roiDiff})`);
-  const box = diffBoundingBox(base, placed, W, H, 0.12, aligned.dx, aligned.dy);
-  assert.ok(box && box.x <= 28 / W + 0.05 && box.x + box.w >= 40 / W - 0.05);
-  assert.ok(box.fraction > 0.01);
-  // Removal is the inverse change; rotation/reposition changes the local mask too.
-  assert.ok(alignedDiffs(placed, moved, W, H, ROI).roiDiff > 0.05);
-  const rotated = paintBlock(moved, 28, 16, 36, 32, 200);
-  assert.ok(alignedDiffs(placed, rotated, W, H, ROI).roiDiff > 0.03);
-  // Gate: change then stable (with small aligned jitter) qualifies exactly once.
-  const gate = new FrameGate();
-  let ft = 0;
-  const feed = (roiDiff) => gate.assess({ hash: `g${ft}`, roiDiff, outsideDiff: 0.002, sharpness: 12, frameTime: ++ft, at: ft });
-  feed(0);
-  assert.equal(feed(aligned.roiDiff).kind, "changed");
-  feed(0.004); feed(0.003);
-  assert.equal(feed(0.004).kind, "qualified");
-});
-
-test("lighting change alone is not an assembly change", () => {
-  const base = pattern();
-  const brighter = shifted(base, 0, 0, 25);
-  const aligned = alignedDiffs(base, brighter, W, H, ROI);
-  assert.ok(aligned.roiDiff < 0.02, `brightness-invariant diff ${aligned.roiDiff}`);
-});
-
-test("best-frame window is bounded and picks the sharpest well-exposed still frame", () => {
-  const win = new BestFrameWindow(3);
-  const cand = (sharpness, meanBrightness, roiDiff, at) => ({ at, frameTime: at, hash: `f${at}`, sharpness, meanBrightness, roiDiff });
-  win.add(cand(4, 128, 0.001, 1));
-  win.add(cand(38, 120, 0.001, 2));
-  win.add(cand(20, 30, 0.001, 3));
-  win.add(cand(10, 128, 0.001, 4));
-  assert.equal(win.size, 3, "bounded history");
-  assert.equal(win.best().at, 2);
-  assert.ok(frameQualityScore(cand(38, 120, 0.001, 2)) > frameQualityScore(cand(4, 128, 0.001, 1)));
-  assert.equal(new BestFrameWindow().best(), null);
+test("burst selection rejects stale, duplicate, black, overexposed and uniform frames — never fabricates freshness", () => {
+  const black = candidateStats(img(() => 2), SW, SH, 5);
+  const white = candidateStats(img(() => 253), SW, SH, 6);
+  const flat = candidateStats(img(() => 120), SW, SH, 7);
+  assert.match(candidateDefect(black), /dark/);
+  assert.match(candidateDefect(white), /overexposed/);
+  assert.match(candidateDefect(flat), /uniform/);
+  const none = pickBestCandidate([black, white, flat]);
+  assert.equal(none.ok, false);
+  // Frames not newer than the last sent frame are never re-used.
+  const old = candidateStats(sharpImg(), SW, SH, 4);
+  assert.equal(pickBestCandidate([old], 4).ok, false);
+  const dup = pickBestCandidate([candidateStats(sharpImg(), SW, SH, 9), candidateStats(sharpImg(), SW, SH, 9)], 4);
+  assert.equal(dup.ok, true);
+  assert.match(dup.reason, /duplicate frame/);
+  // A low-texture but valid tabletop is ranked, not rejected (no deadlock).
+  assert.equal(pickBestCandidate([candidateStats(blurImg(), SW, SH, 10)]).ok, true);
 });
 
 test("coordinator: single lease, stale results rejected, step change invalidates", () => {
@@ -127,6 +76,10 @@ test("session Meta budget and one-time initial assessment are enforced", () => {
   m.armInitialAssessment();
   assert.equal(m.initialAssessmentArmed, false, "initial assessment only once per session");
   m.requestTrigger(1000); m.onInspectResult("p", "s1", "incorrect");
-  m.requestTrigger(2000); m.onVerifyResult("p", "s1", "still_incorrect");
+  m.requestTrigger(2000); m.onInspectResult("p", "s1", "incorrect");
   assert.match(m.requestTrigger(3000).reason, /Session Meta budget/);
+  assert.equal(m.state, "budget_exhausted", "exhaustion is an explicit state");
+  m.onAdvanced("s2");
+  m.stepChanged("s3");
+  assert.match(m.requestTrigger(9000).reason, /Session Meta budget/, "session budget survives step changes");
 });

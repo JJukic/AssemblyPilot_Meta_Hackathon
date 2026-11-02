@@ -12,11 +12,10 @@ require.extensions[".ts"] = (module, filename) =>
     filename,
   );
 const { AnchorTracker, DEFAULT_FIELD, fieldCorners, placementInsideField, samePose } = require("../src/lib/ar/field.ts");
-const { FrameGate, assessCameraProbe } = require("../src/lib/ar/monitoring.ts");
+const { assessCameraProbe } = require("../src/lib/ar/monitoring.ts");
 const { AutonomousMachine } = require("../src/lib/ar/autonomous.ts");
 
 const pose = (x) => { const m = new Array(16).fill(0); m[0] = m[5] = m[10] = m[15] = 1; m[12] = x; return m; };
-const sample = (over = {}) => ({ hash: "a", roiDiff: 0, outsideDiff: 0, sharpness: 10, frameTime: 1, at: 0, ...over });
 
 /* --- Anchoring (tests 31-48 of the Phase 7 spec, at the pure-logic level) --- */
 
@@ -65,37 +64,6 @@ test("anchor: repeated state updates cause no cumulative drift", () => {
   assert.deepEqual(t.lastGoodPose, pose(2));
 });
 
-/* --- Frame gate --- */
-
-test("gate: unchanged scene never qualifies; change + stability qualifies exactly once", () => {
-  const g = new FrameGate();
-  let ft = 0;
-  const feed = (s) => g.assess(sample({ frameTime: ++ft, ...s }));
-  assert.equal(feed({ hash: "a" }).kind, "unchanged");
-  assert.equal(feed({ hash: "a" }).kind, "unchanged");
-  assert.equal(feed({ hash: "b", roiDiff: 0.2 }).kind, "changed");
-  assert.equal(feed({ hash: "b", roiDiff: 0.001 }).kind, "stabilizing");
-  feed({ hash: "b", roiDiff: 0.001 });
-  const q = feed({ hash: "b", roiDiff: 0.001 });
-  assert.equal(q.kind, "qualified");
-  // Same scene cannot qualify again (hysteresis / duplicate suppression).
-  assert.notEqual(feed({ hash: "b", roiDiff: 0.001 }).kind, "qualified");
-  g.noteInspected("b");
-  assert.equal(feed({ hash: "b", roiDiff: 0.001 }).kind, "unchanged");
-});
-
-test("gate: camera movement, occlusion, blur and frozen frames never qualify", () => {
-  const g = new FrameGate();
-  let ft = 0;
-  const feed = (s) => g.assess(sample({ frameTime: ++ft, ...s }));
-  feed({ hash: "a" });
-  assert.equal(feed({ hash: "b", roiDiff: 0.2, outsideDiff: 0.19 }).kind, "camera-moved");
-  assert.equal(feed({ hash: "c", roiDiff: 0.2, occluded: true }).kind, "occluded");
-  assert.equal(feed({ hash: "d", roiDiff: 0.2, sharpness: 0.5 }).kind, "blurry");
-  const frozen = g.assess(sample({ hash: "e", frameTime: ft })); // frame clock stalls
-  assert.equal(frozen.kind, "frozen");
-});
-
 test("camera probe: advancing frames vs stalled track during XR are distinguished", () => {
   const base = { secureContext: true, hasMediaDevices: true, hasXR: true, xrActive: true, trackState: "live" };
   assert.equal(assessCameraProbe({ ...base, frames: [{ frameTime: 1, hash: "a" }, { frameTime: 2, hash: "b" }] }).status, "likely");
@@ -107,8 +75,8 @@ test("camera probe: advancing frames vs stalled track during XR are distinguishe
 
 /* --- Autonomous state machine --- */
 
-function armedMachine() {
-  const m = new AutonomousMachine({ minIntervalMs: 1000, maxAutoPerStep: 3 });
+function armedMachine(over = {}) {
+  const m = new AutonomousMachine({ minIntervalMs: 1000, verifyDelayMs: 500, maxAutoPerStep: 4, ...over });
   m.start("p1", "s1");
   m.cameraReady(true);
   m.anchored();
@@ -116,18 +84,21 @@ function armedMachine() {
   return m;
 }
 
-test("autonomous: incorrect -> correction -> verify still_incorrect -> correction -> verified advances exactly once", () => {
+test("autonomous: incorrect -> fresh INSPECT (never verify) -> correct -> separate verify -> advances exactly once", () => {
   const m = armedMachine();
   assert.equal(m.requestTrigger(10_000).intent, "inspect");
   assert.equal(m.requestTrigger(10_100).intent, "none", "one outstanding Meta request maximum");
-  m.onInspectResult("p1", "s1", "incorrect");
+  m.onInspectResult("p1", "s1", "incorrect", undefined, 10_200);
   assert.equal(m.state, "correction_required");
   m.changeDetected();
   assert.equal(m.state, "awaiting_correction");
-  assert.equal(m.requestTrigger(11_000).intent, "verify");
-  assert.deepEqual(m.onVerifyResult("p1", "s1", "still_incorrect"), { intent: "none" });
-  assert.equal(m.state, "correction_required");
-  assert.equal(m.requestTrigger(12_000).intent, "verify");
+  assert.equal(m.requestTrigger(10_500).intent, "none", "cooldown between automatic inspections");
+  assert.equal(m.requestTrigger(11_000).intent, "inspect", "a repaired frame is inspected anew, not verified");
+  m.onInspectResult("p1", "s1", "correct", undefined, 11_100);
+  assert.equal(m.state, "correct_awaiting_verification");
+  assert.equal(m.confirmAdvance(false), false, "a correct inspection alone never advances");
+  assert.equal(m.requestTrigger(11_200).intent, "none", "verification needs a LATER frame");
+  assert.equal(m.requestTrigger(11_700).intent, "verify");
   assert.deepEqual(m.onVerifyResult("p1", "s1", "verified"), { intent: "advance" });
   assert.equal(m.confirmAdvance(false), true);
   assert.equal(m.confirmAdvance(false), false, "exactly one advance per step");
@@ -136,16 +107,21 @@ test("autonomous: incorrect -> correction -> verify still_incorrect -> correctio
   assert.equal(m.inspectionsUsed, 0, "per-step budget resets on the new step");
 });
 
-test("autonomous: correct inspection still requires fresh verification; final step completes", () => {
+test("autonomous: verification that fails returns to inspect; final step completes", () => {
   const m = armedMachine();
   m.requestTrigger(10_000);
-  m.onInspectResult("p1", "s1", "correct");
-  assert.equal(m.state, "correct_awaiting_verification");
-  assert.equal(m.confirmAdvance(true), false, "a correct inspection alone never advances");
+  m.onInspectResult("p1", "s1", "correct", undefined, 10_000);
   assert.equal(m.requestTrigger(11_000).intent, "verify");
+  m.onVerifyResult("p1", "s1", "still_incorrect");
+  assert.equal(m.state, "correction_required");
+  assert.equal(m.nextIntent, "inspect");
+  m.requestTrigger(12_500);
+  m.onInspectResult("p1", "s1", "correct", undefined, 12_500);
+  m.requestTrigger(13_100);
   m.onVerifyResult("p1", "s1", "verified");
   assert.equal(m.confirmAdvance(true), true);
   assert.equal(m.state, "completed");
+  assert.equal(m.requestTrigger(99_000).intent, "none", "no calls after completion");
 });
 
 test("autonomous: cooldown, per-step cap, stale results, uncertain and errors never advance", () => {
@@ -156,29 +132,47 @@ test("autonomous: cooldown, per-step cap, stale results, uncertain and errors ne
   assert.equal(m.requestTrigger(10_500).intent, "none", "cooldown blocks repeated paid inference");
   m.requestTrigger(12_000);
   m.onInspectResult("other-project", "s1", "correct"); // stale: ignored
-  assert.equal(m.state, "verifying");
-  m.onInspectResult("p1", "s1", "error");
-  // error path via verify channel:
-  const m2 = armedMachine();
-  m2.requestTrigger(10_000);
-  m2.onInspectResult("p1", "s1", "incorrect");
-  m2.requestTrigger(11_000);
-  m2.onVerifyResult("p1", "s1", "error");
-  assert.equal(m2.state, "inspection_failed");
-  assert.equal(m2.confirmAdvance(false), false);
+  assert.equal(m.state, "inspecting");
+  m.onInspectResult("p1", "s1", "error", "transport");
+  assert.equal(m.state, "inspection_failed");
+  assert.equal(m.lastFailure, "transport");
+  assert.equal(m.confirmAdvance(false), false);
   // cap
-  const m3 = armedMachine();
+  const m3 = armedMachine({ maxAutoPerStep: 3 });
   for (let i = 0; i < 3; i++) {
     assert.notEqual(m3.requestTrigger(10_000 + i * 2000).intent, "none");
-    m3.onInspectResult("p1", "s1", i === 0 ? "incorrect" : "incorrect");
-    if (i > 0) m3.onVerifyResult("p1", "s1", "still_incorrect");
-    // re-arm outcome channels realistically
-    if (m3.state === "correction_required" && i > 0) { /* next loop verifies */ }
+    m3.onInspectResult("p1", "s1", "incorrect");
   }
   assert.match(m3.requestTrigger(20_000).reason ?? "", /limit/);
+  assert.equal(m3.state, "budget_exhausted");
+  assert.equal(m3.requestTrigger(20_000, { manual: true }).intent, "none", "manual Inspect Now never bypasses budgets");
 });
 
-test("autonomous: pause/resume/stop and tracking loss gate inspections", () => {
+test("autonomous: failures back off exponentially, then stop in error until Resume", () => {
+  const m = armedMachine({ minIntervalMs: 1000, maxConsecutiveFailures: 3 });
+  m.requestTrigger(0); m.onInspectResult("p1", "s1", "error", "provider");
+  assert.equal(m.canTrigger(1_500).ok, true);
+  m.requestTrigger(1_500); m.onInspectResult("p1", "s1", "error", "provider");
+  assert.equal(m.canTrigger(2_600).ok, false, "second failure doubles the wait");
+  assert.match(m.canTrigger(2_600).reason, /Backing off/);
+  m.requestTrigger(3_600); m.onInspectResult("p1", "s1", "error", "provider");
+  assert.equal(m.state, "error");
+  assert.equal(m.requestTrigger(99_000).intent, "none");
+  m.resume();
+  assert.equal(m.state, "anchoring");
+  m.anchored();
+  assert.equal(m.state, "monitoring");
+});
+
+test("autonomous: 409 conflict forgets the inspection so the next call is a fresh inspect", () => {
+  const m = armedMachine();
+  m.requestTrigger(0); m.onInspectResult("p1", "s1", "correct", undefined, 0);
+  m.requestTrigger(1_000); m.onVerifyResult("p1", "s1", "error", "conflict");
+  assert.equal(m.hasInspection, false);
+  assert.equal(m.nextIntent, "inspect");
+});
+
+test("autonomous: pause/resume/stop, tracking loss and camera loss gate inspections and recover (no deadlock)", () => {
   const m = armedMachine();
   m.pause();
   assert.equal(m.requestTrigger(10_000).intent, "none");
@@ -191,6 +185,23 @@ test("autonomous: pause/resume/stop and tracking loss gate inspections", () => {
   assert.equal(m.state, "monitoring");
   m.cameraUnavailable();
   assert.equal(m.requestTrigger(10_000).intent, "none");
+  m.cameraRecovered();
+  m.anchored();
+  assert.equal(m.state, "monitoring", "camera recovery returns to monitoring (was stuck in camera_initializing)");
+  // pause during a correct-awaiting-verification state resumes there
+  m.requestTrigger(20_000); m.onInspectResult("p1", "s1", "correct", undefined, 20_000);
+  m.pause(); m.resume();
+  assert.equal(m.state, "correct_awaiting_verification");
   m.stop();
   assert.equal(m.state, "idle");
+});
+
+test("autonomous: manual results and server verification are adopted without a duplicate paid call", () => {
+  const m = armedMachine();
+  m.adoptManualResult("p1", "s1", "correct", 5_000);
+  assert.equal(m.state, "correct_awaiting_verification");
+  assert.equal(m.inspectionsUsed, 0, "manual call is not charged twice");
+  m.serverVerified("p1", "s1");
+  assert.equal(m.confirmAdvance(false), true);
+  assert.equal(m.confirmAdvance(false), false);
 });
