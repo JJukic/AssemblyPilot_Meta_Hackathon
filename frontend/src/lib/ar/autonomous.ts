@@ -15,6 +15,14 @@
  * Cost: at most one outstanding request, a cooldown between automatic
  * inspections, per-step and per-session caps, and exponential backoff
  * after failures. Every state has an exit (resume, recovery, stop).
+ *
+ * Scheduled re-checks (no physical change required, see `scheduledRetry`):
+ *   uncertain  → new Check Step `uncertainRetryMs` after the result
+ *   incorrect  → one bounded reassessment `correctionReassessMs` later
+ *                (a detected correction normally triggers it sooner)
+ * At most `maxTimedRetries` consecutive scheduled checks; after that (or
+ * when Meta asked for another viewpoint) a new view / change is required.
+ * The schedule never bypasses the cooldown, back-off or budgets.
  */
 
 export type AutoState =
@@ -67,6 +75,12 @@ export interface AutoConfig {
   maxPerSession: number;
   /** Consecutive failures before monitoring stops in "error" (needs Resume). */
   maxConsecutiveFailures: number;
+  /** Uncertain result → next Check Step this long after the result (subject to cooldown). */
+  uncertainRetryMs: number;
+  /** Incorrect result without a detected correction → one reassessment after this long. */
+  correctionReassessMs: number;
+  /** Consecutive scheduled (timer-based) checks without a new view or change. */
+  maxTimedRetries: number;
 }
 
 export const DEFAULT_AUTO: AutoConfig = {
@@ -75,7 +89,17 @@ export const DEFAULT_AUTO: AutoConfig = {
   maxAutoPerStep: 4,
   maxPerSession: 12,
   maxConsecutiveFailures: 3,
+  uncertainRetryMs: 5_000,
+  correctionReassessMs: 60_000,
+  maxTimedRetries: 2,
 };
+
+export type RetryPlan =
+  | { kind: "none" }
+  /** A scheduled Check Step; `at` already includes cooldown/back-off. */
+  | { kind: "retry" | "reassess"; at: number; reason: string }
+  /** No timed retry allowed: a new viewpoint or a physical change is required. */
+  | { kind: "wait_view"; reason: string };
 
 const TRIGGERABLE: AutoState[] = [
   "monitoring", "change_detected", "waiting_for_stability", "waiting_for_view", "selecting_frame",
@@ -98,6 +122,16 @@ export class AutonomousMachine {
   consecutiveFailures = 0;
   lastFailure: FailureKind | null = null;
   lastOutcome: "correct" | "incorrect" | "uncertain" | "error" | null = null;
+  /** Last VISUAL verdict of this step (survives infrastructure errors). */
+  lastVerdict: "correct" | "incorrect" | "uncertain" | null = null;
+  /** Time the last result (inspection or verification) arrived. */
+  resultAt = 0;
+  /** Meta asked for a different viewpoint: timed retries wait for a new view. */
+  needsView = false;
+  /** Consecutive scheduled checks without a new view/change (bounded). */
+  timedRetries = 0;
+  /** Earliest time for the next scheduled check after a rejected burst. */
+  private retryNotBefore = 0;
   private outstanding = false;
   private advancedFor = "";
   private pausedFrom: AutoState = "monitoring";
@@ -145,6 +179,11 @@ export class AutonomousMachine {
     this.correctAt = 0;
     this.hasInspection = false;
     this.lastOutcome = null;
+    this.lastVerdict = null;
+    this.resultAt = 0;
+    this.needsView = false;
+    this.timedRetries = 0;
+    this.retryNotBefore = 0;
     this.outstanding = false;
   }
 
@@ -252,6 +291,38 @@ export class AutonomousMachine {
     return { ok: true, intent };
   }
 
+  /**
+   * The next scheduled Check Step for the current verdict, if any. Pure: the
+   * caller still needs a stable view of the field and `requestTrigger`
+   * (cooldown, back-off, budgets, single flight) before anything is sent.
+   */
+  scheduledRetry(): RetryPlan {
+    if (this.outstanding || this.nextIntent === "verify") return { kind: "none" };
+    if (!["uncertain", "correction_required", "awaiting_correction", "waiting_for_view", "inspection_failed"].includes(this.state))
+      return { kind: "none" };
+    const verdict = this.lastVerdict;
+    if (verdict !== "uncertain" && verdict !== "incorrect") return { kind: "none" };
+    if (verdict === "uncertain" && this.needsView)
+      return { kind: "wait_view", reason: "Another camera view required — look from the requested side; the check follows automatically." };
+    if (this.timedRetries >= this.config.maxTimedRetries)
+      return { kind: "wait_view", reason: verdict === "uncertain"
+        ? "Still uncertain from this view — move closer or change the viewpoint; the check follows automatically."
+        : "Fix the assembly as shown; the corrected assembly is detected automatically." };
+    const cooldown = this.lastRequestAt > 0
+      ? this.lastRequestAt + this.config.minIntervalMs * 2 ** Math.max(0, this.consecutiveFailures - 1)
+      : 0;
+    const delay = verdict === "uncertain" ? this.config.uncertainRetryMs : this.config.correctionReassessMs;
+    return {
+      kind: verdict === "uncertain" ? "retry" : "reassess",
+      at: Math.max(this.resultAt + delay, cooldown, this.retryNotBefore),
+      reason: verdict === "uncertain" ? "Uncertain — retrying with a new frame" : "Reassessing the assembly",
+    };
+  }
+  /** A scheduled check found no usable frame: try again a little later (nothing spent). */
+  deferRetry(until: number) {
+    this.retryNotBefore = until;
+  }
+
   noteSelecting() {
     if (TRIGGERABLE.includes(this.state)) this.state = "selecting_frame";
   }
@@ -264,7 +335,7 @@ export class AutonomousMachine {
    * Request one Meta call for the current step (consumes budget). Intent:
    * verify only right after a "correct" inspection; otherwise inspect.
    */
-  requestTrigger(now: number, opts: { manual?: boolean } = {}): { intent: AutoIntent; reason?: string } {
+  requestTrigger(now: number, opts: { manual?: boolean; timed?: boolean } = {}): { intent: AutoIntent; reason?: string } {
     const gate = this.canTrigger(now, opts);
     if (!gate.ok) {
       if (/limit|budget/i.test(gate.reason ?? "") && !opts.manual && !this.outstanding) this.state = "budget_exhausted";
@@ -275,6 +346,8 @@ export class AutonomousMachine {
     this.inspectionsUsed++;
     this.sessionUsed++;
     this.lastRequestAt = now;
+    // Scheduled checks are bounded; a change-, view- or user-triggered check restarts the count.
+    if (gate.intent === "inspect") this.timedRetries = opts.timed ? this.timedRetries + 1 : 0;
     this.state = gate.intent === "verify" ? "verifying" : "inspecting";
     return { intent: gate.intent };
   }
@@ -297,6 +370,7 @@ export class AutonomousMachine {
     status: "correct" | "incorrect" | "uncertain" | "error",
     failure: FailureKind = "backend",
     now = Date.now(),
+    needsView = false,
   ) {
     if (projectId !== this.projectId || stepId !== this.stepId) return; // stale
     this.outstanding = false;
@@ -305,6 +379,7 @@ export class AutonomousMachine {
     this.lastFailure = null;
     this.hasInspection = true;
     this.lastOutcome = status;
+    this.noteVerdict(status, now, needsView);
     if (status === "correct") this.correctAt = now;
     this.state =
       status === "correct"
@@ -319,6 +394,8 @@ export class AutonomousMachine {
     stepId: string,
     status: "verified" | "still_incorrect" | "uncertain" | "error",
     failure: FailureKind = "backend",
+    now = Date.now(),
+    needsView = false,
   ): { intent: AutoIntent } {
     if (projectId !== this.projectId || stepId !== this.stepId) return { intent: "none" }; // stale
     this.outstanding = false;
@@ -333,8 +410,17 @@ export class AutonomousMachine {
     }
     this.consecutiveFailures = 0;
     this.lastOutcome = status === "uncertain" ? "uncertain" : "incorrect";
+    this.noteVerdict(this.lastOutcome, now, needsView);
     this.state = status === "still_incorrect" ? "correction_required" : "uncertain";
     return { intent: "none" };
+  }
+
+  private noteVerdict(verdict: "correct" | "incorrect" | "uncertain", now: number, needsView: boolean) {
+    this.lastVerdict = verdict;
+    this.resultAt = now;
+    this.needsView = verdict === "uncertain" && needsView;
+    this.retryNotBefore = 0;
+    if (verdict === "correct") this.timedRetries = 0; // progress: the next failure may retry again
   }
 
   /** A manual (Verify Step / companion) result for this step while autonomous is on. */
@@ -343,6 +429,8 @@ export class AutonomousMachine {
     if (["idle", "completed", "paused"].includes(this.state)) return;
     this.hasInspection = true;
     this.lastOutcome = status;
+    this.noteVerdict(status, now, false);
+    this.timedRetries = 0;
     if (status === "correct") this.correctAt = now;
     this.state = this.resumeTarget();
   }

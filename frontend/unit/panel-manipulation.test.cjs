@@ -490,3 +490,25 @@ test("field rotation: Re-anchor allows a different orientation; tracking loss ke
   assert.equal(runtime.fieldPlacing, false);
   assert.ok(Math.abs(runtime.fieldYawDeg - (first - 60)) < 0.05, "new orientation confirmed");
 });
+
+test("autonomous context while the panel is manipulated: field stays anchored, in-view state and field transform unchanged", async () => {
+  const { runtime, right, actions } = await anchored();
+  const field = runtime.origin.matrix.elements.slice();
+  const ctx = () => ({ anchorState: runtime.anchorState, fieldInView: runtime.fieldInView });
+  const before = ctx();
+  assert.equal(before.anchorState, "anchored");
+  const grab = poseAimingAt(panelPoint(runtime, 500, 30));
+  runtime.frame(2, frameWith(grab));
+  runtime.onSelectStart({ inputSource: right, frame: frameWith(grab) });
+  for (let i = 0; i < 10; i++) {
+    const p = poseAimingAt(panelPoint(runtime, 500 + i * 10, 30).add(new THREE.Vector3(0.01 * i, 0, 0)));
+    runtime.frame(3 + i, frameWith(p));
+    assert.deepEqual(ctx(), before, "autonomous inputs unchanged during the drag");
+  }
+  runtime.onSelectEnd({ inputSource: right, frame: frameWith(grab) });
+  runtime.rotatePanelBy(0.3, 0.1);
+  runtime.frame(20, frameWith(null));
+  assert.deepEqual(ctx(), before);
+  assert.deepEqual(runtime.origin.matrix.elements, field, "field transform untouched");
+  assert.ok(!actions.includes("verify"), "manipulation never triggers a check");
+});
