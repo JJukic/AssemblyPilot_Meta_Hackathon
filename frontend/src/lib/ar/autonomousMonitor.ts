@@ -45,6 +45,8 @@ export class MonitorCamera implements AutoCamera {
   private presentedWindow: number[] = [];
   private vfcHandle: number | null = null;
   private vfcActive = false;
+  /** Incremented by stop(): a start() that resolves later must release its stream. */
+  private startToken = 0;
   deviceLabel = "";
 
   get live() {
@@ -59,16 +61,29 @@ export class MonitorCamera implements AutoCamera {
 
   async start(deviceId?: string): Promise<void> {
     this.stop();
+    const token = this.startToken;
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera unavailable in this browser");
     // Same constraints as the hardware-proven immersive capture path.
-    this.stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       video: deviceId ? { deviceId: { exact: deviceId } } : true,
     });
+    if (token !== this.startToken) {
+      // stop() was called while the permission/stream request was pending.
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("Camera start cancelled");
+    }
+    this.stream = stream;
     const video = document.createElement("video") as VideoWithFrameCallback;
     video.muted = true;
     video.playsInline = true;
     video.srcObject = this.stream;
     await video.play().catch(() => undefined);
+    if (token !== this.startToken) {
+      stream.getTracks().forEach((t) => t.stop());
+      video.srcObject = null;
+      if (this.stream === stream) this.stream = null;
+      throw new Error("Camera start cancelled");
+    }
     this.video = video;
     this.deviceLabel = this.stream.getVideoTracks()[0]?.label ?? "";
     this.statsCanvas = document.createElement("canvas");
@@ -294,6 +309,7 @@ export class MonitorCamera implements AutoCamera {
   }
 
   stop() {
+    this.startToken++;
     if (this.video && this.vfcHandle !== null) this.video.cancelVideoFrameCallback?.(this.vfcHandle);
     this.vfcHandle = null;
     this.vfcActive = false;

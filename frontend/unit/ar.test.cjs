@@ -828,3 +828,29 @@ test("a hologram never dispatches an action or verification", async () => {
   assert.deepEqual(actions, [], "drawing guidance never triggers verify/next or any other action");
   await runtime.end();
 });
+
+test("panel Stop auto: dispatched by hand ray, keeps XR, anchor and hologram; disappears once stopped", async () => {
+  const { runtime, actions, tracked, anchor, ended } = await anchoredSetup();
+  runtime.update({ placement: placement(), text: "Step", detail: "", autoActive: true, autoButton: "Pause" });
+  runtime.frame(2, tracked());
+  const pose = runtime.origin.matrix.clone();
+  const target = runtime.target;
+  const { PANEL_W, PANEL_H } = require("../src/lib/ar/runtime.ts");
+  const b = runtime.currentButtons.find((x) => x.id === "auto-stop");
+  assert.ok(b, "Stop auto is on the panel while Autonomous runs");
+  assert.notEqual(b.x, runtime.currentButtons.find((x) => x.id === "auto").x, "Stop and Pause are distinct controls");
+  runtime.scene.updateMatrixWorld(true);
+  const aim = new THREE.Vector3(((b.x + b.w / 2) / PANEL_W - 0.5) * 0.72, (0.5 - (b.y + b.h / 2) / PANEL_H) * 0.45, 0).applyMatrix4(runtime.panel.matrixWorld);
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), aim.sub(new THREE.Vector3(0, 1.6, 0)).normalize());
+  runtime.onSelect({ inputSource: { handedness: "right", targetRaySpace: {} }, frame: { getPose: () => ({ transform: { matrix: new THREE.Matrix4().compose(new THREE.Vector3(0, 1.6, 0), q, new THREE.Vector3(1, 1, 1)).toArray() } }) } });
+  assert.deepEqual(actions, ["auto-stop"]);
+  runtime.update({ placement: placement(), text: "Step", detail: "", autoActive: false, autoButton: "Auto ▶" });
+  runtime.frame(3, tracked(0.2));
+  assert.ok(!runtime.currentButtons.some((x) => x.id === "auto-stop"));
+  assert.deepEqual(runtime.origin.matrix.elements, pose.elements, "anchored field unchanged");
+  assert.equal(runtime.target, target, "hologram unchanged");
+  assert.equal(runtime.fieldDiagnostics.fieldRendered, true);
+  assert.equal(anchor.deleted ?? 0, 0);
+  assert.equal(ended(), 0, "XR session still active");
+  await runtime.end();
+});

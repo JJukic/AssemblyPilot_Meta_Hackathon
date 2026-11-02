@@ -892,3 +892,25 @@ current step is an explicit 422. Saving guidance changes the step revision
 origin: it is hidden while tracking is lost, kept through Re-anchor and drawn
 again at the newly confirmed origin. Changing steps removes the previous
 step's geometry before the next scene is drawn.
+
+## Autonomous Assembly lifecycle (Start / Pause / Stop)
+
+Inside immersive AR the panel offers **Auto ▶ / Pause / Resume** and, while
+Autonomous runs, a separate **■ Stop auto** button next to it — no 2D page is
+needed (focusing the 2D slate would blur the immersive session).
+
+- **Pause** keeps the camera open; no frames are analysed and no Meta requests
+  are made until Resume.
+- **Stop** clears the monitoring timer, stops the controller, aborts the
+  browser request Autonomous itself started (a manual Check is not touched),
+  and releases the camera tracks. It never ends the XR session and never
+  changes the anchored field, the hologram or the current step. A request
+  that already reached the backend cannot be cancelled there; its late result
+  is ignored and cannot advance, update or restart the stopped run.
+- Each run has an epoch: a camera that finishes opening after Stop is released
+  immediately, and stale timer/status callbacks are discarded. Nothing restarts
+  without a new explicit Start; a second Start while running is ignored.
+- **Ending immersive AR stops Autonomous completely** (anchors are
+  session-only, so monitoring has no trustworthy field afterwards). Start it
+  again after re-entering AR. On a companion device that never enters AR,
+  Autonomous is stopped only by Stop.

@@ -46,6 +46,7 @@ import { getProgress, inspectSnapshot, verifySnapshot } from "@/lib/inspection";
 import { isWorkflowInspection } from "@/lib/workflow";
 import type { WorkflowInspection } from "@/types/workflow";
 import { AutonomousMachine } from "@/lib/ar/autonomous";
+import { AutonomousRunner } from "@/lib/ar/autoRunner";
 import type { CameraSource } from "@/lib/ar/monitoring";
 import {
   AutoController, classifyFailure, failureHeadline,
@@ -181,8 +182,56 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const controllerRef = useRef<AutoController | null>(null);
   const coordinatorRef = useRef(new InspectionCoordinator());
   const monitorRef = useRef<MonitorCamera | null>(null);
-  const autoTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoAbort = useRef<AbortController | null>(null);
+  /** The in-flight request started BY Autonomous (Stop aborts only this one, never a manual Check). */
+  const autoOwnedAbort = useRef<AbortController | null>(null);
+  /**
+   * One runner owns camera, controller and timer. Its phase is read synchronously,
+   * so rapid holographic taps never act on a stale React render.
+   */
+  const [runner] = useState(() => new AutonomousRunner({
+    camera: () => (monitorRef.current?.live ? monitorRef.current : new MonitorCamera()),
+    controller: {
+      inspect: (intent, frame, sid) => inspectRef.current(intent, frame, sid),
+      context: () => ({
+        projectId,
+        stepId: viewRef.current.step_id,
+        xrActive: runtime.current !== null,
+        anchored: runtime.current?.isAnchored ?? false,
+        anchorState: runtime.current?.anchorState ?? "unplaced",
+        fieldInView: runtime.current?.fieldInView ?? null,
+        otherInspectionRunning: coordinatorRef.current.busy,
+        externalPending: extPendingRef.current,
+      }),
+      advance: () => advanceRef.current(),
+      onFrameRejected: (preview, reason) => rejectedRef.current(preview, reason),
+      now: () => Date.now(),
+    },
+    onStatus: (st) => {
+      if (!alive.current) return;
+      setAutoDiag(st);
+      setAutoStatus(`${st.headline} — ${st.detail}`);
+      setAutoStateLabel(st.machineState);
+    },
+    onPhase: (phase, message) => {
+      if (phase === "starting" || phase === "running") monitorRef.current = runner.camera as MonitorCamera | null;
+      if (phase === "off") monitorRef.current = null;
+      controllerRef.current = runner.controller;
+      if (runner.controller) machineRef.current = runner.controller.machine;
+      if (!alive.current) return;
+      setAutoOn(phase !== "off");
+      setAutoPaused(phase === "paused");
+      if (phase === "off") {
+        machineRef.current = null;
+        setAutoStateLabel("idle");
+        setAutoDiag(null);
+      }
+      if (phase === "completed") setAutoStateLabel("completed");
+      if (phase !== "running") setAutoStatus(message);
+    },
+    abortOwnRequest: () => autoOwnedAbort.current?.abort(),
+  }));
+
   const autoWorkflow = useRef<WorkflowInspection | null>(null);
   const advancingRef = useRef(false);
   const voiceRef = useRef<VoiceController | null>(null);
@@ -290,7 +339,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     });
     return () => {
       alive.current = false;
-      if (autoTimer.current) clearInterval(autoTimer.current);
+      runner.stop();
       autoAbort.current?.abort();
       monitorRef.current?.stop();
       microphoneSession.active = false;
@@ -300,7 +349,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       localRef.current = null;
       void runtime.current?.end();
     };
-  }, []);
+  }, [runner]);
   useEffect(() => {
     let cancelled = false,
       running = false,
@@ -447,6 +496,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       anchorLabel: active ? fieldLine : undefined,
       autoLabel: autoOn || extPending ? (autoDiag ? `${autoDiag.headline}${autoDiag.metrics ? ` [${autoDiag.metrics}]` : ""}` : autoStatus) : undefined,
       autoButton,
+      autoActive: autoOn && autoStateLabel !== "completed",
       stepLabel: step ? `Step ${step.position} of ${totalSteps}` : "No step",
       guideLabel: guide.label,
       guideMessage: guide.message,
@@ -801,21 +851,36 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       case "stop-listening":
         stopAllVoice();
         return { ok: true, detail: "Microphone recognition stopped" };
-      case "auto":
-        // In-AR control: never requires the 2D slate (focusing the slate
-        // blurs the immersive session on HoloLens).
-        if (autoOn && machineRef.current?.state === "completed")
+      case "auto": {
+        // In-AR Start / Pause / Resume (never requires the 2D slate, which blurs the
+        // immersive session). Decided from the runner's synchronous phase, not React state.
+        const phase = runner.phase;
+        if (phase === "completed")
           return { ok: true, detail: "Assembly complete — no further automatic requests" };
-        if (!autoOn) {
-          await startAutonomous();
-          return { ok: true, detail: "Autonomous Assembly started" };
+        if (phase === "starting") return { ok: false, reason: "Camera is starting — use Stop auto to cancel" };
+        if (phase === "running") {
+          pauseAutonomous();
+          return { ok: true, detail: "Monitoring paused (camera kept open, no Meta requests)" };
         }
-        if (autoPaused) {
+        if (phase === "paused") {
           resumeAutonomous();
           return { ok: true, detail: "Monitoring resumed" };
         }
-        pauseAutonomous();
-        return { ok: true, detail: "Monitoring paused (camera kept open, no Meta requests)" };
+        if (machineRef.current) {
+          // Manual camera mode: no runner, toggle the machine.
+          if (autoPaused) resumeAutonomous();
+          else pauseAutonomous();
+          return { ok: true, detail: autoPaused ? "Resumed" : "Paused" };
+        }
+        await startAutonomous();
+        return { ok: true, detail: "Autonomous Assembly started" };
+      }
+      case "auto-stop":
+        // Distinct full Stop inside immersive AR; XR, field and hologram stay.
+        if (!runner.active && runner.phase !== "completed" && !machineRef.current)
+          return { ok: false, reason: "Autonomous Assembly is not running" };
+        stopAutonomous();
+        return { ok: true, detail: "Autonomous Assembly stopped — camera released, no automatic Meta requests" };
     }
   }
   /** Single dispatch path for voice: always records a visible diagnostic. */
@@ -1038,7 +1103,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     intent: "inspect" | "verify",
     frame: import("@/types/assembly").Snapshot,
     stepId: string,
-    opts: { cameraSource?: string; quality?: FrameQuality; frameFresh?: boolean; selection?: string; roiPx?: SelectedFrame["roiPx"] } = {},
+    opts: { cameraSource?: string; quality?: FrameQuality; frameFresh?: boolean; selection?: string; roiPx?: SelectedFrame["roiPx"]; origin?: "auto" | "manual" } = {},
   ): Promise<InARResult> {
     const lease = coordinatorRef.current.acquire(projectId, stepId, intent);
     if (lease === null)
@@ -1128,6 +1193,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     };
     const controller = new AbortController();
     autoAbort.current = controller;
+    if (opts.origin === "auto") autoOwnedAbort.current = controller;
     const inProgress = inspectingSummary(projectId, stepId);
     saveInspectionSummary(inProgress);
     setResultSummary(inProgress);
@@ -1210,6 +1276,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     } finally {
       coordinatorRef.current.release(lease);
       if (autoAbort.current === controller) autoAbort.current = null;
+      if (autoOwnedAbort.current === controller) autoOwnedAbort.current = null;
     }
   }
   /** "Inspect Now": one explicit request through the same guarded controller. */
@@ -1404,7 +1471,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   async function runControllerInspection(intent: "inspect" | "verify", frame: SelectedFrame, stepId: string): Promise<InspectOutcome> {
     const source = `${cameraSource === "external" ? "external" : "hololens"} camera${monitorRef.current?.deviceLabel ? ` (${monitorRef.current.deviceLabel})` : ""}`;
     const d = await performInARInspection(intent, frame.snapshot, stepId, {
-      cameraSource: source, frameFresh: true, selection: frame.reason, roiPx: frame.roiPx,
+      cameraSource: source, frameFresh: true, selection: frame.reason, roiPx: frame.roiPx, origin: "auto",
     });
     if (d.stale) return { kind: "stale" };
     if (d.overallStatus === "error") return { kind: "error", failure: d.failure ?? "backend", message: d.message ?? "Inspection failed" };
@@ -1424,111 +1491,69 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   });
 
   async function startAutonomous() {
-    if (!project || !view.step_id || autoOn) return;
+    if (!project || !view.step_id || runner.active || machineRef.current) return;
     const stepId = view.step_id;
     autoWorkflow.current = null;
-    setAutoOn(true);
-    setAutoPaused(false);
     if (cameraSource === "manual") {
       const machine = new AutonomousMachine();
       machineRef.current = machine;
       machine.start(projectId, stepId);
       machine.cameraReady(true);
       machine.anchored();
+      setAutoOn(true);
+      setAutoPaused(false);
       syncAutoLabel();
       setAutoStatus("MANUAL CAMERA MODE — no continuous frames are captured. Advance follows server verification; use Verify Step.");
       return;
     }
-    setAutoStatus("CAMERA STARTING — opening the camera…");
-    const monitor = monitorRef.current?.live ? monitorRef.current : new MonitorCamera();
-    monitorRef.current = monitor;
-    if (!monitor.live) {
-      try {
-        await monitor.start(cameraSource === "external" && camDeviceId ? camDeviceId : undefined);
-      } catch (cause) {
-        monitor.stop();
-        if (monitorRef.current === monitor) monitorRef.current = null;
-        setAutoOn(false);
-        setAutoStatus(`CAMERA ERROR — ${errorMessage(cause)}. Choose External tabletop camera (this page can run on the MacBook as companion) or Manual capture. Nothing was sent to Meta.`);
-        return;
-      }
-    }
-    if (!alive.current) {
-      monitor.stop();
-      return;
-    }
-    const controller = new AutoController({
-      camera: monitor,
-      selectFrame: (minClock) => monitor.selectBest(minClock),
-      inspect: (intent, frame, sid) => inspectRef.current(intent, frame, sid),
-      context: () => ({
-        projectId,
-        stepId: viewRef.current.step_id,
-        xrActive: runtime.current !== null,
-        anchored: runtime.current?.isAnchored ?? false,
-        anchorState: runtime.current?.anchorState ?? "unplaced",
-        fieldInView: runtime.current?.fieldInView ?? null,
-        otherInspectionRunning: coordinatorRef.current.busy,
-        externalPending: extPendingRef.current,
-      }),
-      advance: () => advanceRef.current(),
-      onFrameRejected: (preview, reason) => rejectedRef.current(preview, reason),
-      onStatus: (st) => {
-        if (!alive.current || controllerRef.current !== controller) return;
-        setAutoDiag(st);
-        setAutoStatus(`${st.headline} — ${st.detail}`);
-        setAutoStateLabel(st.machineState);
-      },
-      now: () => Date.now(),
+    await runner.start({
+      projectId, stepId, assessExisting: assessPlaced,
+      deviceId: cameraSource === "external" && camDeviceId ? camDeviceId : undefined,
     });
-    controllerRef.current = controller;
-    machineRef.current = controller.machine;
-    controller.start(projectId, stepId, { assessExisting: assessPlaced });
-    if (autoTimer.current) clearInterval(autoTimer.current);
-    autoTimer.current = setInterval(() => void controllerRef.current?.tick(), 500);
   }
   function pauseAutonomous() {
-    const m = machineRef.current;
+    if (runner.pause()) return;
+    const m = machineRef.current; // manual camera mode
     if (!m) return;
-    if (controllerRef.current) controllerRef.current.pause();
-    else m.pause();
+    m.pause();
     setAutoPaused(true);
     syncAutoLabel();
-    setAutoStatus("PAUSED — camera kept open; no frames analysed and no Meta requests until you resume.");
+    setAutoStatus("PAUSED — no automatic advance until you resume.");
   }
   function resumeAutonomous() {
+    if (runner.resume()) return;
     const m = machineRef.current;
     if (!m) return;
-    if (controllerRef.current) controllerRef.current.resume();
-    else m.resume();
+    m.resume();
     setAutoPaused(false);
     syncAutoLabel();
-    setAutoStatus("RESUMED — re-establishing the reference view.");
+    setAutoStatus("RESUMED.");
   }
   /** Final step verified: stop paid calls and release the camera, keep the hologram and history. */
   function finishAutonomous() {
-    if (autoTimer.current) clearInterval(autoTimer.current);
-    autoTimer.current = null;
-    monitorRef.current?.stop();
-    monitorRef.current = null;
-    setAutoStateLabel("completed");
+    runner.complete();
   }
-  function stopAutonomous() {
-    if (autoTimer.current) clearInterval(autoTimer.current);
-    autoTimer.current = null;
-    autoAbort.current?.abort();
-    monitorRef.current?.stop();
-    monitorRef.current = null;
-    controllerRef.current?.stop();
-    controllerRef.current = null;
+  /**
+   * Full stop (also used when immersive AR ends): timer, controller, this run's
+   * in-flight browser request and camera tracks. Never ends XR, never touches
+   * the field, hologram or current step. A request that already reached the
+   * backend is not cancelled there; its late result is ignored.
+   */
+  function stopAutonomous(message?: string) {
+    runner.stop(message);
     machineRef.current?.stop();
     machineRef.current = null;
+    controllerRef.current = null;
     setAutoOn(false);
     setAutoPaused(false);
     setAutoStateLabel("idle");
     setAutoDiag(null);
-    setAutoStatus("Autonomous Assembly stopped. Camera released; no automatic Meta requests will be made.");
+    if (message) setAutoStatus(message);
   }
+  const stopAutoRef = useRef(stopAutonomous);
+  useEffect(() => {
+    stopAutoRef.current = stopAutonomous;
+  });
 
   async function testMicrophone() {
     if (micPending.current || voiceBusy) return;
@@ -1571,6 +1596,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           () => {
             runtime.current = null;
             stopAllVoice(true);
+            // Contract: ending immersive AR stops Autonomous completely (anchors are
+            // session-only, so monitoring has no trustworthy field any more).
+            if (runner.active || machineRef.current)
+              stopAutoRef.current("Immersive AR ended — Autonomous Assembly stopped and camera released. Start it again after re-entering AR.");
             if (alive.current) {
               setActive(false);
               setStatus("XR session ended. Microphone stopped. Re-enter and re-anchor before continuing.");
@@ -1853,7 +1882,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           ) : (
             <button className="button secondary" onClick={pauseAutonomous}>Pause Monitoring</button>
           )}
-          {autoOn && <button className="button danger" onClick={stopAutonomous}>Stop Autonomous Assembly</button>}
+          {autoOn && <button className="button danger" onClick={() => stopAutonomous()}>Stop Autonomous Assembly</button>}
           <button className="button secondary" disabled={!autoOn || cameraSource === "manual"} onClick={() => void runAutoTrigger()}>Inspect Now</button>
           <button className="button secondary" disabled={!active} onClick={() => runtime.current?.confirmOrigin()}>Confirm Assembly Field</button>
           <button className="button secondary" disabled={!active} onClick={() => runtime.current?.reset()}>Re-anchor Assembly Field</button>

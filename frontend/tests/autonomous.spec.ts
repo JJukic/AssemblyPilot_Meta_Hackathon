@@ -39,6 +39,7 @@ async function fakeCamera(page: Page) {
     ctx.fillStyle = "#336699"; ctx.fillRect(0, 0, 320, 240);
     ctx.fillStyle = "#ffcc00"; ctx.fillRect(120, 90, 60, 60);
     const stream = canvas.captureStream(10);
+    (window as unknown as { __fakeStream: MediaStream }).__fakeStream = stream;
     const real = navigator.mediaDevices;
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
@@ -146,4 +147,21 @@ test("capture preview: the panel preview record is the exact uploaded JPEG (same
   await expect(page.getByRole("status", { name: "Inspection diagnostics" })).toContainText(uploads[0]);
   expect(uploads.length).toBe(1);
   await page.getByRole("button", { name: "Stop Autonomous Assembly" }).click();
+});
+
+test("Stop releases the camera and stops automatic requests; rapid Start/Stop never restarts monitoring", async ({ page, request }) => {
+  test.setTimeout(60000);
+  const project = await project2(request);
+  const state = await fakeCamera(page);
+  await page.goto(`/ar?project=${project.id}`);
+  await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
+  const trackState = () => page.evaluate(() => (window as unknown as { __fakeStream: MediaStream }).__fakeStream.getVideoTracks()[0].readyState);
+  // Rapid: Start immediately followed by Stop (camera may still be opening).
+  await page.getByRole("button", { name: "Start Autonomous Assembly" }).click();
+  await page.getByRole("button", { name: "Stop Autonomous Assembly" }).click();
+  await expect(autoStatus(page)).toContainText("stopped");
+  await page.waitForTimeout(2500);
+  await expect(autoStatus(page)).toContainText("off"); // no silent restart
+  expect(await trackState()).toBe("ended");
+  expect(state.inspects).toBe(0);
 });

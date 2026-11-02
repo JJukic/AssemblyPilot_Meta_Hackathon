@@ -31,7 +31,8 @@ export type Action =
   | "result"
   | "auto"
   | "camera"
-  | "confirm";
+  | "confirm"
+  | "auto-stop";
 export interface Guidance {
   /** Legacy single target (used when `hologram` is absent). */
   placement: Placement | null;
@@ -51,6 +52,8 @@ export interface Guidance {
   autoLabel?: string;
   /** Label for the in-AR Autonomous button (start / pause / resume). */
   autoButton?: string;
+  /** Autonomous Assembly is starting/running/paused: show the separate Stop control. */
+  autoActive?: boolean;
   lastCommand?: string;
   diagnostic?: string;
   resultHeadline?: string;
@@ -112,13 +115,21 @@ const SECONDARY: [Action, string, number?][] = [
  * Panel layout: at most two large contextual buttons of the guided flow,
  * plus one fixed secondary row. No voice-only control exists.
  */
-export function layoutButtons(primary: { id: Action; label: string }[]): PanelButton[] {
+export function layoutButtons(
+  primary: { id: Action; label: string }[],
+  opts: { autoActive?: boolean } = {},
+): PanelButton[] {
   const top = primary.slice(0, 2);
+  // While Autonomous runs, a distinct Stop sits next to Pause/Resume, so it can be
+  // stopped completely without focusing the 2D page (which blurs the session).
+  const secondary: [Action, string, number?][] = opts.autoActive
+    ? SECONDARY.flatMap((b) => (b[0] === "auto" ? [b, ["auto-stop", "■ Stop auto"] as [Action, string]] : [b]))
+    : SECONDARY;
   return [
     ...(top.length
       ? row(top.map((p) => [p.id, p.label] as [Action, string]), PRIMARY_Y, PRIMARY_H).map((b) => ({ ...b, primary: true }))
       : []),
-    ...row(SECONDARY, SECONDARY_Y, SECONDARY_H, true),
+    ...row(secondary, SECONDARY_Y, SECONDARY_H, true),
   ];
 }
 export const DEFAULT_PRIMARY: { id: Action; label: string }[] = [{ id: "verify", label: "Check" }];
@@ -447,7 +458,7 @@ export class SpatialSession {
         }
       }
     }
-    this.buttons = layoutButtons(info.primary ?? DEFAULT_PRIMARY);
+    this.buttons = layoutButtons(info.primary ?? DEFAULT_PRIMARY, { autoActive: !!info.autoActive });
     this.applyGuideColors(info);
     this.draw();
   }
@@ -781,7 +792,7 @@ export class SpatialSession {
       const hovered = this.hoveredButton?.id === b.id;
       const pressed = this.pressedButton === b.id;
       const primaryFill = b.id === "next" ? "#1d7a3e" : b.id === "confirm" ? "#7a5a12" : "#1d5f8a";
-      c.fillStyle = pressed ? "#ffffff" : hovered ? "#2f9ec7" : b.danger ? "#8b1e2d" : b.primary ? primaryFill : isRef && !this.showReference ? "#33505f" : "#1b4a66";
+      c.fillStyle = pressed ? "#ffffff" : hovered ? "#2f9ec7" : b.danger ? "#8b1e2d" : b.id === "auto-stop" ? "#6d2633" : b.primary ? primaryFill : isRef && !this.showReference ? "#33505f" : "#1b4a66";
       c.fillRect(b.x, b.y, b.w, b.h);
       c.strokeStyle = pressed ? "#ffffff" : hovered ? "#ffffff" : b.danger ? "#ff8fa3" : "#7df3ff";
       c.lineWidth = hovered || pressed ? 6 : 3;
