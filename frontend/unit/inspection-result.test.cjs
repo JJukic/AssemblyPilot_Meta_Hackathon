@@ -91,7 +91,7 @@ test("handoff is scoped to project, step and specification; stale is dropped", (
 test("a failed inspection replaces a previous success as the latest result", () => {
   fakeStorage();
   saveInspectionSummary(summarizeInspection(workflow({ status: "correct", state: "correct", issues: [], correction_plan: [] }), "proj-1"));
-  assert.equal(resultHeadline(loadInspectionSummary("proj-1", "step-1"), false).text, "AI Assessment: Correct");
+  assert.equal(resultHeadline(loadInspectionSummary("proj-1", "step-1"), false).text, "AI Assessment: Correct — fresh verification required");
   saveInspectionSummary(errorSummary("proj-1", "step-1", "Meta returned HTTP 503"));
   const latest = loadInspectionSummary("proj-1", "step-1");
   assert.equal(latest.kind, "error");
@@ -102,7 +102,7 @@ test("a failed inspection replaces a previous success as the latest result", () 
 
 test("correct assessment is not verified progress; verification summary can be verified", () => {
   const correct = summarizeInspection(workflow({ status: "correct", state: "correct", issues: [], correction_plan: [] }), "p");
-  assert.equal(resultHeadline(correct, false).text, "AI Assessment: Correct");
+  assert.equal(resultHeadline(correct, false).text, "AI Assessment: Correct — fresh verification required");
   assert.match(resultLines(correct, false).join(" "), /Step verified: No — fresh verification required/);
   assert.equal(resultHeadline(correct, true).tone, "verified");
   const verified = summarizeVerification({
@@ -111,12 +111,12 @@ test("correct assessment is not verified progress; verification summary can be v
     issue_assessments: [],
   }, "p");
   assert.equal(verified.verificationStatus, "verified");
-  assert.equal(resultHeadline(verified, false).text, "✓ Correct — Step Verified");
+  assert.equal(resultHeadline(verified, false).text, "✓ Step Verified");
   const still = summarizeVerification({
     verification_id: "v2", previous_inspection_id: "insp-1", status: "still_incorrect",
     inspection: workflow({ state: "still_incorrect", inspection_id: "insp-3" }), issue_assessments: [],
   }, "p");
-  assert.match(resultHeadline(still, false).text, /Still Incorrect/);
+  assert.match(resultHeadline(still, false).text, /Incorrect — Correction Required/);
   assert.match(resultLines(still, false).join(" "), /Replace the red block/);
 });
 

@@ -9,6 +9,7 @@
  * the latest AI assessment — separate from officially verified progress.
  */
 import type { VerificationResponse, WorkflowInspection } from "@/types/workflow";
+import { overallResult, type OverallKind } from "../overall";
 
 export interface InspectionIssueSummary {
   type: string;
@@ -17,7 +18,17 @@ export interface InspectionIssueSummary {
   observed: string;
   suggested_fix: string;
 }
+export interface OverallSummary {
+  kind: OverallKind;
+  printGate: "pass" | "fail" | "uncertain" | "not_applicable" | null;
+  expectedPrint: string | null;
+  observedPrint: string | null;
+  printAction: string | null;
+  faceStatus: string | null;
+  geometryStatus: string | null;
+}
 export interface InspectionSummary {
+  overall: OverallSummary | null;
   kind: "inspection" | "verification" | "error" | "inspecting";
   projectId: string;
   stepId: string;
@@ -50,7 +61,26 @@ export function summarizeInspection(
   kind: "inspection" | "verification" = "inspection",
   verificationStatus: InspectionSummary["verificationStatus"] = null,
 ): InspectionSummary {
+  const print = result.print_recognition ?? null;
+  const overall = overallResult({
+    state: result.state,
+    status: result.status,
+    stepVerified: verificationStatus === "verified",
+    printGate: print?.gate_status ?? null,
+    faceStatus: result.face?.status ?? null,
+    geometryStatus: result.geometry?.geometry_status ?? null,
+    geometryConstrained: !!result.geometry?.constraint_id,
+  });
   return {
+    overall: {
+      kind: overall.kind,
+      printGate: print?.gate_status ?? null,
+      expectedPrint: print?.expected_print ?? null,
+      observedPrint: print?.observed_print ?? null,
+      printAction: print?.suggested_action ?? null,
+      faceStatus: result.face?.status ?? null,
+      geometryStatus: result.geometry?.geometry_status ?? null,
+    },
     kind,
     projectId,
     stepId: result.step_id,
@@ -96,6 +126,7 @@ export function errorSummary(
   specificationId: string | null = null,
 ): InspectionSummary {
   return {
+    overall: null,
     kind: "error",
     projectId,
     stepId,
@@ -185,6 +216,14 @@ export function validateSummary(value: unknown): InspectionSummary | null {
   )
     return null;
   if (!(value.state === null || isText(value.state, 60))) return null;
+  if (value.overall !== undefined && value.overall !== null) {
+    const o = value.overall;
+    if (!isRecord(o)) return null;
+    if (!["verified", "incorrect", "uncertain", "correct", "inspecting", "error"].includes(String(o.kind))) return null;
+    if (!(o.printGate === null || ["pass", "fail", "uncertain", "not_applicable"].includes(String(o.printGate)))) return null;
+    if (![o.expectedPrint, o.observedPrint, o.printAction].every((v) => v === null || (typeof v === "string" && v.length <= MAX_TEXT))) return null;
+    if (![o.faceStatus, o.geometryStatus].every((v) => v === null || isText(v, 60))) return null;
+  }
   return value as unknown as InspectionSummary;
 }
 
@@ -264,15 +303,24 @@ export function resultHeadline(
     return { text: "Inspecting with Meta AI…", tone: "inspecting" };
   if (summary.kind === "error")
     return { text: "Inspection Failed", tone: "error" };
-  if (summary.verificationStatus === "verified" || stepVerified)
-    return { text: "✓ Correct — Step Verified", tone: "verified" };
-  if (summary.verificationStatus === "still_incorrect")
-    return { text: "✗ Still Incorrect — Correction Required", tone: "incorrect" };
-  if (summary.status === "correct")
-    return { text: "AI Assessment: Correct", tone: "correct" };
-  if (summary.status === "incorrect")
-    return { text: "✗ Incorrect — Correction Required", tone: "incorrect" };
-  return { text: "? Uncertain — Another View Needed", tone: "uncertain" };
+  // Overall (all mandatory gates) wins over the semantic-only status. For
+  // summaries stored before `overall` existed, the backend workflow state
+  // is the authority — a correct semantic status with a failed print gate
+  // arrives as correction_required and must never headline as Correct.
+  const overall = overallResult({
+    state: summary.state,
+    status: summary.status,
+    stepVerified: stepVerified || summary.verificationStatus === "verified",
+    printGate: summary.overall?.printGate ?? null,
+    faceStatus: summary.overall?.faceStatus ?? null,
+    geometryStatus: summary.overall?.geometryStatus ?? null,
+    geometryConstrained: !!summary.overall?.geometryStatus,
+  });
+  if (overall.kind === "verified") return { text: "✓ Step Verified", tone: "verified" };
+  if (overall.kind === "incorrect") return { text: "✗ Incorrect — Correction Required", tone: "incorrect" };
+  if (overall.kind === "uncertain") return { text: "? Uncertain — Another View Needed", tone: "uncertain" };
+  if (overall.kind === "error") return { text: "Inspection Failed", tone: "error" };
+  return { text: "AI Assessment: Correct — fresh verification required", tone: "correct" };
 }
 
 /** Full, untruncated result lines for the paginated XR panel. */
@@ -299,6 +347,20 @@ export function resultLines(
         ? "Step verified: No — fresh verification required"
         : "Step verified: No",
   );
+  const overall = summary.overall;
+  if (overall?.printGate === "fail") {
+    lines.push("Problem: Wrong printed side — the observed print does not match the required side.");
+    lines.push(`Expected: ${overall.expectedPrint ?? "registered required print"}`);
+    lines.push(`Observed: ${overall.observedPrint ?? "not read"}`);
+    if (overall.printAction) lines.push(`Suggested action: ${overall.printAction}`);
+  } else if (overall?.printGate === "uncertain") {
+    lines.push("Problem: The required printed side or its orientation could not be verified.");
+    lines.push(`Expected: ${overall.expectedPrint ?? "registered required print"}`);
+    lines.push(`Observed: ${overall.observedPrint ?? "not read"}`);
+    if (overall.printAction) lines.push(`Suggested action: ${overall.printAction}`);
+  }
+  if (overall?.faceStatus === "incorrect") lines.push("Problem: Wrong face/orientation for this step.");
+  if (overall?.geometryStatus === "incorrect") lines.push("Problem: Geometric check failed for this step.");
   if (!errorsOnly && summary.explanation) lines.push(summary.explanation);
   summary.issues.forEach((issue, i) => {
     lines.push(`Issue ${i + 1} (${issue.type}): ${issue.description}`);

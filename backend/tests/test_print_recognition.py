@@ -720,3 +720,23 @@ def test_print_rejections_identify_exact_safe_reason_without_retry(flow, caplog,
     assert face["id"] not in response.text + caplog.text
     assert len(flow.calls) == 1
     assert flow.progress()["status"] != "verified"
+
+
+def test_wrong_printed_side_never_verifies_even_after_fresh_verification(flow):
+    # Regression (false-positive Correct): semantic correct, expected
+    # "Involve Me", clearly observed "insights" on the correct target block.
+    configure(flow)
+    flow.base["print_observation"].update(observed_text="insights")
+    first = flow.start()
+    assert first.status_code == 200, first.text
+    data = first.json()
+    assert data["status"] == "correct"  # semantic-only assessment
+    assert data["print_recognition"]["recognition_status"] == "mismatch"
+    assert data["print_recognition"]["gate_status"] == "fail"
+    assert data["state"] == "correction_required"
+    assert flow.progress()["status"] == "in_progress"  # never verified
+    # A fresh verification frame showing the same wrong side cannot verify.
+    second = flow.verify(data["inspection_id"])
+    assert second.status_code == 200, second.text
+    assert second.json()["status"] == "still_incorrect"
+    assert flow.progress()["status"] == "in_progress"

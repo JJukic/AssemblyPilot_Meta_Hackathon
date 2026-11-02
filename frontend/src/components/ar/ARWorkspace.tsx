@@ -866,11 +866,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         }
         const summary = workflow ? summarizeInspection(workflow, projectId) : null;
         if (summary) { saveInspectionSummary(summary); setResultSummary(summary); }
-        const status = workflow?.status ?? diagnosis.status;
-        m.onInspectResult(projectId, stepId, status === "correct" ? "correct" : status === "incorrect" ? "incorrect" : "uncertain");
+        // Overall workflow state (all mandatory gates), never semantic alone.
+        const overallStatus = workflow
+          ? workflow.state === "correct" ? "correct"
+            : ["correction_required", "still_incorrect"].includes(workflow.state) ? "incorrect"
+            : "uncertain"
+          : diagnosis.status;
+        m.onInspectResult(projectId, stepId, overallStatus === "correct" ? "correct" : overallStatus === "incorrect" ? "incorrect" : "uncertain");
         setAutoStatus(
-          status === "correct" ? "ASSEMBLY LOOKS CORRECT — a separate fresh verification frame is still required." :
-          status === "incorrect" ? "CORRECTION REQUIRED — see the issue and fix in the panel. Monitoring continues for your correction." :
+          overallStatus === "correct" ? "ASSEMBLY LOOKS CORRECT — a separate fresh verification frame is still required." :
+          overallStatus === "incorrect" ? "CORRECTION REQUIRED — see the issue and fix in the panel. Monitoring continues for your correction." :
           "ANOTHER VIEW NEEDED — make the assembly clearly visible; monitoring continues.",
         );
         syncAutoLabel();
@@ -1323,6 +1328,22 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
                   ? "Inspection failed — this is not an incorrect assembly"
                   : "Step verified: No"}
           </p>
+          {resultSummary.overall?.printGate === "fail" && (
+            <>
+              <p><strong>Problem: Wrong printed side</strong> — the observed print does not match the required side.</p>
+              <p>Expected: {resultSummary.overall.expectedPrint}</p>
+              <p>Observed: {resultSummary.overall.observedPrint ?? "Not read"}</p>
+              {resultSummary.overall.printAction && <p>Suggested action: {resultSummary.overall.printAction}</p>}
+            </>
+          )}
+          {resultSummary.overall?.printGate === "uncertain" && (
+            <>
+              <p><strong>Problem: The required printed side or its orientation could not be verified.</strong></p>
+              <p>Expected: {resultSummary.overall.expectedPrint}</p>
+              <p>Observed: {resultSummary.overall.observedPrint ?? "Not read"}</p>
+              {resultSummary.overall.printAction && <p>Suggested action: {resultSummary.overall.printAction}</p>}
+            </>
+          )}
           {resultSummary.kind === "error" ? (
             <p role="alert">{resultSummary.errorMessage}</p>
           ) : (

@@ -12,7 +12,7 @@ async function setup(request: APIRequestContext) {
   })).json();
   const progress = await (await request.get(`${api}/api/projects/${project.id}/progress`)).json();
   const specId = progress.find((s: { step_id: string }) => s.step_id === step.id).specification_id;
-  return { project, step, specId };
+  return { project, step, specId, block };
 }
 
 function result(opts: {
@@ -119,4 +119,45 @@ test("inspection failure is preserved as Inspection Failed in AR (previous succe
   const card = page.getByRole("region", { name: "Latest Meta inspection result" });
   await expect(card).toContainText("Inspection Failed");
   await expect(card).not.toContainText("AI Assessment: Correct");
+});
+
+test("wrong printed side: semantic correct must never present as overall Correct (desktop + AR)", async ({ page, request }) => {
+  const a = await setup(request);
+  const jpeg = JPEG;
+  const print = {
+    schema_version: 1, target_block_id: a.block.id, expected_print: "Involve Me",
+    observed_print: "insights", observed_logo: null, observed_registered_side_id: null,
+    observed_registered_side_name: "insights side", recognition_status: "mismatch",
+    recognition_method: "meta_zero_shot", evidence_quality: "clear", known_alternative: true,
+    description: "The visible printed side reads insights, which differs from the required Involve Me side.",
+    suggested_action: "Present the registered print \u201cInvolve Me\u201d on the required surface, then capture a fresh image.",
+    snapshot_id: sha(jpeg), bounding_box: null, reference_image_id: null,
+    direction_required: false, direction_supported: false, gate_status: "fail",
+  };
+  await page.route("**/api/inspect", (r) => r.fulfill({ json: {
+    ...result({
+      stepId: a.step.id, specId: a.specId, status: "correct", state: "correction_required",
+      explanation: "The block shape, color and arrangement are correct. The visible printed side reads insights.",
+      next: "Correct the printed side, then verify again.",
+      plan: [{ issue_id: null, block_id: a.block.id, kind: "print_adjust", instruction: print.suggested_action }],
+    }),
+    print_recognition: print, face: null, geometry: null,
+  } }));
+  await intent(page, a);
+  await page.goto(`/?project=${a.project.id}&step=${a.step.id}`);
+  const overall = page.getByRole("region", { name: "Overall assembly result" });
+  await expect(overall).toContainText("OVERALL ASSEMBLY RESULT: INCORRECT", { timeout: 20000 });
+  await expect(overall).toContainText("Expected:");
+  await expect(overall).toContainText("Involve Me");
+  await expect(overall).toContainText("insights");
+  await expect(page.getByRole("region", { name: "Printed Text & Logo Inspection" })).toContainText("FAIL");
+  await page.getByRole("link", { name: "Return to AR with result" }).click();
+  const card = page.getByRole("region", { name: "Latest Meta inspection result" });
+  await expect(card).toContainText("Incorrect \u2014 Correction Required");
+  await expect(card).toContainText("Wrong printed side");
+  await expect(card).toContainText("Expected: Involve Me");
+  await expect(card).toContainText("Observed: insights");
+  await expect(card).toContainText("Step verified: No");
+  expect((await (await request.get(`${api}/api/projects/${a.project.id}/progress`)).json())
+    .every((s: { status: string }) => s.status !== "verified")).toBe(true);
 });
