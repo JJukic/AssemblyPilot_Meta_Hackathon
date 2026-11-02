@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { disposeObject, ghost } from "./geometry";
 import type { Placement } from "./data";
+import type { HologramView } from "./hologram";
 import { fitRect } from "./reference";
 import { paginate, wrapText, type VerificationStatus } from "./panel";
 import type { CaptureView, IndicatorTone } from "./capturePreview";
@@ -32,7 +33,10 @@ export type Action =
   | "camera"
   | "confirm";
 export interface Guidance {
+  /** Legacy single target (used when `hologram` is absent). */
   placement: Placement | null;
+  /** Cumulative step hologram: earlier steps dimmed, current step highlighted. Guidance only. */
+  hologram?: HologramView;
   text: string;
   detail: string;
   stepLabel?: string;
@@ -97,12 +101,12 @@ function row(ids: [Action, string, number?][], y: number, h: number, dangerLast 
 }
 /** Always-visible secondary controls (gaze/hand-ray sized, ≥ 82 px tall). */
 const SECONDARY: [Action, string, number?][] = [
-  ["previous", "◀ Zurück"],
-  ["reanchor", "Neu ausrichten", 1.15],
-  ["camera", "Kamera"],
-  ["result", "Ergebnis"],
+  ["previous", "◀ Back"],
+  ["reanchor", "Re-anchor", 1.15],
+  ["camera", "Camera"],
+  ["result", "Result"],
   ["auto", "Auto ▶"],
-  ["exit", "BEENDEN", 1.4],
+  ["exit", "EXIT AR", 1.4],
 ];
 /**
  * Panel layout: at most two large contextual buttons of the guided flow,
@@ -117,7 +121,7 @@ export function layoutButtons(primary: { id: Action; label: string }[]): PanelBu
     ...row(SECONDARY, SECONDARY_Y, SECONDARY_H, true),
   ];
 }
-export const DEFAULT_PRIMARY: { id: Action; label: string }[] = [{ id: "verify", label: "Prüfen" }];
+export const DEFAULT_PRIMARY: { id: Action; label: string }[] = [{ id: "verify", label: "Check" }];
 /** Layout of the initial "Bereit" state (kept for callers/tests that need static coordinates). */
 export const PANEL_BUTTONS: PanelButton[] = layoutButtons(DEFAULT_PRIMARY);
 export function panelButtonAt(x: number, y: number, buttons: PanelButton[] = PANEL_BUTTONS): PanelButton | null {
@@ -403,9 +407,10 @@ export class SpatialSession {
       this.lastInstruction = info.instruction ?? "";
       this.instructionPage = 0;
     }
-    // Rebuild the step hologram only when the placement really changed —
+    // Rebuild the step hologram only when its geometry really changed —
     // status-only re-renders (autonomous ticks, voice) must not churn GPU objects.
-    const key = info.placement ? JSON.stringify(info.placement) : "";
+    const holo: HologramView = info.hologram ?? { assembled: [], current: info.placement ? [info.placement] : [] };
+    const key = holo.assembled.length || holo.current.length ? JSON.stringify(holo) : "";
     if (key !== this.targetKey) {
       this.targetKey = key;
       if (this.target) {
@@ -418,15 +423,28 @@ export class SpatialSession {
         disposeObject(this.marker);
         this.marker = null;
       }
-      if (info.placement) {
-        this.target = ghost(info.placement);
-        this.target.traverse((o) => {
-          const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
-          if (m && "color" in m) o.userData.baseColor = m.color.getHex();
-        });
-        this.origin.add(this.target);
-        this.marker = targetMarker(info.placement);
-        this.origin.add(this.marker);
+      if (key) {
+        // Child of origin: inherits ONLY the confirmed field pose; never moves the field.
+        const group = new THREE.Group();
+        group.name = "step-hologram";
+        for (const p of holo.assembled) group.add(ghost(p, "assembled"));
+        for (const p of holo.current) {
+          const g = ghost(p, "current");
+          g.traverse((o) => {
+            const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+            if (m && "color" in m) o.userData.baseColor = m.color.getHex();
+          });
+          group.add(g);
+        }
+        this.target = group;
+        this.origin.add(group);
+        if (holo.current.length) {
+          const markers = new THREE.Group();
+          markers.name = "target-markers";
+          for (const p of holo.current) markers.add(targetMarker(p));
+          this.marker = markers;
+          this.origin.add(markers);
+        }
       }
     }
     this.buttons = layoutButtons(info.primary ?? DEFAULT_PRIMARY);
@@ -625,7 +643,7 @@ export class SpatialSession {
     c.fillRect(0, 0, PANEL_W, 56);
     c.fillStyle = "#bffaff";
     c.font = "20px sans-serif";
-    c.fillText(manipState === "dragging" ? "⠿ Panel wird verschoben" : "⠿ AssemblyPilot", PANEL_W - 250, 38);
+    c.fillText(manipState === "dragging" ? "⠿ Moving panel" : "⠿ AssemblyPilot", PANEL_W - 250, 38);
     const stepLabel = info.stepLabel ?? info.text.split("—")[0]?.trim() ?? "";
     const title = info.title ?? info.text;
     // Header
@@ -738,13 +756,13 @@ export class SpatialSession {
       c.font = "23px sans-serif";
       c.fillStyle = "#bffaff";
       const help = [
-        "Bedienung: große Buttons (Hand-Strahl + Air Tap).",
-        "Prüfen · Erneut prüfen · Position bestätigen · Nächster Schritt",
-        "Sprachbefehle (optional): Show result · Show reference",
+        "Use the large buttons: point with your hand and air tap.",
+        "Check · Check again · Confirm position · Next step",
+        "Optional voice: Show result · Show reference",
         "Recenter · Re-anchor · Stop listening · Exit AR",
-        "Weiter/Zurück/Prüfen gibt es bewusst nur als Buttons.",
-        "Kamera = exakt das an Meta gesendete Bild.",
-        "Beenden: BEENDEN-Button oder HoloLens-Startgeste.",
+        "Use buttons for Next, Back and Check.",
+        "Camera shows the exact image sent to Meta.",
+        "To leave: EXIT AR button or HoloLens Start gesture.",
       ];
       help.forEach((line, i) => c.fillText(line, 20, 138 + i * 32));
     } else {
@@ -776,11 +794,11 @@ export class SpatialSession {
           : b.id === "camera"
           ? this.viewMode === "camera"
             ? "Anleitung"
-            : "Kamera"
+            : "Camera"
           : b.id === "result"
           ? this.viewMode === "result"
             ? "Anleitung"
-            : "Ergebnis"
+            : "Result"
           : isRef
             ? this.showReference
               ? "Hide ref."

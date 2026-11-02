@@ -7,7 +7,7 @@
  * inspection summary for this step, a running check, and an explicit
  * user confirmation. Nothing here marks a step verified.
  *
- * "Position bestätigen" is a visible manual fallback when the automatic
+ * "Confirm position" is a visible manual fallback when the automatic
  * check is uncertain or unavailable. It is recorded as USER-confirmed, never
  * as AI/backend verification, and is never triggered by voice.
  */
@@ -69,10 +69,10 @@ export const MARKER = {
   partial: 0xffd23f,
 } as const;
 
-const NEXT: GuideButton = { id: "next", label: "Nächster Schritt ▶" };
-const CHECK: GuideButton = { id: "verify", label: "Prüfen" };
-const RECHECK: GuideButton = { id: "verify", label: "Erneut prüfen" };
-const CONFIRM: GuideButton = { id: "confirm", label: "Position bestätigen" };
+const NEXT: GuideButton = { id: "next", label: "Next step ▶" };
+const CHECK: GuideButton = { id: "verify", label: "Check" };
+const RECHECK: GuideButton = { id: "verify", label: "Check again" };
+const CONFIRM: GuideButton = { id: "confirm", label: "Confirm position" };
 
 export function deriveGuide(input: GuideInput): GuideView {
   const done = (state: GuideState, label: string, message: string): GuideView => ({
@@ -81,64 +81,61 @@ export function deriveGuide(input: GuideInput): GuideView {
   });
   if (input.serverVerified)
     return input.isLastStep
-      ? done("complete", "Fertig", "Alle Schritte korrekt — Montage abgeschlossen.")
-      : done("correct", "Korrekt", "Schritt korrekt.");
+      ? done("complete", "Complete", "All steps correct — assembly complete.")
+      : done("correct", "Correct", "Step correct.");
   if (input.manuallyConfirmed)
     return input.isLastStep
-      ? { ...done("complete", "Bestätigt", "Position von dir bestätigt (nicht KI-geprüft). Letzter Schritt."), tone: "warn" }
-      : { ...done("confirmed", "Bestätigt", "Position von dir bestätigt (nicht KI-geprüft)."), tone: "warn" };
+      ? { ...done("complete", "Confirmed", "Position confirmed by you (not AI verified). Final step."), tone: "warn" }
+      : { ...done("confirmed", "Confirmed", "Position confirmed by you (not AI verified)."), tone: "warn" };
   if (input.anchored === false)
     return {
-      state: "placing", label: "Feld setzen", tone: "info", marker: MARKER.target, ghostTint: null,
-      message: "Schau auf den Tisch und tippe oben aufs Panel, um das Feld zu setzen.", buttons: [],
+      state: "placing", label: "Place field", tone: "info", marker: MARKER.target, ghostTint: null,
+      message: "Look at the table and tap the top of the panel to place the field.", buttons: [],
     };
   if (input.checking || input.summary?.kind === "inspecting")
-    return { state: "checking", label: "Prüfe …", message: "Bitte nicht bewegen — Bild wird geprüft.", tone: "info", marker: MARKER.target, ghostTint: null, buttons: [] };
+    return { state: "checking", label: "Checking…", message: "Hold still — checking the image.", tone: "info", marker: MARKER.target, ghostTint: null, buttons: [] };
   if (input.checkError)
-    return { state: "error", label: "Prüfung nicht möglich", message: input.checkError, tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
+    return { state: "error", label: "Check unavailable", message: input.checkError, tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
   const s = input.summary;
-  if (!s) return { state: "ready", label: "Bereit", message: "Baustein ablegen, dann „Prüfen“.", tone: "ready", marker: MARKER.target, ghostTint: null, buttons: [CHECK] };
+  if (!s) return { state: "ready", label: "Ready", message: "Place the brick, then select Check.", tone: "ready", marker: MARKER.target, ghostTint: null, buttons: [CHECK] };
   if (s.kind === "error")
-    return { state: "error", label: "Prüfung nicht möglich", message: "Kamera oder Verbindung prüfen — oder Position selbst bestätigen.", tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
+    return { state: "error", label: "Check unavailable", message: "Check the camera or connection, or confirm the position yourself.", tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
   switch (s.overall?.kind) {
     case "verified":
-      return input.isLastStep ? done("complete", "Fertig", "Montage abgeschlossen.") : done("correct", "Korrekt", "Schritt korrekt.");
+      return input.isLastStep ? done("complete", "Complete", "Assembly complete.") : done("correct", "Correct", "Step correct.");
     case "correct":
       // An inspection said correct; the separate fresh verification is still missing.
-      return { state: "almost", label: "Fast korrekt", message: "Sieht korrekt aus — „Erneut prüfen“ für das Bestätigungsbild.", tone: "ok", marker: MARKER.correct, ghostTint: null, buttons: [RECHECK] };
+      return { state: "almost", label: "Almost correct", message: "Looks correct — select Check again for a fresh verification image.", tone: "ok", marker: MARKER.correct, ghostTint: null, buttons: [RECHECK] };
     case "incorrect":
-      return { state: "retry", label: "Noch einmal versuchen", message: "Baustein ausrichten.", tone: "bad", marker: MARKER.wrong, ghostTint: MARKER.wrong, buttons: [RECHECK] };
+      return { state: "retry", label: "Try again", message: "Adjust the brick.", tone: "bad", marker: MARKER.wrong, ghostTint: MARKER.wrong, buttons: [RECHECK] };
     case "uncertain":
-      return { state: "partial", label: "Teilweise korrekt", message: "Position unklar — Baustein ausrichten oder Position bestätigen.", tone: "warn", marker: MARKER.partial, ghostTint: MARKER.partial, buttons: [RECHECK, CONFIRM] };
+      return { state: "partial", label: "Position uncertain", message: "Position unclear — adjust the brick or confirm its position.", tone: "warn", marker: MARKER.partial, ghostTint: MARKER.partial, buttons: [RECHECK, CONFIRM] };
     default:
-      return { state: "error", label: "Prüfung nicht möglich", message: "Kein gültiges Ergebnis — erneut prüfen oder Position bestätigen.", tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
+      return { state: "error", label: "Check unavailable", message: "No valid result — check again or confirm the position.", tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
   }
 }
 
-const COLOR_DE: Record<string, string> = {
-  red: "roten", rot: "roten", blue: "blauen", blau: "blauen", yellow: "gelben", gelb: "gelben",
-  green: "grünen", "grün": "grünen", gruen: "grünen", white: "weißen", "weiß": "weißen", weiss: "weißen",
-  black: "schwarzen", schwarz: "schwarzen", gray: "grauen", grey: "grauen", grau: "grauen",
-  orange: "orangen", brown: "braunen", braun: "braunen", pink: "pinken", purple: "lila",
+const COLOR_EN: Record<string, string> = {
+  red: "red", rot: "red", blue: "blue", blau: "blue", yellow: "yellow", gelb: "yellow",
+  green: "green", "grün": "green", gruen: "green", white: "white", "weiß": "white", weiss: "white",
+  black: "black", schwarz: "black", gray: "gray", grey: "gray", grau: "gray",
+  orange: "orange", brown: "brown", braun: "brown", pink: "pink", purple: "purple", lila: "purple",
 };
 
-/**
- * Short, visible instruction from structured step data (never from camera
- * text recognition). Example: "Lege den roten 2×4-Stein auf die grüne Markierung."
- */
+/** English display guidance from structured data; stored names are preserved. */
 export function shortInstruction(
   blocks: { color: string; name: string; quantity: number }[],
   hasMarker: boolean,
 ): string {
-  const where = hasMarker ? "auf die grüne Markierung" : "in das Montagefeld";
+  const where = hasMarker ? "on the green marker" : "in the assembly field";
   const first = blocks[0];
-  if (!first) return "Keine Bausteine in diesem Schritt — weiter zum nächsten Schritt.";
-  const adjective = COLOR_DE[first.color.trim().toLowerCase()] ?? "";
+  if (!first) return "No bricks in this step — continue to the next step.";
+  const color = COLOR_EN[first.color.trim().toLowerCase()] ?? "";
   const size = first.name.match(/(\d+)\s*[x×]\s*(\d+)/i);
-  const noun = size ? `${size[1]}×${size[2]}-Stein` : `Baustein „${first.name.trim().slice(0, 24)}“`;
-  const subject = first.quantity > 1
-    ? `${first.quantity} ${adjective ? adjective.replace(/en$/, "e") + " " : ""}${size ? `${size[1]}×${size[2]}-Steine` : `× ${noun}`}`
-    : `den ${adjective ? adjective + " " : ""}${noun}`;
-  const more = blocks.length > 1 ? " (und die weiteren Bausteine)" : "";
-  return `Lege ${subject}${more} ${where}.`;
+  const count = first.quantity > 1 ? String(first.quantity) : "the";
+  const shape = size ? `${size[1]}×${size[2]} ` : "";
+  const name = size ? "" : ` “${first.name.trim().slice(0, 24)}”`;
+  const noun = first.quantity > 1 ? "bricks" : "brick";
+  const more = blocks.length > 1 ? " (and the remaining bricks)" : "";
+  return `Place ${count} ${color ? color + " " : ""}${shape}${noun}${name}${more} ${where}.`;
 }

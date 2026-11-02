@@ -1,317 +1,248 @@
 "use client";
-import { useEffect, useState } from "react";
-import { apiRequest, errorMessage } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "@/lib/api";
+import { getPlacements, getScene, savePlacements, type Placement } from "@/lib/ar/data";
 import {
-  getPlacement,
-  placementPath,
-  validPlacement,
-  type Placement,
-} from "@/lib/ar/data";
+  blockLabel, duplicateBlock, nextFreeInstance, proxyBlock, splitScene, stackHelp, validateHologram,
+  type RequiredBlock,
+} from "@/lib/ar/hologram";
+import { HologramPreview } from "@/components/ar/HologramPreview";
 import type { ProjectStep } from "@/types/projects";
-export function PlacementEditor({
-  projectId,
-  step,
-}: {
-  projectId: string;
-  step: ProjectStep;
-}) {
+
+/**
+ * Step hologram editor: every block placed IN this step (several allowed).
+ * Earlier steps' blocks are shown grey for context and stacking only.
+ * Position Y is the bottom face of the block body (metres above the
+ * confirmed tabletop origin). Guidance only — never inspection evidence.
+ */
+export function PlacementEditor({ projectId, step }: { projectId: string; step: ProjectStep }) {
   const [loadedStep, setLoadedStep] = useState("");
-  const [value, setValue] = useState<Placement | null>(null),
-    [confirmed, setConfirmed] = useState(false),
-    [status, setStatus] = useState("");
+  const [blocks, setBlocks] = useState<Placement[]>([]);
+  const [earlier, setEarlier] = useState<Placement[]>([]);
+  const [selected, setSelected] = useState(0);
+  const [confirmed, setConfirmed] = useState(false);
+  const [status, setStatus] = useState("");
+  const required: RequiredBlock[] = useMemo(
+    () => step.required_blocks.map((b) => ({ block_id: b.block_id, required_quantity: b.required_quantity, name: b.block.name, color: b.block.color })),
+    [step.required_blocks],
+  );
   useEffect(() => {
     let active = true;
-    getPlacement(projectId, step.id)
-      .then((p) => {
-        if (active) {
-          setValue(p);
-          setConfirmed(false);
-          setLoadedStep(step.id);
-        }
-      })
-      .catch((e) => {
-        if (active) {
-          setStatus(errorMessage(e));
-          setLoadedStep(step.id);
-        }
-      });
+    void (async () => {
+      try {
+        const own = await getPlacements(projectId, step.id);
+        // Earlier steps for context; an invalid current hologram must not hide that.
+        const scene = await getScene(projectId, step.id).catch(() => null);
+        if (!active) return;
+        setBlocks(own.placements);
+        setEarlier(splitScene(scene, step.id).assembled);
+        setSelected(0);
+        setConfirmed(false);
+      } catch (e) {
+        if (active) setStatus(errorMessage(e));
+      } finally {
+        if (active) setLoadedStep(step.id);
+      }
+    })();
     return () => {
       active = false;
     };
   }, [projectId, step.id]);
+
+  const value = blocks[selected] ?? null;
+  const errors = validateHologram(blocks, required);
+  const labels = blocks.map((p, i) => `${i + 1} · ${blockLabel(p, required)}`);
+  const help = value
+    ? stackHelp(value, [
+        ...earlier.map((p) => ({ label: `earlier ${blockLabel(p, required)}`, placement: p })),
+        ...blocks.map((p, i) => ({ label: labels[i], placement: p })),
+      ])
+    : null;
+
+  function edit(next: Placement[], keepSelection = selected) {
+    setBlocks(next);
+    setSelected(Math.max(0, Math.min(keepSelection, next.length - 1)));
+    setConfirmed(false);
+  }
   function change(update: Partial<Placement>) {
-    if (value) setValue({ ...value, ...update });
-    setConfirmed(false);
+    if (!value) return;
+    edit(blocks.map((p, i) => (i === selected ? { ...p, ...update } : p)));
   }
-  function start() {
-    const b = step.required_blocks[0];
-    if (!b) return;
-    setValue({
-      target_block_id: b.block_id,
-      instance: 1,
-      origin: "tabletop_session",
-      method: "manual_authoring",
-      evidence: "approximate",
-      confirmed: true,
-      dimensions: { x_mm: 100, y_mm: 100, z_mm: 100 },
-      studs: null,
-      position_m: [0, 0, 0],
-      rotation_deg: [0, 0, 0],
-    });
-    setConfirmed(false);
+  function add() {
+    const slot = nextFreeInstance(required, blocks);
+    if (!slot) return setStatus("Every required block instance of this step already has a hologram block.");
+    edit([...blocks, proxyBlock(slot)], blocks.length);
+    setStatus("Added an approximate 10 cm proxy — enter measured values before relying on it.");
   }
-  async function save() {
-    if (!value || !confirmed || !validPlacement(value)) return;
+  function duplicate() {
+    if (!value) return;
+    const copy = duplicateBlock(value, required, blocks);
+    if (!copy) return setStatus("No free block instance left in this step to duplicate into.");
+    edit([...blocks, copy], blocks.length);
+    setStatus(`Duplicated block ${selected + 1} beside it at the same height. Check its position.`);
+  }
+  function remove() {
+    if (!value) return;
+    edit(blocks.filter((_, i) => i !== selected), selected - 1);
+  }
+  async function save(next: Placement[], message: string) {
     try {
-      await apiRequest(placementPath(projectId, step.id), {
-        method: "PUT",
-        body: JSON.stringify(value),
-      });
-      setStatus(
-        "AR guidance saved. Existing verification must be refreshed; the hologram is not evidence.",
-      );
+      const saved = await savePlacements(projectId, step.id, next);
+      setBlocks(saved.placements);
+      setSelected((s) => Math.max(0, Math.min(s, saved.placements.length - 1)));
+      setConfirmed(false);
+      setStatus(message);
     } catch (e) {
       setStatus(errorMessage(e));
     }
   }
+  const instances = value ? required.find((r) => r.block_id === value.target_block_id)?.required_quantity ?? 1 : 1;
+
   return (
     <details className="panel ar-editor">
-      <summary>Spatial AR placement (optional)</summary>
+      <summary>Spatial AR hologram (optional)</summary>
       <p>
-        Metres relative to a manually confirmed HoloLens tabletop origin. X
-        right, Y up, Z toward you. No camera calibration is reused.
+        Metres relative to a manually confirmed HoloLens tabletop origin: X right, Y up, Z toward you.
+        <strong> Position Y is the bottom face of the block</strong> (0 = on the tabletop). A block resting on
+        another one has its bottom at that block&apos;s body top (bottom Y + body height; studs are not counted).
+        Add every block placed in this step; earlier steps appear grey for context. No camera calibration is reused,
+        and the hologram never verifies a step.
       </p>
       {loadedStep !== step.id ? (
-        <p>Loading placement…</p>
-      ) : !value ? (
-        <button
-          className="button secondary"
-          disabled={!step.required_blocks.length}
-          onClick={start}
-        >
+        <p>Loading hologram…</p>
+      ) : !blocks.length ? (
+        <button className="button secondary" disabled={!step.required_blocks.length} onClick={add}>
           Author placement with a 10 cm proxy
         </button>
       ) : (
         <>
-          <label className="field">
-            AR target
-            <select
-              value={value.target_block_id}
-              onChange={(e) =>
-                change({ target_block_id: e.target.value, studs: null })
-              }
-            >
-              {step.required_blocks.map((b) => (
-                <option key={b.block_id} value={b.block_id}>
-                  {b.block.name} · {b.block.color}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Instance number
-            <input
-              type="number"
-              min={1}
-              value={value.instance}
-              onChange={(e) => change({ instance: Number(e.target.value) })}
-            />
-          </label>
-          <label className="field">
-            Dimension evidence
-            <select
-              value={value.evidence}
-              onChange={(e) =>
-                change({
-                  evidence: e.target.value as Placement["evidence"],
-                  studs: null,
-                })
-              }
-            >
-              <option value="approximate">
-                Approximate alignment proxy — not measured
-              </option>
-              <option value="measured">
-                I measured this rectangular block
-              </option>
-            </select>
-          </label>
-          <div className="form-grid">
-            {(["x_mm", "y_mm", "z_mm"] as const).map((axis, i) => (
-              <label className="field" key={axis}>
-                {
-                  [
-                    "Length X (mm)",
-                    "Body height Y (mm, excluding studs)",
-                    "Depth Z (mm)",
-                  ][i]
-                }
-                <input
-                  type="number"
-                  min={0.1}
-                  max={1000}
-                  value={value.dimensions[axis]}
-                  onChange={(e) =>
-                    change({
-                      dimensions: {
-                        ...value.dimensions,
-                        [axis]: Number(e.target.value),
-                      },
-                    })
-                  }
-                />
-              </label>
+          <div className="hologram-blocks" role="radiogroup" aria-label="Hologram blocks">
+            {blocks.map((p, i) => (
+              <button
+                key={i}
+                type="button"
+                role="radio"
+                aria-checked={i === selected}
+                className={`button ${i === selected ? "primary" : "secondary"} hologram-block`}
+                onClick={() => setSelected(i)}
+              >
+                {labels[i]} · {p.evidence} · bottom Y {(p.position_m[1] * 1000).toFixed(1)} mm
+              </button>
             ))}
           </div>
-          <p>
-            Top-down authoring: click the 1 × 1 m grid to choose X/Z. The cyan
-            mark is intended placement, not a measured part.
-          </p>
-          <svg
-            className="ar-topdown"
-            viewBox="-500 -500 1000 1000"
-            role="img"
-            aria-label="Top-down placement editor"
-            onClick={(e) => {
-              const b = e.currentTarget.getBoundingClientRect();
-              change({
-                position_m: [
-                  (e.clientX - b.left) / b.width - 0.5,
-                  value.position_m[1],
-                  (e.clientY - b.top) / b.height - 0.5,
-                ],
-              });
-            }}
-          >
-            <rect x={-500} y={-500} width={1000} height={1000} fill="#152536" />
-            <path
-              d="M-500 0H500 M0 -500V500"
-              stroke="#7a8a9a"
-              strokeWidth={2}
-            />
-            <circle
-              cx={value.position_m[0] * 1000}
-              cy={value.position_m[2] * 1000}
-              r={15}
-              fill="#69e8ff"
-            />
-          </svg>
-          <div className="form-grid">
-            {["X", "Y", "Z"].map((axis, i) => (
-              <label className="field" key={axis}>
-                Position {axis} (m)
-                <input
-                  type="number"
-                  step={0.001}
-                  min={-2}
-                  max={2}
-                  value={value.position_m[i]}
-                  onChange={(e) =>
-                    change({
-                      position_m: value.position_m.map((v, n) =>
-                        n === i ? Number(e.target.value) : v,
-                      ),
-                    })
-                  }
-                />
-              </label>
-            ))}
-            {["X", "Y", "Z"].map((axis, i) => (
-              <label className="field" key={axis}>
-                Rotation {axis} (degrees)
-                <input
-                  type="number"
-                  min={-180}
-                  max={180}
-                  value={value.rotation_deg[i]}
-                  onChange={(e) =>
-                    change({
-                      rotation_deg: value.rotation_deg.map((v, n) =>
-                        n === i ? Number(e.target.value) : v,
-                      ),
-                    })
-                  }
-                />
-              </label>
-            ))}
+          <div className="form-actions">
+            <button className="button secondary" onClick={add} disabled={!nextFreeInstance(required, blocks)}>Add block</button>
+            <button className="button secondary" onClick={duplicate} disabled={!value}>Duplicate block {selected + 1}</button>
+            <button className="button danger" onClick={remove} disabled={!value}>Remove block {selected + 1}</button>
           </div>
-          <p>
-            Stud geometry is optional. Enter measured stud
-            spacing/diameter/height only after registering the grid in Block
-            Library.
-          </p>
-          <label>
-            <input
-              type="checkbox"
-              disabled={value.evidence !== "measured"}
-              checked={!!value.studs}
-              onChange={(e) =>
-                change({
-                  studs: e.target.checked
-                    ? { x: 1, z: 1, pitch_mm: 0, diameter_mm: 0, height_mm: 0 }
-                    : null,
-                })
-              }
-            />{" "}
-            Add confirmed stud grid
-          </label>
-          {value.studs && (
-            <div className="form-grid">
-              {(
-                ["x", "z", "pitch_mm", "diameter_mm", "height_mm"] as const
-              ).map((key) => (
-                <label className="field" key={key}>
-                  Stud {key}
-                  <input
-                    type="number"
-                    min={0.1}
-                    value={value.studs![key]}
-                    onChange={(e) =>
-                      change({
-                        studs: {
-                          ...value.studs!,
-                          [key]: Number(e.target.value),
-                        },
-                      })
-                    }
-                  />
+          {value && (
+            <fieldset className="hologram-fields">
+              <legend>Block {selected + 1} — {blockLabel(value, required)}</legend>
+              <div className="form-grid">
+                <label className="field">
+                  AR target
+                  <select value={value.target_block_id} onChange={(e) => change({ target_block_id: e.target.value, instance: 1, studs: null })}>
+                    {step.required_blocks.map((b) => (
+                      <option key={b.block_id} value={b.block_id}>{b.block.name} · {b.block.color}</option>
+                    ))}
+                  </select>
                 </label>
-              ))}
-            </div>
+                <label className="field">
+                  Instance number
+                  <input type="number" min={1} max={instances} value={value.instance} onChange={(e) => change({ instance: Number(e.target.value) })} />
+                </label>
+                <label className="field">
+                  Dimension evidence
+                  <select value={value.evidence} onChange={(e) => change({ evidence: e.target.value as Placement["evidence"], studs: null })}>
+                    <option value="approximate">Approximate alignment proxy — not measured</option>
+                    <option value="measured">I measured this rectangular block</option>
+                  </select>
+                </label>
+              </div>
+              <div className="form-grid">
+                {(["x_mm", "y_mm", "z_mm"] as const).map((axis, i) => (
+                  <label className="field" key={axis}>
+                    {["Length X (mm)", "Body height Y (mm, excluding studs)", "Depth Z (mm)"][i]}
+                    <input type="number" min={0.1} max={1000} value={value.dimensions[axis]}
+                      onChange={(e) => change({ dimensions: { ...value.dimensions, [axis]: Number(e.target.value) } })} />
+                  </label>
+                ))}
+              </div>
+              <div className="form-grid">
+                {["X", "Y", "Z"].map((axis, i) => (
+                  <label className="field" key={axis}>
+                    {i === 1 ? "Position Y (m) — bottom face" : `Position ${axis} (m)`}
+                    <input type="number" step={0.0001} min={i === 1 ? 0 : -2} max={2} value={value.position_m[i]}
+                      onChange={(e) => change({ position_m: value.position_m.map((v, n) => (n === i ? Number(e.target.value) : v)) })} />
+                  </label>
+                ))}
+                {["X", "Y", "Z"].map((axis, i) => (
+                  <label className="field" key={axis}>
+                    Rotation {axis} (degrees)
+                    <input type="number" min={-180} max={180} value={value.rotation_deg[i]}
+                      onChange={(e) => change({ rotation_deg: value.rotation_deg.map((v, n) => (n === i ? Number(e.target.value) : v)) })} />
+                  </label>
+                ))}
+              </div>
+              {help && (
+                <section className={`height-help height-${help.status}`} aria-label="Height help">
+                  <p role="status">{help.explanation}</p>
+                  {help.suggestions.map((s) => (
+                    <button key={s.label} className="button secondary" onClick={() => change({ position_m: [value.position_m[0], s.yM, value.position_m[2]] })}>
+                      Set bottom Y to the top of {s.label} ({(s.yM * 1000).toFixed(1)} mm){s.fromApproximate ? " — from approximate dimensions" : ""}
+                    </button>
+                  ))}
+                </section>
+              )}
+              <p>
+                Stud geometry is optional. Enter measured stud spacing/diameter/height only after registering the grid in
+                Block Library.
+              </p>
+              <label>
+                <input type="checkbox" disabled={value.evidence !== "measured"} checked={!!value.studs}
+                  onChange={(e) => change({ studs: e.target.checked ? { x: 1, z: 1, pitch_mm: 0, diameter_mm: 0, height_mm: 0 } : null })} />{" "}
+                Add confirmed stud grid
+              </label>
+              {value.studs && (
+                <div className="form-grid">
+                  {(["x", "z", "pitch_mm", "diameter_mm", "height_mm"] as const).map((key) => (
+                    <label className="field" key={key}>
+                      Stud {key}
+                      <input type="number" min={0.1} value={value.studs![key]}
+                        onChange={(e) => change({ studs: { ...value.studs!, [key]: Number(e.target.value) } })} />
+                    </label>
+                  ))}
+                </div>
+              )}
+            </fieldset>
+          )}
+          <p>Click the top view to move the selected block (X/Z). Numbers match the block list.</p>
+          <HologramPreview
+            assembled={earlier}
+            current={blocks}
+            selected={selected}
+            onPickTop={(x, z) => value && change({ position_m: [x, value.position_m[1], z] })}
+          />
+          {errors.length > 0 && (
+            <ul role="alert" aria-label="Hologram problems">
+              {errors.map((e) => <li key={e}>{e}</li>)}
+            </ul>
           )}
           <label className="field">
             <span>
-              <input
-                type="checkbox"
-                checked={confirmed}
-                onChange={(e) => setConfirmed(e.target.checked)}
-              />{" "}
-              I confirm the dimensions, evidence label and intended placement.
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />{" "}
+              I confirm the dimensions, evidence labels and intended placements of all blocks.
             </span>
           </label>
-          <button
-            className="button primary"
-            disabled={!confirmed || !validPlacement(value)}
-            onClick={() => void save()}
-          >
-            Save AR placement
-          </button>
-          <button
-            className="button secondary"
-            onClick={async () => {
-              try {
-                await apiRequest(placementPath(projectId, step.id), {
-                  method: "DELETE",
-                });
-                setValue(null);
-                setStatus("Placement removed.");
-              } catch (e) {
-                setStatus(errorMessage(e));
-              }
-            }}
-          >
-            Remove AR placement
-          </button>
+          <div className="form-actions">
+            <button className="button primary" disabled={!confirmed || errors.length > 0}
+              onClick={() => void save(blocks, "AR guidance saved. Existing verification must be refreshed; the hologram is not evidence.")}>
+              Save AR hologram
+            </button>
+            <button className="button secondary" onClick={() => void save([], "Hologram removed for this step.")}>
+              Remove AR hologram
+            </button>
+          </div>
         </>
       )}
       {status && <p role="status">{status}</p>}

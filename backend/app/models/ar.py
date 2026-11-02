@@ -57,3 +57,42 @@ class Placement(ARModel):
 class ViewInput(ARModel):
     step_id: str
     revision: int = Field(ge=0)
+
+
+class Placements(ARModel):
+    """Version-2 step hologram: every block placed IN this step.
+
+    position_m[1] (Y) is the BOTTOM face of the block body in metres above the
+    confirmed tabletop origin; rotations pivot about that bottom-centre point.
+    Earlier steps' blocks are not repeated here; the AR scene accumulates them.
+    """
+
+    version: Literal[2] = 2
+    placements: list[Placement] = Field(max_length=100)
+
+    @model_validator(mode="after")
+    def unique_instances(self):
+        keys = [(p.target_block_id, p.instance) for p in self.placements]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Each assigned block instance can appear only once per step")
+        return self
+
+
+class SceneBlock(ARModel):
+    step_id: str
+    step_position: int
+    placement: Placement
+
+
+class SceneExclusion(ARModel):
+    step_id: str
+    step_position: int
+    reason: str
+
+
+class Scene(ARModel):
+    """Cumulative guidance up to a step. Never inspection evidence."""
+
+    blocks: list[SceneBlock]
+    # Earlier-step blocks that can no longer be rendered (e.g. target removed).
+    excluded: list[SceneExclusion] = Field(default_factory=list)

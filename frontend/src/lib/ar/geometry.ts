@@ -17,14 +17,21 @@ export function disposeObject(root: THREE.Object3D) {
     });
   });
 }
-export function ghost(p: Placement): THREE.Group {
+/**
+ * Transparent guidance block. Root = bottom centre of the body (Y = bottom
+ * face); rotations pivot there. "assembled" = an earlier step's block, drawn
+ * dimmed and neutral without the placement arrow.
+ */
+export function ghost(p: Placement, style: "current" | "assembled" = "current"): THREE.Group {
   if (!validPlacement(p)) throw new Error("Invalid AR placement or dimensions");
   const root = new THREE.Group(),
     d = p.dimensions;
+  const assembled = style === "assembled";
+  root.name = assembled ? "ghost-assembled" : "ghost-current";
   const material = new THREE.MeshBasicMaterial({
-    color: 0x3ce6ff,
+    color: assembled ? 0x9aa7b0 : 0x3ce6ff,
     transparent: true,
-    opacity: 0.28,
+    opacity: assembled ? 0.12 : 0.28,
     depthWrite: false,
   });
   const body = new THREE.Mesh(
@@ -35,7 +42,9 @@ export function ghost(p: Placement): THREE.Group {
   root.add(body);
   const outline = new THREE.LineSegments(
     new THREE.EdgesGeometry(body.geometry),
-    new THREE.LineBasicMaterial({ color: 0x91f3ff }),
+    assembled
+      ? new THREE.LineBasicMaterial({ color: 0x8a96a0, transparent: true, opacity: 0.55 })
+      : new THREE.LineBasicMaterial({ color: 0x91f3ff }),
   );
   outline.position.copy(body.position);
   root.add(outline);
@@ -60,7 +69,7 @@ export function ghost(p: Placement): THREE.Group {
         root.add(stud);
       }
   }
-  root.add(
+  if (!assembled) root.add(
     new THREE.ArrowHelper(
       new THREE.Vector3(0, -1, 0),
       new THREE.Vector3(0, mm(d.y_mm) + 0.08, 0),

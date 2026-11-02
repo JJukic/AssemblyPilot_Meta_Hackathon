@@ -451,3 +451,36 @@ a.brand, a.button { text-decoration: none; }
 .guided-next { background: #1d7a3e; color: #fff; }
 .guided-verify { background: #1d5f8a; color: #fff; }
 .guided-confirm { background: #7a5a12; color: #fff; }
+.ar-workspace { max-width: 960px; margin-inline: auto; }
+.ar-workspace .ar-session-actions { justify-content: flex-start; }
+.ar-session-actions > .button { min-height: 64px; font-size: 1.15rem; }
+.ar-quick-help { max-width: 65ch; color: #bfd0df; }
+.ar-options { border-top: 1px solid #344657; padding: 8px 0; }
+.ar-options > summary { min-height: 64px; padding: 18px 12px; font-size: 1.1rem; font-weight: 600; cursor: pointer; }
+.ar-options > summary:focus-visible { outline: 3px solid #7df3ff; outline-offset: 2px; }
+.ar-options[open] > summary { color: #7df3ff; }
+.ar-options fieldset { margin: 12px 0; min-width: 0; }
+@media (max-width: 600px) {
+  .ar-workspace { padding: 16px; }
+  .guided-actions > .button { width: 100%; min-width: 0; margin-inline: 0; }
+  .ar-session-actions > .button { width: 100%; }
+}
+
+/* Cumulative step hologram preview + editor (responsive; stacks on narrow screens). */
+.hologram-preview { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.hologram-preview figure { margin: 0; flex: 1 1 240px; min-width: 0; max-width: 340px; }
+.hologram-preview svg { display: block; width: 100%; height: auto; max-width: 340px; background: #152536; }
+.hologram-preview svg[aria-label="2D intended placement"] { aspect-ratio: 1; }
+.hologram-preview svg[aria-label="2D height view (front)"] { aspect-ratio: auto; }
+.hologram-preview figcaption { font-size: 0.85rem; color: #9fb3c0; margin-top: 4px; }
+.hologram-legend { margin: 8px 0 0 1.2rem; padding: 0; overflow-wrap: anywhere; }
+.hologram-blocks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.hologram-block { min-height: 48px; text-align: left; overflow-wrap: anywhere; }
+.hologram-fields { border: 1px solid #4b7086; border-radius: 12px; padding: 12px; margin: 12px 0; min-width: 0; }
+.height-help { border-left: 4px solid #2ee66b; padding: 4px 12px; margin: 12px 0; }
+.height-help.height-floating, .height-help.height-tilted { border-left-color: #ffd23f; }
+.height-help.height-intersecting { border-left-color: #ff4d4d; }
+@media (max-width: 520px) {
+  .hologram-preview figure { flex-basis: 100%; max-width: none; }
+  .hologram-preview svg { max-width: none; }
+}

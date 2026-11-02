@@ -6,13 +6,14 @@ import { registry } from "@/lib/registry";
 import { errorMessage, mediaUrl } from "@/lib/api";
 import {
   capabilities,
-  getPlacement,
+  getScene,
   getView,
   setView,
-  validPlacement,
   type Placement,
   type ViewedStep,
 } from "@/lib/ar/data";
+import { EMPTY_HOLOGRAM, proxyBlock, splitScene, type HologramView } from "@/lib/ar/hologram";
+import { HologramPreview } from "@/components/ar/HologramPreview";
 import { selectedStepReference, trustedReferencePath } from "@/lib/ar/reference";
 import {
   GERMAN_ALIASES,
@@ -98,8 +99,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<ProjectDetail | null>(null),
     [view, setViewed] = useState<ViewedStep>({ step_id: null, revision: 0 });
   const router = useRouter();
-  const [rawPlacement, setPlacement] = useState<Placement | null>(null),
-    [loadedFor, setLoadedFor] = useState("");
+  // Cumulative step hologram (earlier steps = assembled, this step = current). Guidance only.
+  const [rawHologram, setHologram] = useState<HologramView>(EMPTY_HOLOGRAM),
+    [loadedFor, setLoadedFor] = useState(""),
+    [sceneExcluded, setSceneExcluded] = useState(0);
   const [resultSummary, setResultSummary] = useState<InspectionSummary | null>(null),
     [resultMode, setResultMode] = useState<PanelView>("guide"),
     [resultErrorsOnly, setResultErrorsOnly] = useState(false);
@@ -199,15 +202,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     step?.updated_at,
     step?.required_blocks.map((b) => b.block.updated_at),
   ]);
-  const placementKey = `${view.step_id}:${spec}`;
-  const placement = loadedFor === placementKey ? rawPlacement : null;
-  const previewExtent = placement
-    ? Math.max(
-        200,
-        Math.abs(placement.position_m[0]) * 1000 + placement.dimensions.x_mm,
-        Math.abs(placement.position_m[2]) * 1000 + placement.dimensions.z_mm,
-      )
-    : 200;
+  // The scene depends on this step AND every earlier step's guidance revision.
+  const sceneSpec = JSON.stringify(
+    (project?.steps ?? [])
+      .filter((s) => step && s.position <= step.position)
+      .map((s) => [s.id, s.updated_at, s.required_blocks.map((b) => b.block.updated_at)]),
+  );
+  const placementKey = `${view.step_id}:${spec}:${sceneSpec}`;
+  const hologram = loadedFor === placementKey ? rawHologram : EMPTY_HOLOGRAM;
+  /** First block of this step (labels, marker presence); the panel draws all of them. */
+  const placement: Placement | null = hologram.current[0] ?? null;
   const verified = verification.step === view.step_id && verification.verified;
   const target = step?.required_blocks.find((b) => b.block_id === placement?.target_block_id);
   const verificationUrl = `/?project=${encodeURIComponent(projectId)}&step=${encodeURIComponent(view.step_id ?? "")}`;
@@ -227,12 +231,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       summary: stepSummary,
     });
     return active && anchorUi === "tracking_lost"
-      ? { ...base, label: "Tracking verloren", message: "Feld nicht sicher erkannt — „Neu ausrichten“ antippen.", tone: "warn" }
+      ? { ...base, label: "Tracking lost", message: "Field tracking is uncertain — select Re-anchor.", tone: "warn" }
       : base;
   }, [active, anchorUi, checkingStep, verified, online, manuallyConfirmed, isLastStep, stepCheckError, stepSummary]);
   const shortText = step
     ? shortInstruction(step.required_blocks.map((b) => ({ color: b.block.color, name: b.block.name, quantity: b.required_quantity })), !!placement)
-    : "Projekt wird geladen …";
+    : "Loading project…";
 
   const stopVoice = useCallback((release = false) => {
     if (release) {
@@ -353,14 +357,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      setPlacement(null);
+      // Never show the previous step's geometry while the next one loads.
+      setHologram(EMPTY_HOLOGRAM);
       if (!view.step_id) return;
+      const key = `${view.step_id}:${spec}:${sceneSpec}`;
       try {
-        const p = await getPlacement(projectId, view.step_id);
-        if (p && !validPlacement(p)) throw new Error("Invalid AR dimensions or placement");
+        const scene = await getScene(projectId, view.step_id);
         if (!cancelled) {
-          setPlacement(p);
-          setLoadedFor(`${view.step_id}:${spec}`);
+          setHologram(splitScene(scene, view.step_id));
+          setSceneExcluded(scene.excluded?.length ?? 0);
+          setLoadedFor(key);
         }
       } catch (e) {
         if (!cancelled) setError(errorMessage(e));
@@ -369,7 +375,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [projectId, view.step_id, spec]);
+  }, [projectId, view.step_id, spec, sceneSpec]);
 
   // Load the selected expected reference from the trusted media endpoint only.
   // Clear the previous bitmap immediately on step change (no stale image).
@@ -427,8 +433,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     const headline = resultHeadline(resultSummary, verified && online);
     info.current = {
       placement: online ? placement : null,
+      hologram: online ? hologram : EMPTY_HOLOGRAM,
       text: step ? `Step ${step.position} — ${step.instruction}` : "Choose a project step",
-      detail: `${placement?.evidence.toUpperCase() ?? "NO MODEL"} · ${verified && online ? "Inspection verified" : "Not verified"} · ${target?.block.color ?? ""} ${target?.block.name ?? ""} · ${placement?.instance ?? "?"}/${target?.required_quantity ?? "?"}`,
+      detail: `${hologram.current.length} block(s) this step · ${hologram.assembled.length} already assembled · ${verified && online ? "Inspection verified" : "Not verified"}`,
       title: step ? step.title : "Choose a step",
       instruction: step?.instruction ?? "",
       blockLabel: `${blockLabel} · ${placement?.evidence.toUpperCase() ?? "NO MODEL"}${placement ? ` · #${placement.instance}/${target?.required_quantity ?? "?"}` : ""}`,
@@ -440,7 +447,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       anchorLabel: active ? fieldLine : undefined,
       autoLabel: autoOn || extPending ? (autoDiag ? `${autoDiag.headline}${autoDiag.metrics ? ` [${autoDiag.metrics}]` : ""}` : autoStatus) : undefined,
       autoButton,
-      stepLabel: step ? `Schritt ${step.position} von ${totalSteps}` : "Kein Schritt",
+      stepLabel: step ? `Step ${step.position} of ${totalSteps}` : "No step",
       guideLabel: guide.label,
       guideMessage: guide.message,
       guideTone: guide.tone,
@@ -464,7 +471,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
     runtime.current?.setViewMode(resultMode);
-  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag, guide, shortText]);
+  }, [placement, hologram, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag, guide, shortText]);
 
   useEffect(() => {
     viewRef.current = view;
@@ -565,9 +572,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         reason: offset < 0 ? "Already at first step" : "Already at last step",
         detail: `Step ${from.position} of ${project.steps.length}`,
       };
-    setPlacement(null);
+    setHologram(EMPTY_HOLOGRAM);
     runtime.current?.setReferenceImage(null);
-    runtime.current?.update({ ...info.current, placement: null });
+    runtime.current?.update({ ...info.current, placement: null, hologram: EMPTY_HOLOGRAM });
     try {
       let v: ViewedStep;
       try {
@@ -1256,11 +1263,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         const verdict = await monitor.probe(active, 900);
         if (verdict.status === "unavailable" || verdict.status === "stalled") {
           monitor.stop();
-          return done(active ? await requestExternalFallback(mode, verdict.reasons.join(" ")) : { ok: false, reason: `Kamera nicht verfügbar: ${verdict.reasons.join(" ")}` });
+          return done(active ? await requestExternalFallback(mode, verdict.reasons.join(" ")) : { ok: false, reason: `Camera unavailable: ${verdict.reasons.join(" ")}` });
         }
         monitorRef.current = monitor;
       } catch (cause) {
-        return done(active ? await requestExternalFallback(mode, errorMessage(cause)) : { ok: false, reason: `Kamera nicht verfügbar: ${errorMessage(cause)}` });
+        return done(active ? await requestExternalFallback(mode, errorMessage(cause)) : { ok: false, reason: `Camera unavailable: ${errorMessage(cause)}` });
       }
     }
     // 2) Freshness: the frame clock must advance between two samples.
@@ -1269,7 +1276,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     const second = monitor.sample();
     if (!first || !second || second.frameTime <= first.frameTime) {
       if (created) { monitor.stop(); if (monitorRef.current === monitor) monitorRef.current = null; }
-      return done(active ? await requestExternalFallback(mode, "Camera frames are not advancing inside immersive AR.") : { ok: false, reason: "Kamerabilder kommen nicht an." });
+      return done(active ? await requestExternalFallback(mode, "Camera frames are not advancing inside immersive AR.") : { ok: false, reason: "Camera frames are not arriving." });
     }
     const validated = monitor.captureValidated();
     const frame = validated?.snapshot ?? null;
@@ -1292,7 +1299,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         await advanceIfVerified();
         return done({ ok: true, detail: "Step verified by the backend — advancing inside AR" }, d);
       }
-      return done({ ok: true, detail: "Schritt korrekt (vom Backend verifiziert)" }, d);
+      return done({ ok: true, detail: "Step correct (verified by the backend)" }, d);
     }
     return done({
       ok: d.overallStatus !== "incorrect",
@@ -1310,7 +1317,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
    * (the user taps "Nächster Schritt") unless Autonomous Assembly is on.
    */
   async function checkStep(): Promise<ExecutionOutcome> {
-    if (checkingRef.current) return { ok: false, reason: "Prüfung läuft bereits" };
+    if (checkingRef.current) return { ok: false, reason: "Check already in progress" };
     const stepId = viewRef.current.step_id;
     if (!stepId) return { ok: false, reason: "Current step is unknown" };
     checkingRef.current = true;
@@ -1319,7 +1326,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     // A check that cannot even capture (camera/busy) must be visible as such, with the fallback.
     const failedBeforeInspection = (run: { outcome: ExecutionOutcome; result: InARResult | null }) => {
       if (!run.outcome.ok && !run.result && alive.current)
-        setCheckError({ stepId, message: `Keine Prüfung möglich: ${run.outcome.reason ?? "unbekannter Fehler"}` });
+        setCheckError({ stepId, message: `Check unavailable: ${run.outcome.reason ?? "unknown error"}` });
       return run.outcome;
     };
     try {
@@ -1328,7 +1335,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       if (!r || r.overallStatus !== "correct" || r.verificationStatus || viewRef.current.step_id !== stepId)
         return failedBeforeInspection(first);
       await new Promise((resolve) => setTimeout(resolve, 2000)); // a genuinely later, separate frame
-      if (viewRef.current.step_id !== stepId) return { ok: false, reason: "Schritt wurde gewechselt" };
+      if (viewRef.current.step_id !== stepId) return { ok: false, reason: "Step changed" };
       return failedBeforeInspection(await captureCheck("verify", { inPage: true, advance: autoOn }));
     } finally {
       checkingRef.current = false;
@@ -1340,13 +1347,13 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     const stepId = viewRef.current.step_id;
     if (!stepId) return { ok: false, reason: "Current step is unknown" };
     if (!["partial", "error"].includes(guide.state))
-      return { ok: false, reason: "Position bestätigen ist nur verfügbar, wenn die automatische Prüfung unsicher ist" };
+      return { ok: false, reason: "Confirm position is only available when the automatic check is uncertain" };
     setManualConfirm({ stepId, at: new Date().toISOString() });
     return {
       ok: true,
       detail: isLastStep
-        ? "Position von dir bestätigt (nicht KI-geprüft). Das war der letzte Schritt."
-        : "Position von dir bestätigt (nicht KI-geprüft). „Nächster Schritt“ ist jetzt verfügbar.",
+        ? "Position confirmed by you (not AI verified). This was the final step."
+        : "Position confirmed by you (not AI verified). Next step is now available.",
     };
   }
 
@@ -1607,28 +1614,17 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     const b = step?.required_blocks[0];
     if (!b) return;
     setLoadedFor(placementKey);
-    setPlacement({
-      target_block_id: b.block_id,
-      instance: 1,
-      origin: "tabletop_session",
-      method: "manual_authoring",
-      evidence: "approximate",
-      confirmed: true,
-      dimensions: { x_mm: 100, y_mm: 100, z_mm: 100 },
-      studs: null,
-      position_m: [0, 0, 0],
-      rotation_deg: [0, 0, 0],
-    });
+    setHologram({ assembled: hologram.assembled, current: [proxyBlock({ block_id: b.block_id, instance: 1 })] });
   }
   return (
     <section className="panel ar-workspace" aria-label="Spatial assembly guidance">
       <h2>{project?.name ?? "Spatial guidance"}</h2>
-      <section className={`guided-step guided-${guide.tone}`} aria-label="Geführter Montageschritt">
-        <p className="guided-progress">{step ? `Schritt ${step.position} von ${totalSteps}` : "Kein Schritt"}</p>
-        <p className="guided-state" role="status" aria-label="Schrittstatus">{guide.label}</p>
+      <section className={`guided-step guided-${guide.tone}`} aria-label="Guided assembly step">
+        <p className="guided-progress">{step ? `Step ${step.position} of ${totalSteps}` : "No step"}</p>
+        <p className="guided-state" role="status" aria-label="Step status">{guide.label}</p>
         <p className="guided-instruction">{shortText}</p>
-        <p className="guided-message" role="status" aria-label="Schritthinweis">{guide.message}</p>
-        {lastGuideOutcome && <p className="guided-outcome" role="status" aria-label="Letzte Aktion">{lastGuideOutcome}</p>}
+        <p className="guided-message" role="status" aria-label="Step guidance">{guide.message}</p>
+        {lastGuideOutcome && <p className="guided-outcome" role="status" aria-label="Last action">{lastGuideOutcome}</p>}
         <div className="guided-actions">
           {guide.buttons.map((b) => (
             <button
@@ -1640,12 +1636,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
               {b.label}
             </button>
           ))}
-          <button className="button secondary guided-button" aria-label="Zurück" disabled={!online || step?.position === 1 || checkingStep} onClick={() => void runGuideAction("previous")}>◀ Zurück</button>
+          <button className="button secondary guided-button" aria-label="Back" disabled={!online || step?.position === 1 || checkingStep} onClick={() => void runGuideAction("previous")}>◀ Back</button>
         </div>
       </section>
-      <p role="status">{cap.message}</p>
-      <p>Device: {device}. Connection and physical alignment must be tested on your HoloLens.</p>
-      <div className="form-actions">
+      <div className="form-actions ar-session-actions">
         <button className="button primary" disabled={!cap.available || busy || active || !step || !online} onClick={() => void enter()}>
           Enter immersive AR
         </button>
@@ -1658,7 +1652,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           </>
         )}
       </div>
+      <p className="ar-quick-help">Enter AR, look at your table and tap the top of the panel to place the assembly field. Follow the step above, then select Check.</p>
       <p role="status">{status}</p>
+      <details className="ar-options">
+        <summary>Device &amp; connection details</summary>
+        <p role="status">{cap.message}</p>
+        <p>Device: {device}. Connection and physical alignment must be tested on your HoloLens.</p>
       {active && (
         <details>
           <summary>XR interaction diagnostics (developer)</summary>
@@ -1668,12 +1667,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         </details>
       )}
       <p>{online ? "Connected to project state" : "Project state unavailable — hologram hidden and verification unknown"}</p>
+      </details>
+      {!cap.available && <p role="status">{cap.message}</p>}
+      {!online && <p role="alert">Project connection unavailable. Check your connection before continuing.</p>}
 
+      <details className="ar-options">
+        <summary>Voice control · {localOn ? "On" : "Off"}</summary>
       <fieldset className="ar-voice">
         <legend>Hands-free voice control</legend>
-        <h3>Local voice control (Mac backend) — recommended on HoloLens</h3>
+        <h3>Hands-free controls</h3>
         <p role="status" aria-label="Local microphone state">{localOn || localBusy ? `Local voice: ${localStatus}` : `Local voice: Off — ${localStatus}`}</p>
-        {localEngine && <p>{localEngine}</p>}
         <label>
           Voice language{" "}
           <select value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)} disabled={voiceBusy || localOn || localBusy}>
@@ -1682,16 +1685,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           </select>
         </label>
         <p>
-          How it works: short microphone clips from this device are sent over your
-          private HTTPS connection to Whisper running locally on your MacBook.
-          Clips are transcribed on the Mac and deleted immediately — no cloud
-          speech service, no Meta inference, and no audio or transcripts are
-          stored. Listening keeps one microphone stream alive and transcribes
-          each spoken command while capture continues; you can stop it at any
-          time. Enable local voice before entering AR so the same stream is
-          kept across XR entry. Inside AR, the panel shows microphone state
-          and the 🎤 Speak button is an explicit push-to-talk fallback; Next /
-          Previous panel buttons always work.
+          Enable voice before entering AR. Microphone clips are sent over HTTPS
+          to your Mac for local transcription, then deleted. No cloud speech
+          service is used and no audio or transcripts are stored. You can stop
+          listening at any time; panel buttons remain available.
         </p>
         <label>
           <input type="checkbox" checked={localConsent} onChange={(e) => {
@@ -1715,6 +1712,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
             Record one command (push-to-talk)
           </button>
         </div>
+        <details>
+          <summary>Voice diagnostics</summary>
+          {localEngine && <p>{localEngine}</p>}
         {captureDiag && (
           <p role="status" aria-label="Microphone capture diagnostics">
             Mic {captureDiag.mic} · {captureDiag.phase} · {captureDiag.message}
@@ -1741,7 +1741,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
             <p>Current step: {step?.position ?? "—"} of {totalSteps || "—"}</p>
           </section>
         )}
-        <h3>Browser speech recognition (legacy fallback — not reliable on HoloLens)</h3>
+        </details>
+        <details>
+        <summary>Browser voice fallback &amp; microphone test</summary>
+        <h3>Browser speech recognition (not reliable on HoloLens)</h3>
         <p role="status" aria-label="Voice state">Voice: {voiceLabel}</p>
         <p role={voiceState === "error" ? "alert" : "status"}>
           {voice.errorCode && <strong>{voice.errorCode}: </strong>}{voiceMessage}
@@ -1787,6 +1790,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           <p role="status" aria-label="Microphone test result">{micTest.message}</p>
         </div>
         {lastCommand && <p>Last recognized command: “{lastCommand}”</p>}
+        </details>
         <details open={helpVisible} onToggle={(e) => setHelpVisible((e.target as HTMLDetailsElement).open)}>
           <summary>Available voice commands</summary>
           <ul>
@@ -1801,8 +1805,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           <p>Voice is unavailable in this browser. Use the large on-page and in-headset buttons. A native HoloLens Unity/OpenXR speech alternative is documented in docs/hololens.md.</p>
         )}
       </fieldset>
-
-
+      </details>
+      <details className="ar-options">
+      <summary>Automatic camera checks · {autoOn ? "On" : "Off"}</summary>
       <fieldset className="ar-autonomous">
         <legend>Autonomous Assembly (camera-driven, no voice needed)</legend>
         <p role="status" aria-label="Autonomous assembly state">
@@ -1861,7 +1866,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           {companionOn ? "Stop external camera companion" : "Act as external camera companion (this device)"}
         </button>
         {companionOn && <p role="status">Companion active: this device captures fresh frames for capture requests with the pairing code and returns validated results to the HoloLens, which stays in AR.</p>}
-        <details open={autoOn || active}>
+        <details>
           <summary>Monitoring &amp; field diagnostics (live, no Meta request needed)</summary>
           <p role="status" aria-label="AR field diagnostics">
             {active
@@ -1907,6 +1912,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         )}
         <p>Assembly field: {active ? `${anchorUi} (${fieldDiag.fieldRendered ? "rendered" : "not rendered"})` : "enter AR to place it"} · Field {runtime.current?.fieldSize.widthM ?? 0.48} m × {runtime.current?.fieldSize.depthM ?? 0.32} m · Anchors are session-local in HoloLens Edge; re-anchor after each new AR session. Registration is approximate — verified status comes only from the backend.</p>
       </fieldset>
+      </details>
+      <details className="ar-options">
+      <summary>Full instructions, reference &amp; inspection results</summary>
       <h3>
         Step {step?.position ?? "—"} — {step?.title}
       </h3>
@@ -2019,6 +2027,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         Start gesture for the system menu. Exiting AR always stops the microphone.
       </p>
       <Link href={verificationUrl}>Verification link for this project and step</Link>
+      </details>
+      <details className="ar-options">
+      <summary>Placement tools &amp; 2D preview</summary>
       {!placement && (
         <>
           <p>No usable 3D model or dimensions for this step. Nothing is drawn as an exact block.</p>
@@ -2031,15 +2042,22 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         <h3>2D preview only — not mixed reality</h3>
         {placement ? (
           <>
-            <svg viewBox={`${-previewExtent} ${-previewExtent} ${previewExtent * 2} ${previewExtent * 2}`} aria-label="2D intended placement" role="img">
-              <path d={`M${-previewExtent} 0H${previewExtent} M0 ${-previewExtent}V${previewExtent}`} stroke="#879aaa" />
-              <g transform={`translate(${placement.position_m[0] * 1000} ${placement.position_m[2] * 1000}) rotate(${-placement.rotation_deg[1]})`}>
-                <rect x={-placement.dimensions.x_mm / 2} y={-placement.dimensions.z_mm / 2} width={placement.dimensions.x_mm} height={placement.dimensions.z_mm} fill="#38d9ff" fillOpacity={0.3} stroke="#8af5ff" />
-              </g>
-            </svg>
+            <HologramPreview assembled={hologram.assembled} current={hologram.current} />
+            <ol className="hologram-legend">
+              {hologram.current.map((p, i) => {
+                const r = step?.required_blocks.find((b) => b.block_id === p.target_block_id);
+                return (
+                  <li key={i}>
+                    {r?.block.name} · {r?.block.color} · instance {p.instance} / {r?.required_quantity} · {p.evidence} ·{" "}
+                    {p.dimensions.x_mm} × {p.dimensions.y_mm} × {p.dimensions.z_mm} mm · bottom Y {(p.position_m[1] * 1000).toFixed(1)} mm
+                  </li>
+                );
+              })}
+            </ol>
             <p>
-              {target?.block.name} · {target?.block.color} · instance {placement.instance} / {target?.required_quantity} ·{" "}
-              {placement.evidence} · {placement.dimensions.x_mm} × {placement.dimensions.y_mm} × {placement.dimensions.z_mm} mm
+              Cyan = place in this step · grey = already assembled in earlier steps ({hologram.assembled.length}).
+              {sceneExcluded > 0 && ` ${sceneExcluded} outdated earlier block(s) are not drawn — fix them in the project editor.`}
+              {" "}Guidance only: it never verifies a step.
             </p>
           </>
         ) : (
@@ -2047,6 +2065,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         )}
       </div>
       <Link href={`/projects/${projectId}`}>Edit project / AR placements</Link>
+      </details>
       {error && <p role="alert">{error}</p>}
       <div ref={host} className="xr-output" aria-label="Immersive XR output" />
     </section>

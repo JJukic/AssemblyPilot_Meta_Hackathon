@@ -71,10 +71,10 @@ async function fakeCamera(page: Page) {
   });
 }
 
-const card = (page: Page) => page.getByRole("region", { name: "Geführter Montageschritt" });
-const state = (page: Page) => page.getByRole("status", { name: "Schrittstatus" });
+const card = (page: Page) => page.getByRole("region", { name: "Guided assembly step" });
+const state = (page: Page) => page.getByRole("status", { name: "Step status" });
 
-test("guided demo: Prüfen → falsch → Erneut prüfen → korrekt → Nächster Schritt → unsicher → Position bestätigen (buttons only)", async ({ page, request }) => {
+test("guided demo: Check → falsch → Check again → korrekt → Next step → unsicher → Confirm position (buttons only)", async ({ page, request }) => {
   test.setTimeout(90000);
   const a = await demo(request);
   const [s1, s2] = a.steps;
@@ -97,34 +97,39 @@ test("guided demo: Prüfen → falsch → Erneut prüfen → korrekt → Nächst
   });
 
   await page.goto(`/ar?project=${a.project.id}`);
-  await expect(card(page)).toContainText("Schritt 1 von 2");
-  await expect(card(page)).toContainText("Lege den roten 2×4-Stein auf die grüne Markierung.");
-  await expect(state(page)).toHaveText("Bereit");
+  await expect(card(page)).toContainText("Step 1 of 2");
+  await expect(card(page)).toContainText("Place the red 2×4 brick on the green marker.");
+  await expect(state(page)).toHaveText("Ready");
   // No voice is needed anywhere in the flow; the step buttons are plain buttons.
+  await expect(page.locator(".ar-options[open]")).toHaveCount(0);
+  await page.getByText("Voice control · Off", { exact: true }).click();
   await expect(page.getByRole("status", { name: "Local microphone state" })).toContainText("Off");
+  await expect(page.getByRole("button", { name: "Enable local voice control", exact: true })).toBeDisabled();
+  await page.getByText("Voice control · Off", { exact: true }).click();
 
-  await card(page).getByRole("button", { name: "Prüfen", exact: true }).click();
-  await expect(state(page)).toHaveText("Noch einmal versuchen", { timeout: 20000 });
-  await expect(card(page)).toContainText("Baustein ausrichten.");
-  await expect(card(page).getByRole("button", { name: "Nächster Schritt" })).toHaveCount(0);
+  await card(page).getByRole("button", { name: "Check", exact: true }).click();
+  await expect(state(page)).toHaveText("Try again", { timeout: 20000 });
+  await expect(card(page)).toContainText("Adjust the brick.");
+  await expect(card(page).getByRole("button", { name: "Next step" })).toHaveCount(0);
 
   next = "correct";
-  await card(page).getByRole("button", { name: "Erneut prüfen" }).click();
-  await expect(state(page)).toHaveText("Korrekt", { timeout: 30000 });
-  await expect(card(page)).toContainText("Schritt korrekt.");
+  await card(page).getByRole("button", { name: "Check again" }).click();
+  await expect(state(page)).toHaveText("Correct", { timeout: 30000 });
+  await expect(card(page)).toContainText("Step correct.");
   expect(calls).toEqual(["inspect:incorrect", "inspect:correct", "verify"]);
 
-  await card(page).getByRole("button", { name: "Nächster Schritt" }).click();
-  await expect(card(page)).toContainText("Schritt 2 von 2", { timeout: 15000 });
-  await expect(state(page)).toHaveText("Bereit", { timeout: 15000 });
+  await card(page).getByRole("button", { name: "Next step" }).click();
+  await expect(card(page)).toContainText("Step 2 of 2", { timeout: 15000 });
+  await expect(state(page)).toHaveText("Ready", { timeout: 15000 });
+  await page.getByText("Full instructions, reference & inspection results", { exact: true }).click();
   await expect(page.getByRole("heading", { name: `Step 2 — ${s2.title}` })).toBeVisible();
 
   next = "uncertain";
-  await card(page).getByRole("button", { name: "Prüfen", exact: true }).click();
-  await expect(state(page)).toHaveText("Teilweise korrekt", { timeout: 20000 });
-  await card(page).getByRole("button", { name: "Position bestätigen" }).click();
-  await expect(state(page)).toHaveText("Bestätigt");
-  await expect(card(page)).toContainText("nicht KI-geprüft");
+  await card(page).getByRole("button", { name: "Check", exact: true }).click();
+  await expect(state(page)).toHaveText("Position uncertain", { timeout: 20000 });
+  await card(page).getByRole("button", { name: "Confirm position" }).click();
+  await expect(state(page)).toHaveText("Confirmed");
+  await expect(card(page)).toContainText("not AI verified");
   // Manual confirmation never writes backend verification.
   const progress = await (await request.get(`${E2E_API}/api/projects/${a.project.id}/progress`)).json();
   expect(progress.find((p: { step_id: string }) => p.step_id === s2.id).status).not.toBe("verified");

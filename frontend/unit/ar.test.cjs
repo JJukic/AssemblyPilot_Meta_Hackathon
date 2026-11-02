@@ -693,10 +693,10 @@ test("guided panel: main view shows state, short instruction and message — and
   runtime.update(guided("wrong"));
   const texts = globalThis.__canvasTexts.join("\n");
   assert.match(texts, /Schritt 1 von 3/);
-  assert.match(texts, /NOCH EINMAL VERSUCHEN/);
+  assert.match(texts, /TRY AGAIN/);
   assert.match(texts, /2×4-Stein/);
-  assert.match(texts, /Baustein ausrichten/);
-  assert.match(texts, /Erneut prüfen/);
+  assert.match(texts, /Adjust the brick/);
+  assert.match(texts, /Check again/);
   assert.ok(!/DEBUG/.test(texts), "voice/anchor debug rows are not drawn in the main view");
   await runtime.end();
 });
@@ -708,7 +708,7 @@ test("guided hologram: transparent ghost + green target; red when wrong, yellow 
   runtime.update(guided("ready"));
   assert.ok(sceneHas(runtime, "target-marker"));
   assert.equal(runtime.markerColorHex, MARKER.target);
-  const body = runtime.target.children[0].material;
+  const body = runtime.target.getObjectByName("ghost-current").children[0].material;
   assert.equal(body.transparent, true);
   assert.equal(body.color.getHex(), 0x3ce6ff, "neutral transparent ghost while ready");
   runtime.update(guided("wrong"));
@@ -748,5 +748,83 @@ test("guided panel: 'Position bestätigen' and 'Nächster Schritt' are real hand
   runtime.update(guided("ok"));
   press("next");
   assert.deepEqual(actions, ["confirm", "next"]);
+  await runtime.end();
+});
+
+/* ---------- Cumulative multi-block step hologram ---------- */
+const brick = (over = {}) => ({ ...placement(), studs: null, dimensions: { x_mm: 31.8, y_mm: 9.6, z_mm: 15.8 }, rotation_deg: [0, 0, 0], ...over });
+const named = (root, name) => { const out = []; root?.traverse((o) => { if (o.name === name) out.push(o); }); return out; };
+const holoInfo = (hologram, extra = {}) => ({ placement: hologram.current[0] ?? null, hologram, text: "Step", detail: "", ...extra });
+
+test("cumulative hologram: earlier steps dimmed/neutral without arrow, current blocks highlighted and state-coloured", async () => {
+  const { runtime } = await setup();
+  const hologram = {
+    assembled: [brick({ position_m: [0, 0, 0] })],
+    current: [brick({ target_block_id: "blue", position_m: [0, 0.0096, 0] }), brick({ instance: 2, position_m: [0.04, 0, 0] })],
+  };
+  runtime.update(holoInfo(hologram, { markerColor: MARKER.wrong, ghostTint: MARKER.wrong }));
+  const assembled = named(runtime.target, "ghost-assembled");
+  const current = named(runtime.target, "ghost-current");
+  assert.equal(assembled.length, 1);
+  assert.equal(current.length, 2);
+  const dim = assembled[0].children[0].material;
+  assert.equal(dim.color.getHex(), 0x9aa7b0, "already-assembled blocks stay neutral (never state-tinted)");
+  assert.ok(dim.opacity < current[0].children[0].material.opacity, "dimmed vs highlighted");
+  assert.ok(!assembled[0].children.some((c) => c.type === "ArrowHelper"), "no placement arrow on assembled blocks");
+  assert.ok(current.every((g) => g.children[0].material.color.getHex() === MARKER.wrong), "current blocks show the correction colour");
+  assert.equal(named(runtime.origin, "target-marker").length, 2, "one target marker per block of this step");
+  assert.equal(runtime.markerColorHex, MARKER.wrong);
+  // Y is the bottom face: the stacked blue block's root sits at 9.6 mm, its body centre half a body higher.
+  assert.ok(Math.abs(current[0].position.y - 0.0096) < 1e-9);
+  assert.ok(Math.abs(current[0].children[0].position.y - 0.0048) < 1e-9);
+  runtime.update(holoInfo(hologram, { markerColor: MARKER.correct, ghostTint: MARKER.correct }));
+  assert.equal(dim.color.getHex(), 0x9aa7b0);
+  assert.equal(runtime.markerColorHex, MARKER.correct);
+  await runtime.end();
+});
+
+test("step change: the previous step's geometry is removed before the next hologram appears", async () => {
+  const { runtime } = await setup();
+  runtime.update(holoInfo({ assembled: [], current: [brick(), brick({ instance: 2, position_m: [0.04, 0, 0] })] }));
+  const first = runtime.target;
+  runtime.update(holoInfo({ assembled: [], current: [] })); // navigate() clears step content first
+  assert.equal(runtime.target, null);
+  assert.equal(named(runtime.origin, "target-marker").length, 0);
+  runtime.update(holoInfo({ assembled: [brick(), brick({ instance: 2, position_m: [0.04, 0, 0] })], current: [brick({ target_block_id: "blue", position_m: [0, 0.0096, 0] })] }));
+  assert.notEqual(runtime.target, first);
+  assert.equal(named(runtime.origin, "ghost-current").length, 1);
+  assert.equal(named(runtime.origin, "ghost-assembled").length, 2);
+  assert.equal(named(runtime.origin, "target-marker").length, 1, "no stale marker from the old step");
+  await runtime.end();
+});
+
+test("hologram survives tracking loss and Re-anchor without moving; it is re-drawn at the newly confirmed origin", async () => {
+  const { runtime, tracked } = await anchoredSetup();
+  runtime.update(holoInfo({ assembled: [brick()], current: [brick({ target_block_id: "blue", position_m: [0, 0.0096, 0] })] }));
+  runtime.frame(2, tracked());
+  const group = runtime.target;
+  for (let i = 0; i < 60; i++) runtime.frame(3 + i, { ...frame(), getPose: () => null });
+  assert.equal(runtime.anchorState, "tracking_lost");
+  assert.equal(runtime.target, group);
+  assert.equal(runtime.origin.visible, true, "field + hologram held (red field), never silently deleted");
+  assert.equal(group.visible, false, "step hologram hidden while its position is not trustworthy");
+  runtime.reset();
+  assert.equal(runtime.target, group, "Re-anchor keeps the step content, only the origin is re-placed");
+  runtime.frame(80, hitFrame(0.7));
+  runtime.confirmOrigin();
+  runtime.frame(81, hitFrame(0.7));
+  assert.equal(runtime.anchorState, "anchored");
+  assert.equal(group.parent, runtime.origin);
+  assert.ok(Math.abs(runtime.origin.matrix.elements[13] - 0.7) < 1e-9);
+  await runtime.end();
+});
+
+test("a hologram never dispatches an action or verification", async () => {
+  const { runtime, actions, tracked } = await anchoredSetup();
+  for (let i = 0; i < 5; i++) {
+    runtime.update(holoInfo({ assembled: [brick()], current: [brick({ target_block_id: "blue", position_m: [0, 0.0096 * (i + 1), 0] })] }, { markerColor: MARKER.correct, ghostTint: MARKER.correct }));
+    runtime.frame(10 + i, tracked());
+  }
+  assert.deepEqual(actions, [], "drawing guidance never triggers verify/next or any other action");
   await runtime.end();
 });

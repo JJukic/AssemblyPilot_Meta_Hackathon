@@ -25,6 +25,32 @@ export const placementPath = (project: string, step: string) =>
   `/api/projects/${project}/steps/${step}/ar-placement`;
 export const getPlacement = (project: string, step: string) =>
   apiRequest<Placement | null>(placementPath(project, step));
+/** Version-2 step hologram: every block placed IN this step (Y = bottom face, metres). */
+export interface StepPlacements {
+  version: 2;
+  placements: Placement[];
+}
+/** Cumulative guidance up to a step (earlier steps = already assembled). Never evidence. */
+export interface SceneBlock {
+  step_id: string;
+  step_position: number;
+  placement: Placement;
+}
+export interface Scene {
+  blocks: SceneBlock[];
+  excluded: { step_id: string; step_position: number; reason: string }[];
+}
+export const placementsPath = (project: string, step: string) =>
+  `/api/projects/${project}/steps/${step}/ar-placements`;
+export const getPlacements = (project: string, step: string) =>
+  apiRequest<StepPlacements>(placementsPath(project, step));
+export const savePlacements = (project: string, step: string, placements: Placement[]) =>
+  apiRequest<StepPlacements>(placementsPath(project, step), {
+    method: "PUT",
+    body: JSON.stringify({ version: 2, placements }),
+  });
+export const getScene = (project: string, step: string) =>
+  apiRequest<Scene>(`/api/projects/${project}/steps/${step}/ar-scene`);
 export const getView = (project: string) =>
   apiRequest<ViewedStep>(`/api/projects/${project}/ar-view`);
 export const setView = (project: string, step: string, revision: number) =>
