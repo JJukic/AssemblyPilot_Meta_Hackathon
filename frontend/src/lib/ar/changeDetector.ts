@@ -51,13 +51,16 @@ export interface DetectorConfig {
   minChangedPixels: number;
   /** Compensated shift (80-px units) above which the camera is "moving" rather than jittering. */
   movingShift: number;
+  /** Residual changed-pixel fractions (after compensation) still regarded as a "still" view. */
+  stillRoi: number;
+  stillBackground: number;
   /** Background changed fraction vs baseline under which registration is trusted. */
   alignBackground: number;
 }
 
 export const DEFAULT_DETECTOR: DetectorConfig = {
   roi: CENTER_ROI,
-  motionShift: 4,
+  motionShift: 6,
   baselineShift: 10,
   pixelThreshold: 0.14,
   stableSamples: 3,
@@ -65,7 +68,9 @@ export const DEFAULT_DETECTOR: DetectorConfig = {
   movingBackground: 0.05,
   changeFraction: 0.004,
   minChangedPixels: 5,
-  movingShift: 6,
+  movingShift: 8,
+  stillRoi: 0.01,
+  stillBackground: 0.02,
   alignBackground: 0.06,
 };
 
@@ -289,7 +294,7 @@ export class ChangeDetector {
     const local = m.roiFraction >= c.activityFraction &&
       m.roiFraction > 3 * m.backgroundFraction + (moving ? 0.02 : 0);
     if (local) this.latch = true;
-    const still = !moving && m.roiFraction <= 0.006 && m.backgroundFraction <= 0.012;
+    const still = !moving && m.roiFraction <= c.stillRoi && m.backgroundFraction <= c.stillBackground;
     this.stableCount = still ? this.stableCount + 1 : 0;
     const report = (kind: DetectorKind, extra: Partial<DetectorReport> = {}): DetectorReport => ({
       ...base, kind, motion, latch: this.latch, stableCount: this.stableCount,

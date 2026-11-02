@@ -168,3 +168,23 @@ test("HoloLens scale: head motion and a hand passing through make no change at 1
   seen.push(...settleHi(d, world, 50, 35).map((r) => r.kind));
   assert.ok(!seen.includes("change"), seen.join(","));
 });
+
+test("HoloLens scale: stronger head wobble (up to ±4 px per sample) still settles, never triggers alone, and a brick is still found", () => {
+  const world = makeWorld();
+  const d = new ChangeDetector();
+  const wobble = [[0, 0], [1.5, 0.5], [2, -1], [0.5, -2], [-1.5, -1], [-2, 1], [-0.5, 2], [1, 1.5]];
+  const kinds = [];
+  for (let i = 0; i < 40; i++) {
+    const [jx, jy] = wobble[i % wobble.length];
+    kinds.push(d.observe(hi(world, 40 + jx, 30 + jy)).kind);
+  }
+  assert.ok(kinds.includes("baseline-set"), kinds.join(","));
+  assert.ok(!kinds.includes("change"), kinds.join(","));
+  const placed = block(world, 80, 60, 4, 2);
+  const after = [];
+  for (let i = 0; i < 16; i++) {
+    const [jx, jy] = wobble[i % wobble.length];
+    after.push(d.observe(hi(placed, 40 + jx, 30 + jy)).kind);
+  }
+  assert.ok(after.includes("change"), after.join(","));
+});
