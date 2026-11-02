@@ -85,6 +85,8 @@ export interface AutoStatus {
   lastSelection: string | null;
   lastRejection: string | null;
   lastFailure: FailureKind | null;
+  /** Compact live detector numbers (stillness, change vs reference, shift). */
+  metrics: string;
 }
 
 export interface AutoDeps {
@@ -114,6 +116,7 @@ export class AutoController {
   private lastReport: DetectorReport | null = null;
   private lastCamera: CameraHealth | null = null;
   private lastFieldInView: boolean | null = null;
+  private metrics = "";
   status: AutoStatus;
 
   constructor(private deps: AutoDeps, config: Partial<AutoConfig> = {}) {
@@ -280,7 +283,13 @@ export class AutoController {
       if (initial) m.noteInitialAssessment();
       return this.run(ctx, manual);
     }
-    // 6) Passive, truthful monitoring feedback (no requests).
+    // 6) Passive, truthful monitoring feedback (no requests) — each waiting
+    // state says what it waits for, with live numbers readable in AR.
+    const need = this.detector.stableTarget;
+    this.metrics = report.motion
+      ? `still ${Math.min(report.stableCount, need)}/${need} · Δref ${report.baseline ? (report.baseline.roiFraction * 100).toFixed(1) + "%" : "–"} · shift ${report.motion.dx},${report.motion.dy}`
+      : "";
+    const live = this.metrics ? ` [${this.metrics}]` : "";
     if (m.state === "inspection_failed" && m.lastFailure) {
       const gate = m.canTrigger(now);
       this.emit("error", failureHeadline(m.lastFailure),
@@ -293,13 +302,16 @@ export class AutoController {
       m.stabilizing();
       this.emit("change_detected", "CHANGE DETECTED", "LEGO assembly change detected — waiting for a clear, still view.");
     } else if (report.kind === "camera-moving") {
-      this.emit(intro ? (m.lastOutcome === "incorrect" ? "correction_required" : "another_view") : "monitoring", intro ?? "MONITORING",
-        `Camera moving — not counted as an assembly change${report.latch ? " (a pending change is remembered)" : ""}.`);
+      this.emit(intro ? (m.lastOutcome === "incorrect" ? "correction_required" : "another_view") : "monitoring", intro ?? "WATCHING · HEAD MOVING",
+        `Camera moving — not counted as an assembly change${report.latch ? " (a pending change is remembered)" : ""}.${live}`);
     } else if (!this.detector.hasBaseline) {
-      this.emit("monitoring", "MONITORING", "Hold still a moment to capture the reference view of the assembly.");
+      this.emit("monitoring", "WATCHING · HOLD STILL", `Hold still a moment to capture the reference view of the assembly.${live}`);
+    } else if (!this.detector.stable) {
+      this.emit(intro ? (m.lastOutcome === "incorrect" ? "correction_required" : "another_view") : "monitoring", intro ?? "WATCHING · HOLD STILL",
+        `Hold your head still on the field for about 1.5 s.${live}`);
     } else {
-      this.emit(intro ? (m.lastOutcome === "incorrect" ? "correction_required" : "another_view") : "monitoring", intro ?? "MONITORING",
-        intro ? "Fix the assembly as shown; the change is detected automatically." : "Watching for physical assembly changes.");
+      this.emit(intro ? (m.lastOutcome === "incorrect" ? "correction_required" : "another_view") : "monitoring", intro ?? "WATCHING · NO CHANGE",
+        `${intro ? "Fix the assembly as shown; the change is detected automatically." : "Watching for physical assembly changes — the scene matches the reference."}${live}`);
     }
     return "Monitoring";
   }
@@ -373,6 +385,7 @@ export class AutoController {
   }
 
   private emit(code: AutoStatusCode, headline: string, detail: string) {
+    if (!["monitoring", "change_detected", "correction_required", "another_view"].includes(code)) this.metrics = "";
     this.status = this.compose(code, headline, detail);
     this.deps.onStatus(this.status);
   }
@@ -389,6 +402,7 @@ export class AutoController {
       lastSelection: this.lastSelection,
       lastRejection: this.lastRejection,
       lastFailure: m.lastFailure,
+      metrics: this.metrics,
     };
   }
 }

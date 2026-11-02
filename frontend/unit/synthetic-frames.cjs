@@ -20,7 +20,8 @@ const block = (world, cx, cy, w, h, v = 235) => {
 };
 let clock = 0;
 /** Camera view: crop at (ox, oy), optional zoom (moving closer) and gain/offset (lighting). */
-function view(world, ox = 40, oy = 30, { zoom = 1, gain = 1, offset = 0, noise = 2 } = {}) {
+function view(world, ox = 40, oy = 30, { zoom = 1, gain = 1, offset = 0, noise = 2, res = 1 } = {}) {
+  if (res !== 1) return viewRes(world, ox, oy, { zoom, gain, offset, noise, res });
   const gray = new Uint8Array(W * H);
   let s = clock * 13 + 1;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -30,5 +31,18 @@ function view(world, ox = 40, oy = 30, { zoom = 1, gain = 1, offset = 0, noise =
     gray[y * W + x] = Math.max(0, Math.min(255, world[wy * WW + wx] * gain + offset + n));
   }
   return { gray, w: W, h: H, clock: ++clock, at: clock * 500 };
+}
+/** Same scene at `res`× detector resolution (e.g. 160×120), sub-world-pixel offsets allowed. */
+function viewRes(world, ox, oy, { zoom = 1, gain = 1, offset = 0, noise = 2, res = 2 } = {}) {
+  const w = W * res, h = H * res;
+  const gray = new Uint8Array(w * h);
+  let s = clock * 13 + 1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const wx = Math.round(ox + W / 2 + (x / res - W / 2) / zoom), wy = Math.round(oy + H / 2 + (y / res - H / 2) / zoom);
+    s = (s * 1103515245 + 12345) % 2147483648;
+    const n = ((s / 2147483648) - 0.5) * 2 * noise;
+    gray[y * w + x] = Math.max(0, Math.min(255, world[wy * WW + wx] * gain + offset + n));
+  }
+  return { gray, w, h, clock: ++clock, at: clock * 500 };
 }
 module.exports = { W, H, makeWorld, block, view };

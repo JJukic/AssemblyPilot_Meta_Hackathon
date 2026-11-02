@@ -729,8 +729,8 @@ export class SpatialSession {
     }
     if (info.autoLabel) {
       c.fillStyle = "#7df3ff";
-      c.font = "18px sans-serif";
-      c.fillText(info.autoLabel.slice(0, 108), 560, 372);
+      c.font = "bold 16px sans-serif";
+      c.fillText(info.autoLabel.slice(0, 58), 560, 372);
     }
     c.fillStyle = "#bffaff";
     c.font = "19px sans-serif";

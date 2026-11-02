@@ -21,8 +21,8 @@ import {
   type CameraVerdict, type FrameQuality, type FrameSample,
 } from "./monitoring";
 
-/** Detector resolution (cheap enough for HoloLens at 2 Hz). */
-const W = 80, H = 60;
+/** Detector resolution: one small brick ≈ 8×4 px at ~50 cm; coarse-to-fine keeps it cheap at 2 Hz. */
+const W = 160, H = 120;
 /** ROI scoring resolution for burst candidates. */
 const SW = 192, SH = 144;
 const STALL_MS = 3000;

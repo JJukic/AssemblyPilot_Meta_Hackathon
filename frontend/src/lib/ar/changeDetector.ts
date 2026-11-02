@@ -47,6 +47,10 @@ export interface DetectorConfig {
   movingBackground: number;
   /** ROI changed-pixel fraction vs baseline that counts as an assembly change. */
   changeFraction: number;
+  /** ...and at least this many changed pixels per 80×60-equivalent area (one small brick). */
+  minChangedPixels: number;
+  /** Compensated shift (80-px units) above which the camera is "moving" rather than jittering. */
+  movingShift: number;
   /** Background changed fraction vs baseline under which registration is trusted. */
   alignBackground: number;
 }
@@ -59,13 +63,17 @@ export const DEFAULT_DETECTOR: DetectorConfig = {
   stableSamples: 3,
   activityFraction: 0.02,
   movingBackground: 0.05,
-  changeFraction: 0.01,
+  changeFraction: 0.004,
+  minChangedPixels: 5,
+  movingShift: 6,
   alignBackground: 0.06,
 };
 
 export interface Registration {
   dx: number;
   dy: number;
+  /** Number of changed pixels inside the ROI. */
+  roiChanged: number;
   roiFraction: number;
   backgroundFraction: number;
   /** Bounding box of changed ROI pixels, normalised to the full frame. */
@@ -84,21 +92,20 @@ function roiPixels(w: number, h: number, roi: RoiFraction) {
  * stride-2 grid), then gain/offset-normalised changed-pixel fractions
  * inside and outside the ROI at that shift.
  */
-export function register(
-  a: Uint8Array, b: Uint8Array, w: number, h: number,
-  roi: RoiFraction, maxShift: number, pixelThreshold: number,
-): Registration {
+function searchShift(
+  a: Uint8Array, b: Uint8Array, w: number, h: number, radius: number, cx: number, cy: number, stride = 2,
+): { dx: number; dy: number } {
   let meanA = 0, meanB = 0;
   for (let i = 0; i < a.length; i++) { meanA += a[i]; meanB += b[i]; }
   meanA /= a.length; meanB /= b.length;
-  let best = { dx: 0, dy: 0, cost: Number.POSITIVE_INFINITY };
-  const margin = maxShift;
-  for (let dy = -maxShift; dy <= maxShift; dy++) {
-    for (let dx = -maxShift; dx <= maxShift; dx++) {
+  let best = { dx: cx, dy: cy, cost: Number.POSITIVE_INFINITY };
+  const margin = Math.max(Math.abs(cx), Math.abs(cy)) + radius;
+  for (let dy = cy - radius; dy <= cy + radius; dy++) {
+    for (let dx = cx - radius; dx <= cx + radius; dx++) {
       let sum = 0, n = 0;
-      for (let y = margin; y < h - margin; y += 2) {
+      for (let y = margin; y < h - margin; y += stride) {
         const row = y * w, rowB = (y + dy) * w;
-        for (let x = margin; x < w - margin; x += 2) {
+        for (let x = margin; x < w - margin; x += stride) {
           // Truncated (robust) cost: a locally changed block or a hand cannot
           // drag the global head-motion estimate away from the background.
           sum += Math.min(40, Math.abs((b[rowB + x + dx] - meanB) - (a[row + x] - meanA)));
@@ -110,7 +117,35 @@ export function register(
       if (cost < best.cost) best = { dx, dy, cost };
     }
   }
-  const { dx, dy } = best;
+  return { dx: best.dx, dy: best.dy };
+}
+
+function halve(a: Uint8Array, w: number, h: number): Uint8Array {
+  const hw = w >> 1, hh = h >> 1;
+  const out = new Uint8Array(hw * hh);
+  for (let y = 0; y < hh; y++)
+    for (let x = 0; x < hw; x++) {
+      const i = 2 * y * w + 2 * x;
+      out[y * hw + x] = (a[i] + a[i + 1] + a[i + w] + a[i + w + 1]) >> 2;
+    }
+  return out;
+}
+
+/** Coarse-to-fine above 120 px width keeps cost bounded at higher detector resolution. */
+function estimateShift(a: Uint8Array, b: Uint8Array, w: number, h: number, maxShift: number) {
+  if (w >= 120 && h >= 90) {
+    const c = searchShift(halve(a, w, h), halve(b, w, h), w >> 1, h >> 1, Math.ceil(maxShift / 2), 0, 0);
+    // Dense ±1 refinement: a stride-2 grid cannot tell a 1-px shift from none.
+    return searchShift(a, b, w, h, 1, c.dx * 2, c.dy * 2, 1);
+  }
+  return searchShift(a, b, w, h, maxShift, 0, 0);
+}
+
+export function register(
+  a: Uint8Array, b: Uint8Array, w: number, h: number,
+  roi: RoiFraction, maxShift: number, pixelThreshold: number,
+): Registration {
+  const { dx, dy } = estimateShift(a, b, w, h, maxShift);
   // Gain/offset normalisation on the overlap (lighting/exposure changes).
   let sa = 0, sb = 0, saa = 0, sbb = 0, n = 0;
   for (let y = 0; y < h; y++) {
@@ -156,6 +191,7 @@ export function register(
   }
   return {
     dx, dy,
+    roiChanged,
     roiFraction: roiN ? roiChanged / roiN : 0,
     backgroundFraction: bgN ? bgChanged / bgN : 0,
     box: maxX >= 0 && roiChanged >= 4
@@ -202,6 +238,7 @@ export class ChangeDetector {
   get hasBaseline() { return this.baselineFrame !== null; }
   get pending() { return this.pendingReason !== ""; }
   get stable() { return this.stableCount >= this.config.stableSamples; }
+  get stableTarget() { return this.config.stableSamples; }
   /** Most recent stable frame (what an inspection would see). */
   get stableFrame() { return this.lastStable; }
 
@@ -241,9 +278,13 @@ export class ChangeDetector {
     const prev = this.prev;
     this.prev = frame;
     if (!prev || prev.w !== frame.w || prev.h !== frame.h) return base;
-    const m = register(prev.gray, frame.gray, frame.w, frame.h, c.roi, c.motionShift, c.pixelThreshold);
+    const scale = frame.w / 80;
+    const pixelUnit = (frame.w * frame.h) / 4800;
+    const m = register(prev.gray, frame.gray, frame.w, frame.h, c.roi, Math.round(c.motionShift * scale), c.pixelThreshold);
     const motion = { dx: m.dx, dy: m.dy, roiFraction: m.roiFraction, backgroundFraction: m.backgroundFraction };
-    const moving = Math.abs(m.dx) + Math.abs(m.dy) >= 2 || m.backgroundFraction >= c.movingBackground;
+    // Head jitter is compensated by registration; only a large shift or a
+    // residual that registration cannot explain counts as camera movement.
+    const moving = Math.abs(m.dx) + Math.abs(m.dy) > c.movingShift * scale || m.backgroundFraction >= c.movingBackground;
     // Local activity: the ROI changes much more than the background.
     const local = m.roiFraction >= c.activityFraction &&
       m.roiFraction > 3 * m.backgroundFraction + (moving ? 0.02 : 0);
@@ -263,15 +304,16 @@ export class ChangeDetector {
       return report("baseline-set");
     }
     const b = register(
-      this.baselineFrame.gray, frame.gray, frame.w, frame.h, c.roi, c.baselineShift, c.pixelThreshold,
+      this.baselineFrame.gray, frame.gray, frame.w, frame.h, c.roi, Math.round(c.baselineShift * scale), c.pixelThreshold,
     );
+    const enough = b.roiChanged >= c.minChangedPixels * pixelUnit;
     const aligned = b.backgroundFraction <= c.alignBackground;
     if (aligned) {
-      const clearChange = b.roiFraction >= c.changeFraction && b.roiFraction > 3 * b.backgroundFraction + 0.003;
+      const clearChange = enough && b.roiFraction >= c.changeFraction && b.roiFraction > 3 * b.backgroundFraction + 0.002;
       // Ambiguous: clearly more than noise in the ROI, but not a clean ratio.
       // After observed local activity that is treated as a change (never
       // silently dropped); without activity it is not worth a paid call.
-      const ambiguous = !clearChange && b.roiFraction >= c.changeFraction && b.roiFraction > 1.5 * b.backgroundFraction;
+      const ambiguous = !clearChange && enough && b.roiFraction >= c.changeFraction && b.roiFraction > 1.5 * b.backgroundFraction;
       if (clearChange || (ambiguous && (this.latch || this.pending))) {
         this.pendingReason = this.latch ? "assembly change after local activity" : "assembly differs from the reference view";
         return report("change", { baseline: b, aligned, pending: true, reason: this.pendingReason });

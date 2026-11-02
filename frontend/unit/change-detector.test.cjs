@@ -122,3 +122,49 @@ test("pre-existing construction becomes the baseline (no automatic paid call), d
   d.reset();
   assert.equal(d.hasBaseline, false);
 });
+
+/* --- HoloLens-scale cases at the 160×120 detector resolution --- */
+const hi = (world, ox = 40, oy = 30, opts = {}) => view(world, ox, oy, { ...opts, res: 2 });
+const settleHi = (d, world, ox = 40, oy = 30, opts) => Array.from({ length: 5 }, () => d.observe(hi(world, ox, oy, opts)));
+
+test("HoloLens scale: ONE small brick (~8×4 px at 160×120, ≈3×1.5 cm at 50 cm) is detected", () => {
+  const world = makeWorld();
+  const d = new ChangeDetector();
+  settleHi(d, world);
+  const reports = settleHi(d, block(world, 80, 60, 4, 2));
+  assert.equal(reports.at(-1).kind, "change", reports.map((r) => r.kind).join(","));
+  assert.ok(reports.at(-1).baseline.roiChanged >= 20);
+});
+
+test("HoloLens scale: natural head jitter (±1–3 px every sample) still reaches 'stable' and never triggers on its own", () => {
+  const world = makeWorld();
+  const d = new ChangeDetector();
+  const jitter = [[0, 0], [0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5], [-0.5, 0], [-1, -0.5], [0, 0]];
+  const kinds = [];
+  for (let i = 0; i < 40; i++) {
+    const [jx, jy] = jitter[i % jitter.length];
+    kinds.push(d.observe(hi(world, 40 + jx, 30 + jy)).kind);
+  }
+  assert.ok(kinds.includes("baseline-set") || kinds.includes("unchanged"), `reached stability: ${kinds.join(",")}`);
+  assert.ok(!kinds.includes("change"), kinds.join(","));
+  // ...and a brick placed while jittering is still found.
+  const placed = block(world, 80, 60, 4, 2);
+  const after = [];
+  for (let i = 0; i < 12; i++) {
+    const [jx, jy] = jitter[i % jitter.length];
+    after.push(d.observe(hi(placed, 40 + jx, 30 + jy)).kind);
+  }
+  assert.ok(after.includes("change"), after.join(","));
+});
+
+test("HoloLens scale: head motion and a hand passing through make no change at 160×120", () => {
+  const world = makeWorld();
+  const d = new ChangeDetector();
+  settleHi(d, world);
+  const seen = [];
+  for (const [ox, oy] of [[43, 31], [47, 33], [50, 35]]) seen.push(d.observe(hi(world, ox, oy)).kind);
+  seen.push(...settleHi(d, world, 50, 35).map((r) => r.kind));
+  for (const x of [84, 90, 96]) seen.push(d.observe(hi(block(world, x, 70, 16, 22, 30), 50, 35)).kind);
+  seen.push(...settleHi(d, world, 50, 35).map((r) => r.kind));
+  assert.ok(!seen.includes("change"), seen.join(","));
+});
