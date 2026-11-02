@@ -635,3 +635,24 @@ Previous and the other hand; point away and confirm hover/cursor
 disappear; confirm Exit AR works. If no ray appears, open "XR
 interaction diagnostics" on the AR page — it reports sources, tracking,
 hover and the last failure reason; no tracking is ever simulated.
+
+## Verify Step inside immersive AR
+
+Verify Step no longer exits AR. Inside immersive AR it first tries a
+real camera while the session stays active (live monitor stream, or a
+fresh probe whose frame clock must demonstrably advance). A fresh
+frame runs the same `/api/inspect` / `/api/verify` pipeline as the
+desktop workspace, and the validated result — including print, face
+and geometry gates — appears in the holographic result panel. The
+anchored field is never touched by capture or results.
+
+If HoloLens Edge provides no advancing camera frames during
+`immersive-ar` (the probe reports this honestly), Verify Step instead
+files an external capture request: open this project page on the
+MacBook/iPhone, enter the pairing code shown in the AR status, and
+press "Act as external camera companion". The companion captures the
+fresh frame, runs the same inspection, and returns only the validated
+summary through `/api/ar-camera`; the HoloLens polls for it and shows
+it without leaving AR. Whether native in-XR camera capture works on
+HoloLens Edge is a device result, not a code assumption — run the
+acceptance scenario in PR #11 and record which path the probe took.
