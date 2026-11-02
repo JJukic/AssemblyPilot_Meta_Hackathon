@@ -185,3 +185,63 @@ export function assessCameraProbe(probe: CameraProbe): CameraVerdict {
   );
   return { status: "likely", canCaptureDuringXR: probe.xrActive ? true : null, reasons };
 }
+
+/* ---------------- Frame quality (blank/black detection) ---------------- */
+
+export interface FrameQuality {
+  ok: boolean;
+  reason: string;
+  meanBrightness: number;
+  variance: number;
+}
+
+/** Reliably detectable invalid frames only; never judges assembly content. */
+export function assessFrameQuality(meanBrightness: number, variance: number): FrameQuality {
+  if (!Number.isFinite(meanBrightness) || !Number.isFinite(variance))
+    return { ok: false, reason: "Frame statistics unavailable", meanBrightness, variance };
+  if (meanBrightness < 3)
+    return { ok: false, reason: "Frame is black (camera covered, unavailable or delivering no image)", meanBrightness, variance };
+  if (meanBrightness > 252)
+    return { ok: false, reason: "Frame is blank white (no usable image)", meanBrightness, variance };
+  if (variance < 1)
+    return { ok: false, reason: "Frame has no image content (uniform/blank frame)", meanBrightness, variance };
+  return { ok: true, reason: "Frame has usable image content", meanBrightness, variance };
+}
+
+/* ---------------- Why "Uncertain"? (cause taxonomy) ---------------- */
+
+export type UncertainCause =
+  | "print"
+  | "face"
+  | "geometry"
+  | "semantic"
+  | "image-quality"
+  | "infrastructure"
+  | "none";
+
+export interface UncertainDiagnosis {
+  cause: UncertainCause;
+  reason: string;
+}
+
+export function classifyUncertain(input: {
+  kind?: string | null;
+  state?: string | null;
+  status?: string | null;
+  printGate?: string | null;
+  faceStatus?: string | null;
+  geometryStatus?: string | null;
+  geometryConstrained?: boolean;
+}): UncertainDiagnosis {
+  if (input.kind === "error")
+    return { cause: "infrastructure", reason: "The inspection request failed (camera, upload, backend or Meta transport). This is a system failure, not a Meta visual judgment." };
+  if (input.printGate === "uncertain")
+    return { cause: "print", reason: "The required printed side or its physical direction could not be verified from this image. Capture a clearer close side view of the print together with the calibrated board." };
+  if (input.faceStatus === "uncertain")
+    return { cause: "face", reason: "The expected block face or physical direction could not be established. Capture the requested side view." };
+  if (input.geometryConstrained && (input.geometryStatus === "uncertain" || input.geometryStatus === "not_measured"))
+    return { cause: "geometry", reason: "Geometric verification lacked sufficient calibrated evidence for this step." };
+  if (input.state === "uncertain" || input.status === "uncertain")
+    return { cause: "semantic", reason: "Meta Muse Spark assessed the physical image but could not establish correctness (visibility, occlusion or ambiguity). Follow the requested additional view." };
+  return { cause: "none", reason: "" };
+}

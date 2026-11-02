@@ -9,7 +9,7 @@
  * fresh snapshot through the existing Meta pipeline.
  */
 import type { Snapshot } from "@/types/assembly";
-import { assessCameraProbe, type CameraVerdict, type FrameSample } from "./monitoring";
+import { assessCameraProbe, assessFrameQuality, type CameraVerdict, type FrameQuality, type FrameSample } from "./monitoring";
 
 const W = 64, H = 48;
 
@@ -106,6 +106,27 @@ export class MonitorCamera {
       at: Date.now(),
       occluded: sharpness > 0 && sharpness < 1.5,
     };
+  }
+
+  /** Fresh frame plus reliably-detectable quality stats (black/blank). */
+  captureValidated(): { snapshot: Snapshot; quality: FrameQuality; frameTime: number } | null {
+    const sample = this.sample();
+    const snapshot = this.captureSnapshot();
+    if (!snapshot || !sample) return null;
+    // Recompute mean/variance from the same downscaled stats frame.
+    const canvas = this.statsCanvas;
+    const ctx = canvas?.getContext("2d", { willReadFrequently: true });
+    if (!canvas || !ctx) return null;
+    let data: Uint8ClampedArray;
+    try { data = ctx.getImageData(0, 0, canvas.width, canvas.height).data; }
+    catch { return null; }
+    let sum = 0;
+    const n = canvas.width * canvas.height;
+    for (let i = 0; i < n; i++) sum += data[i * 4];
+    const mean = sum / n;
+    let sq = 0;
+    for (let i = 0; i < n; i++) { const d = data[i * 4] - mean; sq += d * d; }
+    return { snapshot, quality: assessFrameQuality(mean, sq / n), frameTime: sample.frameTime };
   }
 
   /** One genuinely fresh full-resolution frame, captured now. */

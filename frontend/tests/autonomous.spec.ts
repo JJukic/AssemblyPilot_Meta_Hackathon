@@ -56,6 +56,11 @@ test("autonomous monitoring never inspects an unchanged scene; Inspect Now makes
   await page.getByRole("button", { name: "Inspect Now" }).click();
   await expect(autoStatus(page)).toContainText("Inspection failed", { timeout: 20000 });
   expect(state.inspects).toBe(1);
+  // Transport failure must be diagnosable as "Meta not successfully assessed",
+  // never as a genuine uncertain visual judgment.
+  await page.getByText("Inspection diagnostics (latest request)").click();
+  await expect(page.locator('[aria-label="Inspection diagnostics"]'))
+    .toContainText("Meta called: NO", { timeout: 10000 });
   await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
   await page.getByRole("button", { name: "Pause Monitoring" }).click();
   await expect(autoStatus(page)).toContainText("paused");

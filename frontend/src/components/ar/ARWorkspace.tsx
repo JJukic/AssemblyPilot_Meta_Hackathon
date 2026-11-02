@@ -60,6 +60,12 @@ import {
   claimExternalRequest, latestExternalResult, newPairingCode, pendingExternalRequests,
   postExternalResult, requestExternalCapture, summaryFromBridge, validPairingCode,
 } from "@/lib/ar/cameraBridge";
+import {
+  InspectionTrace, encodedByteSize, snapshotFingerprint,
+  type InspectionDiagnostics,
+} from "@/lib/ar/inspectionTrace";
+import { classifyUncertain, type FrameQuality } from "@/lib/ar/monitoring";
+import type { TraceSummary } from "@/lib/ar/inspectionResult";
 import type { ProjectDetail } from "@/types/projects";
 import type { SpatialSession, Action, Guidance } from "@/lib/ar/runtime";
 
@@ -137,6 +143,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     [camDeviceId, setCamDeviceId] = useState("");
   const [anchorUi, setAnchorUi] = useState("unplaced");
   const [pairingCode, setPairingCode] = useState("");
+  const [lastTrace, setLastTrace] = useState<InspectionDiagnostics | null>(null);
+  const [lastFrame, setLastFrame] = useState<{ dataUrl: string; source: string; capturedAt: string; fingerprint: string; width: number; height: number } | null>(null);
+  const [showFrame, setShowFrame] = useState(false);
   const [extPending, setExtPending] = useState(false);
   const [companionOn, setCompanionOn] = useState(false);
   const [interactionUi, setInteractionUi] = useState("");
@@ -867,7 +876,79 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     intent: "inspect" | "verify",
     frame: import("@/types/assembly").Snapshot,
     stepId: string,
+    opts: { cameraSource?: string; quality?: FrameQuality; frameFresh?: boolean } = {},
   ): Promise<{ overallStatus: "correct" | "incorrect" | "uncertain" | "error"; verificationStatus?: string }> {
+    const source = opts.cameraSource ?? cameraSource;
+    const trace = new InspectionTrace(source, projectId, stepId);
+    trace.stage("CAPTURE_REQUESTED", `${intent} requested`);
+    trace.stage("CAMERA_SOURCE_SELECTED", source);
+    trace.stage("CAMERA_AVAILABLE", "live video track");
+    trace.stage("FRAME_CAPTURED", `${frame.width}x${frame.height} at ${frame.capturedAt}`);
+    trace.data.capturedAt = frame.capturedAt;
+    trace.data.width = frame.width;
+    trace.data.height = frame.height;
+    trace.data.frameFresh = opts.frameFresh ?? true;
+    trace.data.encodedBytes = encodedByteSize(frame.dataUrl);
+    try { trace.data.correlationId = await snapshotFingerprint(frame.dataUrl); } catch { /* fingerprint best-effort */ }
+    setLastFrame({ dataUrl: frame.dataUrl, source, capturedAt: frame.capturedAt, fingerprint: trace.data.correlationId ?? "unavailable", width: frame.width, height: frame.height });
+    if (opts.quality && !opts.quality.ok) {
+      trace.data.frameQuality = opts.quality.reason;
+      trace.data.metaCalled = false;
+      trace.fail(`FRAME_VALIDATED failed: ${opts.quality.reason}. No image was sent to Meta.`);
+      trace.save();
+      setLastTrace({ ...trace.data });
+      const summary = autoErrorSummary(projectId, stepId, `No usable camera frame: ${opts.quality.reason}. Nothing was sent to Meta.`);
+      saveInspectionSummary(summary);
+      setResultSummary(summary);
+      setResultMode("result");
+      runtime.current?.setViewMode("result");
+      return { overallStatus: "error" };
+    }
+    trace.stage("FRAME_VALIDATED", opts.quality?.reason ?? "dimensions and encoding validated");
+    trace.stage("UPLOAD_STARTED", `${trace.data.encodedBytes} bytes JPEG`);
+    trace.stage("META_REQUEST_STARTED", "existing /api/inspect|verify pipeline");
+    const causeOf = (sm: { kind: string; state: string | null; status: string | null; overall: { printGate: string | null; faceStatus: string | null; geometryStatus: string | null } | null }) =>
+      classifyUncertain({ kind: sm.kind, state: sm.state, status: sm.status, printGate: sm.overall?.printGate, faceStatus: sm.overall?.faceStatus, geometryStatus: sm.overall?.geometryStatus, geometryConstrained: !!sm.overall?.geometryStatus });
+    const finishTrace = (summary: ReturnType<typeof summarizeInspection> | null, model?: string, attempts?: number, latency?: number) => {
+      const traceSummary: TraceSummary = {
+        correlationId: trace.data.correlationId,
+        inspectionId: summary?.inspectionId ?? null,
+        cameraSource: source,
+        capturedAt: frame.capturedAt,
+        width: frame.width, height: frame.height,
+        frameFresh: trace.data.frameFresh,
+        metaCalled: true,
+        metaModel: model ?? null,
+        metaAttempts: attempts ?? null,
+        metaLatencyMs: latency ?? null,
+        uncertainCause: null, uncertainReason: null,
+      };
+      if (summary) {
+        const c = causeOf(summary);
+        if (c.cause !== "none") { traceSummary.uncertainCause = c.cause; traceSummary.uncertainReason = c.reason; }
+      }
+      trace.data.metaCalled = true;
+      trace.data.metaModel = traceSummary.metaModel;
+      trace.data.metaAttempts = traceSummary.metaAttempts;
+      trace.data.metaLatencyMs = traceSummary.metaLatencyMs;
+      trace.data.inspectionId = traceSummary.inspectionId;
+      trace.data.semanticStatus = summary?.status ?? null;
+      trace.data.printGate = summary?.overall?.printGate ?? null;
+      trace.data.faceStatus = summary?.overall?.faceStatus ?? null;
+      trace.data.geometryStatus = summary?.overall?.geometryStatus ?? null;
+      trace.data.combinedState = summary?.state ?? null;
+      trace.data.uncertainCause = traceSummary.uncertainCause;
+      trace.data.uncertainReason = traceSummary.uncertainReason;
+      trace.data.httpOk = true;
+      trace.stage("META_RESPONSE_RECEIVED", model ?? "validated response");
+      trace.stage("META_RESPONSE_VALIDATED", "snapshot/spec identity checked by existing validators");
+      trace.stage("INSPECTION_FUSED", summary?.state ?? "no workflow state");
+      trace.stage("RESULT_DELIVERED_TO_AR", "validated summary in AR panel");
+      trace.stage("AR_RESULT_RENDERED", "result view");
+      trace.save();
+      setLastTrace({ ...trace.data });
+      return traceSummary;
+    };
     const controller = new AbortController();
     autoAbort.current = controller;
     saveInspectionSummary(inspectingSummary(projectId, stepId));
@@ -880,9 +961,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         if (controller.signal.aborted) return { overallStatus: "error" };
         autoWorkflow.current = verification.inspection;
         saveLastInspection({ projectId, stepId, inspectionId: verification.inspection.inspection_id });
-        const summary = summarizeVerification(verification, projectId);
-        saveInspectionSummary(summary);
-        setResultSummary(summary);
+        const summary = summarizeVerification(verification, projectId,
+          finishTrace(null, verification.inspection.model, verification.inspection.meta_attempt_count, verification.inspection.model_latency_ms));
+        // finishTrace needs the summary for cause classification; rebuild with it.
+        const traced = summarizeVerification(verification, projectId, { ...summary.trace!, uncertainCause: causeOf(summary).cause === "none" ? null : causeOf(summary).cause, uncertainReason: causeOf(summary).reason || null });
+        saveInspectionSummary(traced);
+        setResultSummary(traced);
         return {
           verificationStatus: verification.status,
           overallStatus: verification.status === "verified" ? "correct" : verification.status === "still_incorrect" ? "incorrect" : "uncertain",
@@ -895,7 +979,13 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         autoWorkflow.current = workflow;
         saveLastInspection({ projectId, stepId, inspectionId: workflow.inspection_id });
       }
-      const summary = workflow ? summarizeInspection(workflow, projectId) : null;
+      const traceSummary = workflow ? finishTrace(null, workflow.model, workflow.meta_attempt_count, workflow.model_latency_ms) : null;
+      const baseSummary = workflow ? summarizeInspection(workflow, projectId, "inspection", null, traceSummary) : null;
+      const summary = baseSummary && traceSummary ? summarizeInspection(workflow!, projectId, "inspection", null, {
+        ...traceSummary,
+        uncertainCause: causeOf(baseSummary).cause === "none" ? null : causeOf(baseSummary).cause,
+        uncertainReason: causeOf(baseSummary).reason || null,
+      }) : baseSummary;
       if (summary) { saveInspectionSummary(summary); setResultSummary(summary); }
       const overallStatus = workflow
         ? workflow.state === "correct" ? "correct"
@@ -905,6 +995,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       return { overallStatus: overallStatus === "correct" ? "correct" : overallStatus === "incorrect" ? "incorrect" : "uncertain" };
     } catch (cause) {
       if (controller.signal.aborted) return { overallStatus: "error" };
+      trace.data.metaCalled = false;
+      trace.data.httpOk = false;
+      trace.fail(`Inspection request failed before a validated Meta result: ${errorMessage(cause)}`);
+      trace.save();
+      setLastTrace({ ...trace.data });
       const summary = autoErrorSummary(projectId, stepId, errorMessage(cause));
       saveInspectionSummary(summary);
       setResultSummary(summary);
@@ -933,16 +1028,17 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       return;
     }
     const monitor = monitorRef.current;
-    const frame = monitor.captureSnapshot();
-    if (!frame) {
+    const validated = monitor.captureValidated();
+    if (!validated) {
       m.onInspectResult(projectId, view.step_id, "error");
       setAutoStatus("No fresh camera frame was available. Check the camera and try Inspect Now.");
       syncAutoLabel();
       return;
     }
+    const frame = validated.snapshot;
     const stepId = view.step_id;
     setAutoStatus(trigger.intent === "verify" ? "Verifying a fresh frame with Meta AI…" : "Inspecting a fresh frame with Meta AI — do not move the assembly.");
-    const d = await performInARInspection(trigger.intent === "verify" ? "verify" : "inspect", frame, stepId);
+    const d = await performInARInspection(trigger.intent === "verify" ? "verify" : "inspect", frame, stepId, { quality: validated.quality, frameFresh: true });
     if (trigger.intent === "verify" && d.verificationStatus) {
       const outcome = m.onVerifyResult(projectId, stepId, d.verificationStatus as "verified" | "still_incorrect" | "uncertain");
       setAutoStatus(
@@ -1000,13 +1096,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       if (created) { monitor.stop(); if (monitorRef.current === monitor) monitorRef.current = null; }
       return requestExternalFallback(mode, "Camera frames are not advancing inside immersive AR.");
     }
-    const frame = monitor.captureSnapshot();
+    const validated = monitor.captureValidated();
+    const frame = validated?.snapshot ?? null;
     if (created && !autoOn) { monitor.stop(); if (monitorRef.current === monitor) monitorRef.current = null; }
     if (!frame || frame.width < 160 || frame.height < 120)
       return { ok: false, reason: "Camera unavailable in immersive AR. Connect an external camera or select a supported camera source." };
+    if (validated && !validated.quality.ok)
+      return { ok: false, reason: `Captured frame rejected before upload: ${validated.quality.reason}. Nothing was sent to Meta.` };
     setStatus("Inspecting with Meta AI inside AR — the session and anchored field stay active…");
     const intent = mode === "verify" && autoWorkflow.current ? "verify" : "inspect";
-    const d = await performInARInspection(intent, frame, stepId);
+    const d = await performInARInspection(intent, frame, stepId, { quality: validated?.quality, frameFresh: true });
     if (d.overallStatus === "error")
       return { ok: false, reason: "Inspection failed inside AR — see the result panel; AR and the anchored field are unchanged" };
     if (d.verificationStatus === "verified") {
@@ -1052,9 +1151,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           await monitor.start(cameraSource === "external" && camDeviceId ? camDeviceId : undefined);
           monitorRef.current = monitor;
         }
-        const frame = monitor.captureSnapshot();
-        if (!frame) continue;
-        const d = await performInARInspection(request.mode === "verify" && autoWorkflow.current ? "verify" : "inspect", frame, request.step_id);
+        const validated = monitor.captureValidated();
+        if (!validated) continue;
+        const d = await performInARInspection(request.mode === "verify" && autoWorkflow.current ? "verify" : "inspect", validated.snapshot, request.step_id, { quality: validated.quality, frameFresh: true });
         const summary = loadInspectionSummary(projectId, request.step_id);
         if (summary) await postExternalResult(request.id, pairingCode, summary);
         setAutoStatus(d.overallStatus === "error"
@@ -1493,6 +1592,32 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           {companionOn ? "Stop external camera companion" : "Act as external camera companion (this device)"}
         </button>
         {companionOn && <p role="status">Companion active: this device captures fresh frames for capture requests with the pairing code and returns validated results to the HoloLens, which stays in AR.</p>}
+        {lastTrace && (
+          <details>
+            <summary>Inspection diagnostics (latest request)</summary>
+            <p role="status" aria-label="Inspection diagnostics">
+              Correlation (snapshot SHA-256): {lastTrace.correlationId ?? "unavailable"} · Inspection: {lastTrace.inspectionId ?? "—"} ·
+              Camera: {lastTrace.cameraSource} · Frame: {lastTrace.width ?? "?"}x{lastTrace.height ?? "?"} · fresh {lastTrace.frameFresh ? "YES" : "unknown"} ·
+              Meta called: {lastTrace.metaCalled === null ? "—" : lastTrace.metaCalled ? `YES (${lastTrace.metaModel ?? "?"} · ${lastTrace.metaAttempts ?? "?"} attempt(s) · ${lastTrace.metaLatencyMs !== null ? (lastTrace.metaLatencyMs / 1000).toFixed(1) + " s" : "?"})` : "NO"} ·
+              Semantic: {lastTrace.semanticStatus ?? "—"} · Print gate: {lastTrace.printGate ?? "—"} · Face: {lastTrace.faceStatus ?? "—"} · Geometry: {lastTrace.geometryStatus ?? "—"} ·
+              Combined state: {lastTrace.combinedState ?? "—"}
+              {lastTrace.uncertainReason ? ` · Uncertain cause (${lastTrace.uncertainCause}): ${lastTrace.uncertainReason}` : ""}
+            </p>
+            <p>{lastTrace.entries.map((e) => `${e.stage}: ${e.detail}`).join(" → ")}</p>
+            <button className="button secondary" disabled={!lastFrame} onClick={() => setShowFrame((v) => !v)}>
+              {showFrame ? "Hide last sent frame" : "Show Last Sent Frame"}
+            </button>
+            {showFrame && lastFrame && (
+              <figure>
+                {/* eslint-disable-next-line @next/next/no-img-element -- exact captured frame, diagnostic only */}
+                <img src={lastFrame.dataUrl} width={lastFrame.width} height={lastFrame.height} alt="Exact frame sent for the latest inspection" style={{ maxWidth: "100%" }} />
+                <figcaption>
+                  Exact frame sent · {lastFrame.source} · {new Date(lastFrame.capturedAt).toLocaleTimeString()} · {lastFrame.width}x{lastFrame.height} · fingerprint {lastFrame.fingerprint.slice(0, 16)}… · in-memory only, not stored
+                </figcaption>
+              </figure>
+            )}
+          </details>
+        )}
         <p>Assembly field: {active ? anchorUi : "enter AR to place it"} · Field {runtime.current?.fieldSize.widthM ?? 0.48} m × {runtime.current?.fieldSize.depthM ?? 0.32} m · Anchors are session-local in HoloLens Edge; re-anchor after each new AR session. Registration is approximate — verified status comes only from the backend.</p>
       </fieldset>
       <h3>

@@ -673,3 +673,19 @@ the panel mesh transform — the anchored assembly field is untouched.
 Fallbacks: "Recenter panel" and "Reset panel size" on the AR page.
 Real-device manipulation feel (drag smoothness, readable sizes) is a
 pending HoloLens check; automated tests use mocked XR inputs.
+
+## Inspection diagnostics: why "Uncertain"?
+
+Every in-AR inspection now records a bounded diagnostic trace whose
+correlation ID is the snapshot SHA-256 (the same fingerprint the
+backend returns and validates as `snapshot_id`). The Autonomous
+Assembly section shows "Inspection diagnostics (latest request)":
+camera source, frame size/freshness, whether Meta was actually called
+(model, attempts, latency), semantic status, print/face/geometry
+gates, the combined state, and — when uncertain — the classified
+cause (print / face / geometry / Meta semantic / infrastructure).
+"Show Last Sent Frame" displays the exact captured frame (kept in
+memory only) with its fingerprint. Black, blank or content-free
+frames are rejected before upload and reported as camera failures,
+never as Meta uncertainty. A transport/backend failure is an
+inspection error, not an uncertain diagnosis.

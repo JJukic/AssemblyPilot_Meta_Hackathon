@@ -18,6 +18,21 @@ export interface InspectionIssueSummary {
   observed: string;
   suggested_fix: string;
 }
+export interface TraceSummary {
+  correlationId: string | null;
+  inspectionId: string | null;
+  cameraSource: string | null;
+  capturedAt: string | null;
+  width: number | null;
+  height: number | null;
+  frameFresh: boolean | null;
+  metaCalled: boolean | null;
+  metaModel: string | null;
+  metaAttempts: number | null;
+  metaLatencyMs: number | null;
+  uncertainCause: string | null;
+  uncertainReason: string | null;
+}
 export interface OverallSummary {
   kind: OverallKind;
   printGate: "pass" | "fail" | "uncertain" | "not_applicable" | null;
@@ -29,6 +44,7 @@ export interface OverallSummary {
 }
 export interface InspectionSummary {
   overall: OverallSummary | null;
+  trace?: TraceSummary | null;
   kind: "inspection" | "verification" | "error" | "inspecting";
   projectId: string;
   stepId: string;
@@ -60,6 +76,7 @@ export function summarizeInspection(
   projectId: string,
   kind: "inspection" | "verification" = "inspection",
   verificationStatus: InspectionSummary["verificationStatus"] = null,
+  trace: TraceSummary | null = null,
 ): InspectionSummary {
   const print = result.print_recognition ?? null;
   const overall = overallResult({
@@ -72,6 +89,7 @@ export function summarizeInspection(
     geometryConstrained: !!result.geometry?.constraint_id,
   });
   return {
+    trace,
     overall: {
       kind: overall.kind,
       printGate: print?.gate_status ?? null,
@@ -115,8 +133,9 @@ export function summarizeInspection(
 export function summarizeVerification(
   response: VerificationResponse,
   projectId: string,
+  trace: TraceSummary | null = null,
 ): InspectionSummary {
-  return summarizeInspection(response.inspection, projectId, "verification", response.status);
+  return summarizeInspection(response.inspection, projectId, "verification", response.status, trace);
 }
 
 export function errorSummary(
@@ -127,6 +146,7 @@ export function errorSummary(
 ): InspectionSummary {
   return {
     overall: null,
+    trace: null,
     kind: "error",
     projectId,
     stepId,
@@ -216,6 +236,15 @@ export function validateSummary(value: unknown): InspectionSummary | null {
   )
     return null;
   if (!(value.state === null || isText(value.state, 60))) return null;
+  if (value.trace !== undefined && value.trace !== null) {
+    const t = value.trace;
+    if (!isRecord(t)) return null;
+    if (![t.correlationId, t.inspectionId, t.cameraSource, t.capturedAt, t.metaModel, t.uncertainCause, t.uncertainReason]
+      .every((v) => v === null || (typeof v === "string" && v.length <= MAX_TEXT))) return null;
+    if (![t.width, t.height, t.metaAttempts, t.metaLatencyMs]
+      .every((v) => v === null || (typeof v === "number" && Number.isFinite(v)))) return null;
+    if (![t.frameFresh, t.metaCalled].every((v) => v === null || typeof v === "boolean")) return null;
+  }
   if (value.overall !== undefined && value.overall !== null) {
     const o = value.overall;
     if (!isRecord(o)) return null;
@@ -359,6 +388,15 @@ export function resultLines(
     lines.push(`Observed: ${overall.observedPrint ?? "not read"}`);
     if (overall.printAction) lines.push(`Suggested action: ${overall.printAction}`);
   }
+  const trace = summary.trace;
+  if (trace?.metaCalled) {
+    lines.push(`Meta called: YES (${trace.metaModel ?? "model unknown"} · ${trace.metaAttempts ?? "?"} attempt(s)${trace.metaLatencyMs !== null && trace.metaLatencyMs !== undefined ? ` · ${(trace.metaLatencyMs / 1000).toFixed(1)} s` : ""})`);
+    lines.push(`Frame: ${trace.width ?? "?"}x${trace.height ?? "?"} · fresh ${trace.frameFresh ? "YES" : "unknown"} · via ${trace.cameraSource ?? "camera"}`);
+  } else if (trace) {
+    lines.push("Meta called: NO — no successful Meta assessment for this result.");
+  }
+  if (trace?.uncertainReason && (summary.state === "uncertain" || overall?.kind === "uncertain"))
+    lines.push(`Uncertain cause (${trace.uncertainCause ?? "unknown"}): ${trace.uncertainReason}`);
   if (overall?.faceStatus === "incorrect") lines.push("Problem: Wrong face/orientation for this step.");
   if (overall?.geometryStatus === "incorrect") lines.push("Problem: Geometric check failed for this step.");
   if (!errorsOnly && summary.explanation) lines.push(summary.explanation);

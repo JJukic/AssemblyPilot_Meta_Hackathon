@@ -42,6 +42,7 @@ async function fakeCamera(page: Page, a: Awaited<ReturnType<typeof setup>>) {
     canvas.width = 320; canvas.height = 240;
     const ctx = canvas.getContext("2d")!;
     ctx.fillStyle = "#ccaa00"; ctx.fillRect(0, 0, 320, 240);
+    ctx.fillStyle = "#2255aa"; ctx.fillRect(100, 80, 90, 90);
     const stream = canvas.captureStream(10);
     const real = navigator.mediaDevices;
     Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
