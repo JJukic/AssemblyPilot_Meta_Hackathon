@@ -7,6 +7,7 @@ import { getProgress } from "@/lib/inspection";
 import { mediaUrl } from "@/lib/api";
 import { AssemblyPanel } from "./AssemblyPanel";
 import { InspectionPanel } from "@/components/inspection/InspectionPanel";
+import { useWorkspaceSession } from "@/components/settings/WorkspaceSession";
 import {
   clearVoiceVerifyIntent,
   readVoiceVerifyIntent,
@@ -16,7 +17,9 @@ import type { Assembly, Snapshot } from "@/types/assembly";
 import type { GeometrySetup } from "@/types/calibration";
 
 export function CustomAssembly({ projectId, initialStepId = "", snapshot, captureFresh, cameraReady, geometrySetup }: { projectId: string; initialStepId?: string; snapshot: Snapshot | null; captureFresh: () => Snapshot | null; cameraReady: boolean; geometrySetup: GeometrySetup | null }) {
-  const [current, setCurrent] = useState<number | null>(null);
+  const { viewedStep, setViewedStep } = useWorkspaceSession();
+  const current = viewedStep?.projectId === projectId ? viewedStep.index : null;
+  const setCurrent = (index: number) => setViewedStep({ projectId, index });
   const load = useCallback(() => registry.project(projectId), [projectId]);
   const { data, error, reload } = useResource(load);
   const loadProgress = useCallback(() => getProgress(projectId), [projectId]);
@@ -64,7 +67,7 @@ export function CustomAssembly({ projectId, initialStepId = "", snapshot, captur
         <Link className="button secondary" href={`/ar?project=${projectId}`}>Return to AR</Link>
       </div>
     </section>}
-    <InspectionPanel key={`${data.id}:${stepId}:${snapshot?.capturedAt ?? "no-frame"}:${stepProgress?.specification_id ?? "unknown"}`} projectId={data.id} projectName={data.name} stepId={stepId} stepTitle={assembly.steps[currentIndex].title} snapshot={snapshot} captureFresh={captureFresh} cameraReady={cameraReady} geometrySetup={geometrySetup} onProgressChange={refreshProgress} onContinue={currentIndex < assembly.steps.length - 1 ? () => setCurrent(currentIndex + 1) : undefined} autoIntent={stepIntent} onAutoIntentDone={() => { clearVoiceVerifyIntent(); setVoiceIntent(null); }} />
+    <InspectionPanel key={`${data.id}:${stepId}:${snapshot?.capturedAt ?? "no-frame"}:${stepProgress?.specification_id ?? "unknown"}`} specificationId={stepProgress?.specification_id ?? "unknown"} projectId={data.id} projectName={data.name} stepId={stepId} stepTitle={assembly.steps[currentIndex].title} snapshot={snapshot} captureFresh={captureFresh} cameraReady={cameraReady} geometrySetup={geometrySetup} onProgressChange={refreshProgress} onContinue={currentIndex < assembly.steps.length - 1 ? () => setCurrent(currentIndex + 1) : undefined} autoIntent={stepIntent} onAutoIntentDone={() => { clearVoiceVerifyIntent(); setVoiceIntent(null); }} />
     <AssemblyPanel key={data.id} assembly={assembly} currentStep={currentIndex} onStepChange={setCurrent} />
   </div>;
 }

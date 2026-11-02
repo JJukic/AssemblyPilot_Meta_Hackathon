@@ -53,7 +53,7 @@ output pixel count are validated; existing output/metadata files are not overwri
 **140 × 100 mm**. Custom CLI boards are for programmatic use with an explicit
 `BoardSpec`; uploading one does not configure the running API.
 
-Download the same default PDF from the dashboard or `GET /api/calibration/board.pdf`.
+Download the same default PDF from Settings or `GET /api/calibration/board.pdf`.
 The PDF page dimensions encode the physical pattern size; PNG has physical DPI
 metadata. Print at **100% / actual size**, disable fit-to-page, and retain white
 paper margin around all four edges. Never assume a viewer or printer respects DPI.
@@ -74,8 +74,8 @@ There is no general multi-board identification or arbitrary-dictionary scanner.
 
 ## Browser workflow
 
-1. Start/select the camera using the existing workspace controls. Open **Camera
-   Calibration & Precision Capture**.
+1. Open **Settings** beside **Projects** (`/settings`). Start/select the camera
+   using the camera controls, then open **Camera Calibration & Precision Capture**.
 2. Download, print, measure and flatten the board.
 3. Enter a lens identification and record focus/zoom/crop/stabilization settings.
    A browser label does not uniquely identify a physical camera or its optics.
@@ -88,14 +88,15 @@ There is no general multi-board identification or arbitrary-dictionary scanner.
 6. Confirm configuration consistency and enter measured pattern width/height.
    **Calibrate & save profile** estimates and validates intrinsics and saves a
    versioned local JSON profile. No photograph is permanently stored by the backend.
-7. Choose your assembly project and step in the existing workspace. Open **Precision
-   Capture**, select a profile, and confirm that its camera configuration still
-   matches. Capture an image containing the board.
+7. Choose your assembly project and step in **Workspace**. Return to **Settings**
+   and open **Precision Capture**, select a profile, and confirm that its camera
+   configuration still matches. Capture an image containing the board.
 8. Read marker count, fraction of detected internal corners, blur guidance, pose
    residual and approximate viewing angle. If necessary, adjust the camera and
    explicitly capture again.
 9. **Use this capture for AI inspection** publishes that static frame to the existing
-   workspace without making an AI call. **Inspect with Meta AI** then performs Muse
+   workspace without making an AI call. Return to **Workspace**;
+   **Inspect with Meta AI** then performs Muse
    diagnosis and optional SAM localization. Geometry warnings do not overwrite the
    model's diagnosis, and passing capture guidance does not verify block placement.
 
@@ -148,6 +149,11 @@ source and is discarded. Keep the setup fixed, disable changing effects when
 possible, and recalibrate after changes or uncertainty. A compatible profile and a
 small residual alone cannot prove that hidden physical intrinsics are unchanged.
 Repeated real check views and independent ground truth are still needed.
+
+Workspace ↔ Settings navigation keeps the same live camera, unsaved samples,
+configuration, selected profile and confirmation in memory. Reloading the page or
+leaving these routes releases that session; saved backend profiles remain available.
+The existing camera-change reset and explicit confirmation requirements still apply.
 
 ## APIs and storage
 

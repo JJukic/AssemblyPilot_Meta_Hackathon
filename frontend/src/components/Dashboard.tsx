@@ -4,25 +4,25 @@ import { ArrowUpRight, Boxes, CircleHelp, Eye, ScanLine } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Navigation } from "@/components/ui/Navigation";
-import { EdgeDebugPanel } from "@/components/inspection/EdgeDebugPanel";
 import { InspectionHistory } from "@/components/inspection/InspectionHistory";
 import { CustomAssembly } from "@/components/assembly/CustomAssembly";
 import { useResource } from "@/hooks/useResource";
 import { registry } from "@/lib/registry";
 import { AssemblyPanel } from "@/components/assembly/AssemblyPanel";
-import { CalibrationPanel } from "@/components/calibration/CalibrationPanel";
 import { CameraView } from "@/components/camera/CameraView";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
-import { useCamera } from "@/hooks/useCamera";
+import { useWorkspaceSession } from "@/components/settings/WorkspaceSession";
 import { checkHealth } from "@/lib/api";
 import { readVoiceVerifyIntent } from "@/lib/ar/voiceVerify";
 import type { Assembly, ConnectionStatus } from "@/types/assembly";
-import type { GeometrySetup } from "@/types/calibration";
 
 export function Dashboard({ assembly, initialProjectId = "", initialStepId = "" }: { assembly: Assembly; initialProjectId?: string; initialStepId?: string }) {
   const projects = useResource(registry.projects);
-  const [selectedProject, setSelectedProject] = useState(initialProjectId);
-  const camera = useCamera();
+  const { camera, geometrySetup, selectedProject: sessionProject, setSelectedProject, setViewedStep, setInspectionDraft } = useWorkspaceSession();
+  const selectedProject = sessionProject ?? initialProjectId;
+  useEffect(() => {
+    if (sessionProject === null) setSelectedProject(initialProjectId);
+  }, [initialProjectId, sessionProject, setSelectedProject]);
   const cameraStart = camera.start;
   const autoCameraStarted = useRef("");
   useEffect(() => {
@@ -33,7 +33,6 @@ export function Dashboard({ assembly, initialProjectId = "", initialStepId = "" 
     }
   }, [selectedProject, cameraStart]);
   const [backend, setBackend] = useState<ConnectionStatus>("checking");
-  const [geometrySetup, setGeometrySetup] = useState<GeometrySetup | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     const check = async () => {
@@ -63,7 +62,7 @@ export function Dashboard({ assembly, initialProjectId = "", initialStepId = "" 
         </div>
         <section className="panel jury-start"><div><p className="eyebrow">YOUR FIRST BUILD</p><h2>Try AssemblyPilot with Your Own Blocks</h2><p>Bring your blocks. Describe your goal. Review a plan and start inspecting.</p></div><div className="form-actions"><Link className="button primary" href="/setup">Quick custom project</Link><Link className="button secondary" href="/setup">Demonstration template</Link><Link className="button secondary" href="/projects">Existing project</Link></div></section>
         <div className="project-selector panel">
-          <label className="field"><span>Assembly project</span><select value={selectedProject} onChange={(event) => setSelectedProject(event.target.value)}>
+          <label className="field"><span>Assembly project</span><select value={selectedProject} onChange={(event) => { setSelectedProject(event.target.value); setViewedStep(null); setInspectionDraft(null); }}>
             <option value="">Five-step practice demo</option>
             {selectedProject && !projects.data?.some((p) => p.id === selectedProject) && <option value={selectedProject}>Selected project</option>}
             {projects.data?.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
@@ -73,8 +72,6 @@ export function Dashboard({ assembly, initialProjectId = "", initialStepId = "" 
         </div>
         {selectedProject && <Link className="button secondary" href={`/ar?project=${selectedProject}`}>Spatial AR guidance</Link>}
         <div className="workspace-grid"><CameraView camera={camera} />{selectedProject ? <CustomAssembly key={selectedProject} projectId={selectedProject} initialStepId={initialStepId} snapshot={camera.snapshot} captureFresh={() => camera.capture(false)} cameraReady={camera.status === "connected"} geometrySetup={geometrySetup} /> : <AssemblyPanel assembly={assembly} />}</div>
-        <CalibrationPanel key={`${camera.deviceId}:${camera.status}`} camera={camera} onSelectionChange={setGeometrySetup} />
-        <EdgeDebugPanel key={`${camera.deviceId}:${camera.snapshot?.capturedAt ?? "none"}`} snapshot={camera.snapshot} />
         <InspectionHistory />
         <section className="pipeline-panel" aria-label="AI inspection availability">
           <div className="pipeline-icon"><ScanLine size={22} /></div>

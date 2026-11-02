@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function capture(page: Page) {
-  await page.goto("/");
+  await page.goto("/settings");
   await page.getByRole("button", { name: "Start camera", exact: true }).click();
   await expect(page.getByRole("status", { name: "Camera: Connected" })).toBeVisible();
   await page.getByRole("button", { name: "Capture", exact: true }).click();

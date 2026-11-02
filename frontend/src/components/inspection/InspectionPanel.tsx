@@ -24,23 +24,32 @@ import type { Snapshot } from "@/types/assembly";
 import type { InspectionResponse } from "@/types/inspection";
 import type { WorkflowState } from "@/types/workflow";
 import type { GeometrySetup } from "@/types/calibration";
+import { useWorkspaceSession } from "@/components/settings/WorkspaceSession";
 
 // A manual capture/project/step/specification change remounts and aborts this component.
 // Capture & Verify obtains a separate fresh frame without changing that input boundary.
-export function InspectionPanel({ projectId, projectName, stepId, stepTitle, snapshot, captureFresh, cameraReady, geometrySetup, onContinue, onProgressChange, autoIntent, onAutoIntentDone }: {
-  projectId: string; projectName: string; stepId: string; stepTitle: string; snapshot: Snapshot | null;
+export function InspectionPanel({ projectId, projectName, stepId, stepTitle, specificationId, snapshot, captureFresh, cameraReady, geometrySetup, onContinue, onProgressChange, autoIntent, onAutoIntentDone }: {
+  projectId: string; projectName: string; stepId: string; stepTitle: string; specificationId: string; snapshot: Snapshot | null;
   captureFresh: () => Snapshot | null; cameraReady: boolean; geometrySetup: GeometrySetup | null; onContinue?: () => void; onProgressChange: () => void;
   autoIntent?: VoiceVerifyIntent | null; onAutoIntentDone?: () => void;
 }) {
   const { add, entries } = useInspectionSession();
+  const { inspectionDraft, setInspectionDraft } = useWorkspaceSession();
+  const boundary = `${projectId}:${stepId}:${snapshot?.capturedAt ?? "no-frame"}:${specificationId}`;
+  // Returning from Settings may resume only this exact project/step/spec/frame.
+  // In-flight requests are aborted on navigation and are never resumed.
+  const [restored] = useState(() => inspectionDraft?.boundary === boundary ? inspectionDraft : null);
   const [autoStatus, setAutoStatus] = useState("");
   const autoStarted = useRef(false);
-  const [phase, setPhase] = useState<WorkflowState>("idle");
-  const [result, setResult] = useState<InspectionResponse | null>(null);
-  const [fresh, setFresh] = useState<Snapshot | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<WorkflowState>(restored?.phase ?? "idle");
+  const [result, setResult] = useState<InspectionResponse | null>(restored?.result ?? null);
+  const [fresh, setFresh] = useState<Snapshot | null>(restored?.fresh ?? null);
+  const [error, setError] = useState<string | null>(restored?.error ?? null);
   const controllerRef = useRef<AbortController | null>(null);
   const busy = phase === "inspecting" || phase === "verifying";
+  useEffect(() => {
+    if (specificationId !== "unknown") setInspectionDraft(busy ? null : { boundary, phase, result, fresh, error });
+  }, [setInspectionDraft, specificationId, boundary, busy, phase, result, fresh, error]);
   const workflow = result && isWorkflowInspection(result, stepId) ? result : null;
   useEffect(() => () => controllerRef.current?.abort(), []);
   const move = (target: WorkflowState) => setPhase((previous) => transition(previous, target));

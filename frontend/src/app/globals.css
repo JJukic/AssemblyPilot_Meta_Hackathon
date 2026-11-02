@@ -105,7 +105,7 @@ footer { border-top: 1px solid var(--border); display: flex; justify-content: sp
 @media (max-width: 520px) { .app-shell { padding: 0 16px; } .camera-grid { grid-template-columns: 1fr; } .snapshot-frame { aspect-ratio: 16/9; } .panel-heading, .assembly-content { padding-left: 16px; padding-right: 16px; } .camera-controls { padding: 18px 16px; } .source-label { max-width: none; width: 100%; } .control-buttons { width: 100%; } .control-buttons .button { flex: 1; } .pipeline-panel { align-items: flex-start; padding: 16px; gap: 12px; } .pipeline-icon { width: 34px; height: 34px; } footer { flex-direction: column; gap: 10px; } }
 
 /* Phase 2 registry and project management, sharing the camera workspace palette. */
-.main-nav { display: flex; gap: 8px; border-bottom: 1px solid var(--border); padding: 16px 0; }
+.main-nav { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--border); padding: 16px 0; }
 .main-nav a { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; padding: 10px 15px; border: 1px solid transparent; border-radius: 7px; text-decoration: none; }
 .main-nav a[aria-current="page"] { background: #173052; color: #b7d3ff; border-color: #2d5488; }
 .main-nav a:hover { color: #fff; background: #1a293d; }

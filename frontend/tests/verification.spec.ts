@@ -417,12 +417,39 @@ test("independent edge debugging preserves the current correction workflow", asy
   await setup(page);
   const initial = await observation(page, "edge-preserved", "incorrect");
   await begin(page, initial);
+  await page.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
   const debug = page.getByRole("region", { name: "Edge Detection Debug Mode" });
   await debug.getByRole("checkbox", { name: "Enable edge debug mode" }).check();
   await debug.getByRole("button", { name: "Detect edges", exact: true }).click();
   await expect(debug.getByAltText("Detected Canny edge image")).toBeVisible();
+  await page.getByRole("navigation").getByRole("link", { name: "Workspace", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Ready to Verify", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Meta AI inspection" }).getByAltText("Analyzed snapshot")).toHaveAttribute("src", initial.analyzed_snapshot.data_url);
+  await expect(page.getByRole("heading", { name: "Step Verified", exact: true })).toHaveCount(0);
+});
+
+test("Settings cancels an in-flight inspection and retains the manually viewed step on return", async ({ page }) => {
+  await setup(page);
+  await capture(page);
+  let received!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => { received = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/inspect", async (route) => {
+    received(); await gate;
+    await route.fulfill({ status: 422, json: { detail: "Late cancelled inspection" } }).catch(() => {});
+  });
+  await page.getByRole("button", { name: "Inspect with Meta AI", exact: true }).click();
+  await started;
+  await page.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
+  release();
+  await page.getByRole("navigation").getByRole("link", { name: "Workspace", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Inspect with Meta AI", exact: true })).toBeEnabled();
+  await expect(page.getByText("Late cancelled inspection", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Next step", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Inspect the finish", exact: true })).toBeVisible();
+  await page.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("navigation").getByRole("link", { name: "Workspace", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Inspect the finish", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Step Verified", exact: true })).toHaveCount(0);
 });
 

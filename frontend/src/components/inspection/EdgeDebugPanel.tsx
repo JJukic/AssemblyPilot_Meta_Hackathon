@@ -3,20 +3,21 @@
 import { useEffect, useRef, useState } from "react";
 import type { Snapshot } from "@/types/assembly";
 import { errorMessage } from "@/lib/api";
-import { detectEdges, type EdgeDebugResult, type EdgeROI } from "@/lib/edge-debug";
+import { detectEdges, type EdgeROI } from "@/lib/edge-debug";
 import { ContourPaths, emptyContours } from "./ContourOverlay";
+import { useEdgeSetting } from "@/components/settings/WorkspaceSession";
 
 export function EdgeDebugPanel({ snapshot }: { snapshot: Snapshot | null }) {
-  const [enabled, setEnabled] = useState(false);
-  const [blur, setBlur] = useState(3);
-  const [low, setLow] = useState(50);
-  const [high, setHigh] = useState(150);
-  const [roi, setROI] = useState<EdgeROI | null>(null);
+  const [enabled, setEnabled] = useEdgeSetting("enabled");
+  const [blur, setBlur] = useEdgeSetting("blur");
+  const [low, setLow] = useEdgeSetting("low");
+  const [high, setHigh] = useEdgeSetting("high");
+  const [roi, setROI] = useEdgeSetting("roi");
   const [draft, setDraft] = useState<EdgeROI | null>(null);
-  const [result, setResult] = useState<EdgeDebugResult | null>(null);
+  const [result, setResult] = useEdgeSetting("result");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [showEdges, setShowEdges] = useState(false);
+  const [showEdges, setShowEdges] = useEdgeSetting("showEdges");
   const [imageReady, setImageReady] = useState(false);
   const [edgeReady, setEdgeReady] = useState("");
   const request = useRef<AbortController | null>(null);
@@ -58,6 +59,7 @@ export function EdgeDebugPanel({ snapshot }: { snapshot: Snapshot | null }) {
     <h2>Edge Detection Debug Mode</h2>
     <p>Explore raw OpenCV edges without AI inspection. This never changes assembly verdicts or verified progress.</p>
     <label><input type="checkbox" checked={enabled} onChange={(event) => { invalidate(); setEnabled(event.target.checked); }} /> Enable edge debug mode</label>
+    <p className="muted">Edge debug mode: {enabled ? "Enabled" : "Disabled"}</p>
     {!snapshot && <p>Capture a camera snapshot first.</p>}
     {enabled && snapshot && <>
       <form className="edge-settings" onSubmit={run}>

@@ -7,7 +7,7 @@ import type { useCamera } from "@/hooks/useCamera";
 type Camera = ReturnType<typeof useCamera>;
 
 export function CameraView({ camera }: { camera: Camera }) {
-  const { videoRef, status, error, devices, deviceId, snapshot, start, stop, capture, selectDevice } = camera;
+  const { attachVideo, status, error, devices, deviceId, snapshot, start, stop, capture, selectDevice } = camera;
   return (
     <section className="panel camera-panel" aria-labelledby="workspace-heading">
       <div className="panel-heading">
@@ -20,7 +20,7 @@ export function CameraView({ camera }: { camera: Camera }) {
         <div className="feed-block">
           <div className="frame-label"><span>01 / LIVE FEED</span><Focus size={14} /></div>
           <div className="video-frame">
-            <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview" />
+            <video ref={attachVideo} autoPlay muted playsInline aria-label="Live camera preview" />
             {status !== "connected" && (
               <div className="frame-placeholder">
                 <div className="placeholder-icon"><Aperture size={32} strokeWidth={1.3} /></div>
@@ -52,7 +52,7 @@ export function CameraView({ camera }: { camera: Camera }) {
       </div>
       {error && <p className="error-banner" role="alert">{error}</p>}
       <CameraControls
-        status={status} devices={devices} deviceId={deviceId}
+        status={status} devices={devices} deviceId={deviceId} captureReady={camera.previewReady}
         onStart={() => void start(deviceId)} onStop={stop}
         onCapture={capture} onDeviceChange={selectDevice}
       />

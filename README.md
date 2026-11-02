@@ -186,8 +186,8 @@ It loads the backend environment, resolves the registered context and references
 
 ## Calibrate the camera and assess perspective
 
-Open **Camera Calibration & Precision Capture** below the workspace. Download the
-default ChArUco board (140 × 100 mm), print at actual size, measure both edges, and
+Open **Settings** beside **Projects**, then **Camera Calibration & Precision
+Capture** in the Camera section. Download the default ChArUco board (140 × 100 mm), print at actual size, measure both edges, and
 capture 12–20 varied views. Enter the measured dimensions and fixed camera
 configuration, then **Calibrate & save profile**. Calibration uses OpenCV 4.14.0,
 requires no AI key, and saves versioned JSON under `backend/data/calibrations`.
@@ -316,7 +316,7 @@ Optional [inspection contour overlays](docs/contour-overlays.md) add independent
 boundaries, raw ROI Canny edges and verified reference feature pairs on their
 exact snapshots. New contours are disabled by default and make no additional AI calls.
 
-[Independent Edge Detection Debug Mode](docs/edge-debug.md) analyzes the captured camera
-JPEG without AI or matching prerequisites. It adds direct rectangular ROI selection,
+Under **Settings → Debugging**, [Independent Edge Detection Debug Mode](docs/edge-debug.md)
+analyzes the captured camera JPEG without AI or matching prerequisites. It adds direct rectangular ROI selection,
 manual Gaussian/Canny controls, a full-resolution edge image and an optional raw
 overlay while preserving existing inspection results.
