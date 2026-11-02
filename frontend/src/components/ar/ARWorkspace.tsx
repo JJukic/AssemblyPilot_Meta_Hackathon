@@ -41,7 +41,21 @@ import {
   resultLines,
   type InspectionSummary,
 } from "@/lib/ar/inspectionResult";
-import { getProgress } from "@/lib/inspection";
+import { getProgress, inspectSnapshot, verifySnapshot } from "@/lib/inspection";
+import { isWorkflowInspection } from "@/lib/workflow";
+import type { WorkflowInspection } from "@/types/workflow";
+import { AutonomousMachine } from "@/lib/ar/autonomous";
+import { FrameGate } from "@/lib/ar/monitoring";
+import type { CameraSource } from "@/lib/ar/monitoring";
+import { MonitorCamera, listVideoDevices } from "@/lib/ar/autonomousMonitor";
+import {
+  inspectingSummary,
+  saveInspectionSummary,
+  summarizeInspection,
+  summarizeVerification,
+  errorSummary as autoErrorSummary,
+} from "@/lib/ar/inspectionResult";
+import { saveLastInspection } from "@/lib/ar/voiceVerify";
 import type { ProjectDetail } from "@/types/projects";
 import type { SpatialSession, Action, Guidance } from "@/lib/ar/runtime";
 
@@ -110,6 +124,21 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     [localConsent, setLocalConsent] = useState(false),
     [localEngine, setLocalEngine] = useState("");
   const localRef = useRef<LocalVoiceController | null>(null);
+  const [autoOn, setAutoOn] = useState(false),
+    [autoPaused, setAutoPaused] = useState(false),
+    [autoStateLabel, setAutoStateLabel] = useState("idle"),
+    [autoStatus, setAutoStatus] = useState("Autonomous Assembly is off. It never calls Meta AI until you start it."),
+    [cameraSource, setCameraSource] = useState<CameraSource>("hololens"),
+    [camDevices, setCamDevices] = useState<{ deviceId: string; label: string }[]>([]),
+    [camDeviceId, setCamDeviceId] = useState("");
+  const [anchorUi, setAnchorUi] = useState("unplaced");
+  const machineRef = useRef<AutonomousMachine | null>(null);
+  const gateRef = useRef(new FrameGate());
+  const monitorRef = useRef<MonitorCamera | null>(null);
+  const autoTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoAbort = useRef<AbortController | null>(null);
+  const autoWorkflow = useRef<WorkflowInspection | null>(null);
+  const advancingRef = useRef(false);
   const voiceRef = useRef<VoiceController | null>(null);
   const actionRef = useRef<(action: Action | VoiceAction) => void>(() => {});
   // Voice controllers are created once at enable time; they must never call
@@ -193,6 +222,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     });
     return () => {
       alive.current = false;
+      if (autoTimer.current) clearInterval(autoTimer.current);
+      autoAbort.current?.abort();
+      monitorRef.current?.stop();
       microphoneSession.active = false;
       voiceRef.current?.dispose();
       voiceRef.current = null;
@@ -336,6 +368,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       voiceLabel: localOn
         ? `🎤 Local voice listening — ${localStatus}`
         : `Voice: ${voiceLabel}${voice.errorCode ? ` (${voice.errorCode})` : ""} — ${voiceMessage}`,
+      anchorLabel: active
+        ? `Assembly field: ${anchorUi}${anchorUi === "anchored" ? " — fixed across steps" : ""}`
+        : undefined,
+      autoLabel: autoOn ? `Auto ${autoStateLabel}: ${autoStatus}` : undefined,
       voiceDetail: captureDiag
         ? `🎤 Mic ${captureDiag.mic} · ${captureDiag.phase} · ${captureDiag.message}${captureDiag.transcript ? ` · “${captureDiag.transcript}”` : ""}${captureDiag.action ? ` → ${captureDiag.action}` : ""}${captureDiag.rms !== undefined ? ` · level ${captureDiag.rms.toFixed(3)}` : ""} · track ${captureDiag.trackState ?? "?"} · audio ${captureDiag.contextState ?? "?"}`
         : undefined,
@@ -352,11 +388,28 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
     runtime.current?.setViewMode(resultMode);
-  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, resultSummary, resultMode, resultErrorsOnly]);
+  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly]);
 
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setAnchorUi(runtime.current?.anchorState ?? "unplaced"), 500);
+    return () => clearInterval(timer);
+  }, [active]);
+  useEffect(() => {
+    if (view.step_id) {
+      machineRef.current?.stepChanged(view.step_id);
+      autoWorkflow.current = null;
+      gateRef.current.reset();
+      syncAutoLabel();
+    }
+  }, [view.step_id]);
+  useEffect(() => {
+    if (autoOn && verified) void advanceIfVerified();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOn, verified]);
 
   async function navigate(offset: number): Promise<ExecutionOutcome> {
     if (!project) return { ok: false, reason: "Project is still loading" };
@@ -708,6 +761,245 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     finally { if (alive.current && localRef.current === controller) setLocalBusy(false); }
   }
 
+
+  /* ---------------- Autonomous Assembly (camera-driven) ----------------
+   * The machine never verifies anything itself. It triggers the existing
+   * /api/inspect and /api/verify pipeline with genuinely fresh frames and
+   * advances only after server progress confirms `verified`. */
+  function syncAutoLabel() {
+    const m = machineRef.current;
+    if (m) setAutoStateLabel(m.state);
+  }
+  async function advanceIfVerified(): Promise<void> {
+    const m = machineRef.current;
+    if (!m || advancingRef.current || !viewRef.current.step_id || !project) return;
+    advancingRef.current = true;
+    try {
+      const progress = await getProgress(projectId);
+      const row = progress.find((r) => r.step_id === viewRef.current.step_id);
+      if (row?.status !== "verified") return;
+      if (m.state !== "verified") {
+        // Verified through the manual/companion path while autonomous is on.
+        m.onVerifyResult(projectId, viewRef.current.step_id!, "verified");
+      }
+      const index = project.steps.findIndex((x) => x.id === viewRef.current.step_id);
+      const isLast = index >= 0 && index === project.steps.length - 1;
+      if (!m.confirmAdvance(isLast)) return;
+      syncAutoLabel();
+      if (isLast) {
+        setAutoStatus("Assembly Complete — every step is verified. The anchored hologram stays until you exit AR.");
+        return;
+      }
+      setAutoStatus(`Step ${project.steps[index].position} verified — advancing automatically…`);
+      const outcome = await navigate(1);
+      if (outcome.ok && viewRef.current.step_id) {
+        autoWorkflow.current = null;
+        gateRef.current.reset();
+        m.onAdvanced(viewRef.current.step_id);
+      } else {
+        setAutoStatus(`Verified, but automatic advance failed: ${outcome.reason ?? "unknown"}. Use Next Step.`);
+      }
+      syncAutoLabel();
+    } catch {
+      setAutoStatus("Could not confirm server progress; automatic advance paused until the next update.");
+    } finally {
+      advancingRef.current = false;
+    }
+  }
+  async function runAutoTrigger(manual: boolean): Promise<void> {
+    const m = machineRef.current;
+    if (!m || !view.step_id || !project) return;
+    const trigger = m.requestTrigger(Date.now(), { manual });
+    syncAutoLabel();
+    if (trigger.intent === "none") {
+      if (trigger.reason) setAutoStatus(trigger.reason);
+      return;
+    }
+    if (cameraSource === "manual" || !monitorRef.current?.live) {
+      // No live monitor frame: use the existing secure camera handoff.
+      const mode = trigger.intent === "verify" ? "verify" : "inspect";
+      m.stop();
+      machineRef.current = null;
+      setAutoOn(false);
+      setAutoStatus("Manual capture: opening the camera workspace for one fresh inspection frame.");
+      await verify(mode);
+      return;
+    }
+    const monitor = monitorRef.current;
+    const frame = monitor.captureSnapshot();
+    if (!frame) {
+      m.onInspectResult(projectId, view.step_id, "error");
+      setAutoStatus("No fresh camera frame was available. Check the camera and try Inspect Now.");
+      syncAutoLabel();
+      return;
+    }
+    const stepId = view.step_id;
+    const controller = new AbortController();
+    autoAbort.current = controller;
+    saveInspectionSummary(inspectingSummary(projectId, stepId));
+    setResultSummary(inspectingSummary(projectId, stepId));
+    setAutoStatus(trigger.intent === "verify" ? "Verifying a fresh frame with Meta AI…" : "Inspecting a fresh frame with Meta AI — do not move the assembly.");
+    try {
+      if (trigger.intent === "verify" && autoWorkflow.current) {
+        const verification = await verifySnapshot(projectId, autoWorkflow.current, frame, controller.signal);
+        if (controller.signal.aborted) return;
+        autoWorkflow.current = verification.inspection;
+        saveLastInspection({ projectId, stepId, inspectionId: verification.inspection.inspection_id });
+        const summary = summarizeVerification(verification, projectId);
+        saveInspectionSummary(summary);
+        setResultSummary(summary);
+        const outcome = m.onVerifyResult(projectId, stepId, verification.status);
+        setAutoStatus(
+          verification.status === "verified" ? "Step Verified — advancing…" :
+          verification.status === "still_incorrect" ? "Still incorrect — follow the correction shown, then keep building; monitoring continues." :
+          "Uncertain — another view is needed. Adjust the camera/assembly and wait for the next stable change.",
+        );
+        syncAutoLabel();
+        if (outcome.intent === "advance") await advanceIfVerified();
+      } else {
+        const diagnosis = await inspectSnapshot(projectId, stepId, frame, controller.signal);
+        if (controller.signal.aborted) return;
+        const workflow = isWorkflowInspection(diagnosis, stepId) ? diagnosis : null;
+        if (workflow) {
+          autoWorkflow.current = workflow;
+          saveLastInspection({ projectId, stepId, inspectionId: workflow.inspection_id });
+        }
+        const summary = workflow ? summarizeInspection(workflow, projectId) : null;
+        if (summary) { saveInspectionSummary(summary); setResultSummary(summary); }
+        const status = workflow?.status ?? diagnosis.status;
+        m.onInspectResult(projectId, stepId, status === "correct" ? "correct" : status === "incorrect" ? "incorrect" : "uncertain");
+        setAutoStatus(
+          status === "correct" ? "ASSEMBLY LOOKS CORRECT — a separate fresh verification frame is still required." :
+          status === "incorrect" ? "CORRECTION REQUIRED — see the issue and fix in the panel. Monitoring continues for your correction." :
+          "ANOTHER VIEW NEEDED — make the assembly clearly visible; monitoring continues.",
+        );
+        syncAutoLabel();
+      }
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      saveInspectionSummary(autoErrorSummary(projectId, stepId, errorMessage(cause)));
+      setResultSummary(autoErrorSummary(projectId, stepId, errorMessage(cause)));
+      if (trigger.intent === "verify") m.onVerifyResult(projectId, stepId, "error");
+      else m.onInspectResult(projectId, stepId, "error");
+      setAutoStatus(`Inspection failed: ${errorMessage(cause)}. No step advance. Fix the connection, then Inspect Now.`);
+      syncAutoLabel();
+    } finally {
+      if (autoAbort.current === controller) autoAbort.current = null;
+    }
+  }
+  async function startAutonomous() {
+    if (!project || !view.step_id || autoOn) return;
+    const machine = new AutonomousMachine();
+    machineRef.current = machine;
+    gateRef.current.reset();
+    autoWorkflow.current = null;
+    machine.start(projectId, view.step_id);
+    setAutoOn(true);
+    setAutoPaused(false);
+    syncAutoLabel();
+    if (cameraSource === "manual") {
+      machine.cameraReady(true);
+      machine.anchored();
+      syncAutoLabel();
+      setAutoStatus("Manual camera mode: autonomous advance watches server verification. Use Inspect Now / Verify in the camera workspace; no continuous frames are captured.");
+      return;
+    }
+    const monitor = new MonitorCamera();
+    monitorRef.current = monitor;
+    try {
+      await monitor.start(cameraSource === "external" && camDeviceId ? camDeviceId : undefined);
+    } catch (cause) {
+      machine.cameraUnavailable();
+      syncAutoLabel();
+      setAutoStatus(`Camera unavailable: ${errorMessage(cause)}. Choose External tabletop camera (this page can run on the MacBook as companion) or Manual capture.`);
+      return;
+    }
+    setAutoStatus("Camera started — probing whether frames actually advance…");
+    const verdict = await monitor.probe(active);
+    if (machineRef.current !== machine) return;
+    if (verdict.status === "unavailable" || verdict.status === "stalled") {
+      machine.cameraUnavailable();
+      syncAutoLabel();
+      setAutoStatus(`${verdict.reasons.join(" ")} Monitoring is NOT running on this camera. Select External tabletop camera or Manual capture; manual inspection still works.`);
+      return;
+    }
+    machine.cameraReady(true);
+    if (!active) machine.anchored(); // companion device: field lives on the HoloLens, synced by server step
+    syncAutoLabel();
+    setAutoStatus(active
+      ? "Camera monitoring active in AR. Confirm the assembly field, then place blocks; stable changes trigger one inspection."
+      : "External/companion camera monitoring active. The HoloLens follows the server step; confirm the field there.");
+    let misses = 0;
+    autoTimer.current = setInterval(() => {
+      const m = machineRef.current;
+      if (!m || m.busy || m.state === "paused" || m.state === "idle" || m.state === "completed") return;
+      if (active) {
+        const anchoredNow = runtime.current?.isAnchored ?? false;
+        if (anchoredNow && m.state === "anchoring") { m.anchored(); syncAutoLabel(); }
+        if (!anchoredNow && ["monitoring", "change_detected", "waiting_for_stability"].includes(m.state) && runtime.current?.anchorState === "tracking_lost") {
+          m.anchorLost();
+          setAutoStatus("TABLETOP TRACKING UNAVAILABLE — inspections paused. Re-anchor the assembly field.");
+          syncAutoLabel();
+        }
+      }
+      const sample = monitorRef.current?.sample() ?? null;
+      if (!sample) {
+        if (++misses > 10) {
+          m.cameraUnavailable();
+          setAutoStatus("Camera stopped delivering frames (disconnect or stall). Monitoring paused — no stale frames are used. Reconnect and Resume.");
+          syncAutoLabel();
+        }
+        return;
+      }
+      misses = 0;
+      if (m.state === "correct_awaiting_verification" && gateRef.current.freshFrame(sample)) {
+        void runAutoTrigger(false);
+        return;
+      }
+      const decision = gateRef.current.assess(sample);
+      if (decision.kind === "changed") { m.changeDetected(); setAutoStatus("Assembly change detected — waiting for the construction to become stable…"); }
+      else if (decision.kind === "stabilizing") { m.stabilizing(); setAutoStatus("Waiting for construction to become stable…"); }
+      else if (decision.kind === "camera-moved") setAutoStatus("Camera movement detected — not counted as an assembly change.");
+      else if (decision.kind === "occluded") setAutoStatus("Assembly appears obstructed — waiting for a clear view.");
+      else if (decision.kind === "frozen") { m.cameraUnavailable(); setAutoStatus(decision.reason + " Monitoring paused; choose External or Manual."); }
+      else if (decision.kind === "qualified") {
+        gateRef.current.noteInspected(decision.hash);
+        void runAutoTrigger(false);
+      }
+      syncAutoLabel();
+    }, 600);
+  }
+  function pauseAutonomous() {
+    const m = machineRef.current;
+    if (!m) return;
+    m.pause();
+    setAutoPaused(true);
+    syncAutoLabel();
+    setAutoStatus("Monitoring paused. No Meta requests will be made until you resume.");
+  }
+  function resumeAutonomous() {
+    const m = machineRef.current;
+    if (!m) return;
+    if (m.state === "camera_unavailable" && monitorRef.current?.live) m.cameraRecovered();
+    m.resume();
+    setAutoPaused(false);
+    syncAutoLabel();
+    setAutoStatus("Monitoring resumed.");
+  }
+  function stopAutonomous() {
+    if (autoTimer.current) clearInterval(autoTimer.current);
+    autoTimer.current = null;
+    autoAbort.current?.abort();
+    monitorRef.current?.stop();
+    monitorRef.current = null;
+    machineRef.current?.stop();
+    machineRef.current = null;
+    setAutoOn(false);
+    setAutoPaused(false);
+    setAutoStateLabel("idle");
+    setAutoStatus("Autonomous Assembly stopped. Camera released; no automatic Meta requests will be made.");
+  }
+
   async function testMicrophone() {
     if (micPending.current || voiceBusy) return;
     micPending.current = true;
@@ -958,6 +1250,54 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         )}
       </fieldset>
 
+
+      <fieldset className="ar-autonomous">
+        <legend>Autonomous Assembly (camera-driven, no voice needed)</legend>
+        <p role="status" aria-label="Autonomous assembly state">
+          Autonomous Assembly: {autoOn ? autoStateLabel : "off"} — {autoStatus}
+        </p>
+        <p>
+          How it works: one anchored tabletop field, a camera watches the real
+          blocks, stable changes trigger ONE Meta inspection, a separate fresh
+          frame verifies, and only the server-verified step advances
+          automatically. Meta inference never runs on a timer or per frame.
+          External camera companion: open this same page on the MacBook, pick
+          the external camera and start monitoring there — the HoloLens
+          follows the server step without moving its anchored field.
+        </p>
+        <label>
+          Camera source{" "}
+          <select value={cameraSource} disabled={autoOn} onChange={(e) => setCameraSource(e.target.value as CameraSource)}>
+            <option value="hololens">HoloLens camera (probed in AR)</option>
+            <option value="external">External tabletop camera</option>
+            <option value="manual">Manual capture</option>
+          </select>
+        </label>
+        {cameraSource === "external" && (
+          <label>
+            External camera{" "}
+            <select value={camDeviceId} disabled={autoOn} onChange={(e) => setCamDeviceId(e.target.value)}>
+              <option value="">Default camera</option>
+              {camDevices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label}</option>)}
+            </select>
+            <button className="button secondary" disabled={autoOn} onClick={() => void listVideoDevices().then(setCamDevices)}>List cameras</button>
+          </label>
+        )}
+        <div className="form-actions">
+          {!autoOn ? (
+            <button className="button primary" disabled={!step || !online} onClick={() => void startAutonomous()}>Start Autonomous Assembly</button>
+          ) : autoPaused ? (
+            <button className="button primary" onClick={resumeAutonomous}>Resume Monitoring</button>
+          ) : (
+            <button className="button secondary" onClick={pauseAutonomous}>Pause Monitoring</button>
+          )}
+          {autoOn && <button className="button danger" onClick={stopAutonomous}>Stop Autonomous Assembly</button>}
+          <button className="button secondary" disabled={!autoOn || cameraSource === "manual"} onClick={() => void runAutoTrigger(true)}>Inspect Now</button>
+          <button className="button secondary" disabled={!active} onClick={() => runtime.current?.confirmOrigin()}>Confirm Assembly Field</button>
+          <button className="button secondary" disabled={!active} onClick={() => runtime.current?.reset()}>Re-anchor Assembly Field</button>
+        </div>
+        <p>Assembly field: {active ? anchorUi : "enter AR to place it"} · Field {runtime.current?.fieldSize.widthM ?? 0.48} m × {runtime.current?.fieldSize.depthM ?? 0.32} m · Anchors are session-local in HoloLens Edge; re-anchor after each new AR session. Registration is approximate — verified status comes only from the backend.</p>
+      </fieldset>
       <h3>
         Step {step?.position ?? "—"} — {step?.title}
       </h3>

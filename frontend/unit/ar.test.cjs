@@ -219,7 +219,13 @@ test("anchor creation, lost anchor, rejected anchors, and late anchors after res
   runtime.frame(3, { ...frame(), createAnchor: async () => anchored });
   await Promise.resolve();
   assert.equal(runtime.anchor, anchored);
+  // Phase 7: a transient anchor-pose dropout holds the confirmed field in
+  // place; only a sustained dropout loses it (explicitly, never relocated).
   runtime.frame(4, { ...frame(), getPose: () => null });
+  assert.equal(runtime.selected, true);
+  assert.equal(runtime.origin.visible, true);
+  assert.equal(runtime.anchorState, "tracking_degraded");
+  for (let i = 0; i < 50; i++) runtime.frame(4 + i, { ...frame(), getPose: () => null });
   assert.equal(runtime.selected, false);
   assert.equal(deleted, 2);
   runtime.frame(5, frame());

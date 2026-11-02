@@ -3,6 +3,7 @@ import { disposeObject, ghost } from "./geometry";
 import type { Placement } from "./data";
 import { fitRect } from "./reference";
 import { paginate, verificationLabel, wrapText, type VerificationStatus } from "./panel";
+import { AnchorTracker, DEFAULT_FIELD, fieldCorners, type AssemblyFieldConfig } from "./field";
 
 export type Action =
   | "previous"
@@ -28,6 +29,8 @@ export interface Guidance {
   hasReference?: boolean;
   voiceLabel?: string;
   voiceDetail?: string;
+  anchorLabel?: string;
+  autoLabel?: string;
   lastCommand?: string;
   diagnostic?: string;
   resultHeadline?: string;
@@ -133,6 +136,9 @@ export class SpatialSession {
   private resultPage = 0;
   private instructionPage = 0;
   private lastInstruction = "";
+  readonly anchorTracker = new AnchorTracker();
+  private fieldConfig: AssemblyFieldConfig = { ...DEFAULT_FIELD };
+  private fieldGroup: THREE.Group | null = null;
   private reticle = new THREE.Mesh(
     new THREE.RingGeometry(0.035, 0.04, 24).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide }),
@@ -170,6 +176,7 @@ export class SpatialSession {
     );
     this.panel.renderOrder = 10;
     this.scene.add(this.origin, this.panel, this.reticle);
+    this.rebuildField();
     session.addEventListener("end", this.onEnd);
     session.addEventListener("select", this.onSelect);
     session.addEventListener("visibilitychange", this.onVisibility);
@@ -205,6 +212,43 @@ export class SpatialSession {
       await this.end();
       throw cause;
     }
+  }
+  get anchorState() { return this.anchorTracker.state; }
+  get isAnchored() { return this.anchorTracker.isAnchored; }
+  setFieldSize(widthM: number, depthM: number) {
+    this.fieldConfig = { widthM, depthM };
+    this.rebuildField();
+  }
+  get fieldSize() { return { ...this.fieldConfig }; }
+  /** Visible tabletop assembly field: boundary + translucent plane + front tick.
+   *  Child of `origin`, so it inherits exactly the confirmed field pose and
+   *  is never moved by panel, result, voice or step updates. */
+  private rebuildField() {
+    if (this.fieldGroup) {
+      this.origin.remove(this.fieldGroup);
+      disposeObject(this.fieldGroup);
+    }
+    const group = new THREE.Group();
+    const corners = fieldCorners(this.fieldConfig);
+    const points = [...corners, corners[0]].map(([x, y, z]) => new THREE.Vector3(x, y, z));
+    const boundary = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(points),
+      new THREE.LineBasicMaterial({ color: 0xffd166 }),
+    );
+    boundary.position.y = 0.002;
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(this.fieldConfig.widthM, this.fieldConfig.depthM).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.07, depthWrite: false }),
+    );
+    plane.position.y = 0.001;
+    const front = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, 0.004, 0.012),
+      new THREE.MeshBasicMaterial({ color: 0xffd166 }),
+    );
+    front.position.set(0, 0.003, this.fieldConfig.depthM / 2 - 0.01);
+    group.add(plane, boundary, front);
+    this.fieldGroup = group;
+    this.origin.add(group);
   }
   update(info: Guidance) {
     this.info = info;
@@ -268,6 +312,11 @@ export class SpatialSession {
     if (kind === "farther") this.distance = Math.min(1.5, this.distance + 0.05);
     if (kind === "lower") this.height = THREE.MathUtils.clamp(this.height - 0.025, -1.5, 0.2);
     if (kind === "higher") this.height = THREE.MathUtils.clamp(this.height + 0.025, -1.5, 0.2);
+    if (this.selected && kind.startsWith("rotate")) {
+      this.message = "Field is anchored. Rotation is locked — use Re-anchor Assembly Field to rotate it.";
+      this.draw();
+      return;
+    }
     if (kind === "rotate-left") this.yaw -= 0.1;
     if (kind === "rotate-right") this.yaw += 0.1;
     if (kind.startsWith("rotate")) return;
@@ -457,9 +506,19 @@ export class SpatialSession {
       c.fillText(info.voiceDetail.slice(0, 108), 20, 372);
       c.font = "21px sans-serif";
     }
+    if (info.anchorLabel) {
+      c.fillStyle = "#ffd166";
+      c.font = "bold 18px sans-serif";
+      c.fillText(info.anchorLabel.slice(0, 108), 20, 444);
+    }
+    if (info.autoLabel) {
+      c.fillStyle = "#7df3ff";
+      c.font = "18px sans-serif";
+      c.fillText(info.autoLabel.slice(0, 108), 560, 372);
+    }
     c.fillStyle = "#bffaff";
     c.font = "19px sans-serif";
-    c.fillText(this.message.slice(0, 96), 20, 444);
+    if (!info.anchorLabel) c.fillText(this.message.slice(0, 96), 20, 444);
     // Buttons
     for (const b of PANEL_BUTTONS) {
       const isRef = b.id === "reference";
@@ -493,7 +552,16 @@ export class SpatialSession {
   private onVisibility = () => {
     if (this.session.visibilityState !== "visible") this.loseTracking();
   };
-  private onReset = () => this.reset();
+  private onReset = () => {
+    if (this.selected) {
+      this.anchorTracker.onReferenceReset();
+      this.message =
+        "TABLETOP TRACKING UNAVAILABLE — reference space reset. Field held at its last confirmed pose as LOST; re-anchor deliberately when tracking recovers.";
+      this.draw();
+      return;
+    }
+    this.reset();
+  };
   private loseTracking() {
     if (this.tracking) {
       this.tracking = false;
@@ -509,6 +577,9 @@ export class SpatialSession {
     this.epoch++;
     this.anchor?.delete();
     this.anchor = null;
+    this.anchorTracker.beginReanchor();
+    this.fixed.identity();
+    this.candidate.identity();
     this.selected = false;
     this.confirming = false;
     this.candidateValid = false;
@@ -595,15 +666,23 @@ export class SpatialSession {
     }
     if (this.selected && this.anchor) {
       const tracked = frame.getPose(this.anchor.anchorSpace, this.reference);
-      if (!tracked) {
+      const held = this.anchorTracker.onPose(tracked ? tracked.transform.matrix : null);
+      if (held.pose) this.fixed.fromArray(held.pose);
+      if (held.state === "tracking_lost") {
         this.loseTracking();
+        this.message =
+          "TABLETOP TRACKING UNAVAILABLE — tracking lost after a sustained dropout. Re-anchor the assembly field deliberately.";
+        this.draw();
         this.renderer.render(this.scene, this.camera);
         return;
       }
-      this.fixed.fromArray(tracked.transform.matrix);
+      if (held.state === "tracking_degraded") {
+        this.message = "Tracking degraded — holding the assembly field at its last confirmed pose.";
+      }
     }
     if (!this.selected) {
       this.candidateValid = false;
+      this.anchorTracker.preview(false);
       const hit =
         this.hit &&
         frame.getHitTestResults(this.hit)[0]?.getPose(this.reference);
@@ -618,6 +697,7 @@ export class SpatialSession {
         ) {
           this.candidate.copy(matrix);
           this.candidateValid = true;
+          this.anchorTracker.preview(true);
         }
       } else if (!this.hit) {
         const position = new THREE.Vector3(0, 0, -this.distance).applyMatrix4(
@@ -631,6 +711,7 @@ export class SpatialSession {
         this.confirming = false;
         this.selected = true;
         this.fixed.copy(this.candidate);
+        this.anchorTracker.confirm(this.candidate.elements, !frame.createAnchor);
         const epoch = ++this.epoch;
         this.message =
           "Origin confirmed in local tracking space (session only; drift is possible).";
@@ -649,14 +730,16 @@ export class SpatialSession {
                   return;
                 }
                 this.anchor = anchor;
+                this.anchorTracker.confirm(this.fixed.elements, false);
                 this.message =
-                  "Spatial anchor active for this session. Re-anchor if drift is visible.";
+                  "Assembly field anchored (session anchor). It stays on the tabletop across steps; re-anchor after a new AR session.";
                 this.draw();
               })
               .catch(() => {
                 if (!this.ended && epoch === this.epoch) {
+                  this.anchorTracker.confirm(this.fixed.elements, true);
                   this.message =
-                    "Anchor API failed; using confirmed local tracking space. Re-anchor if drift is visible.";
+                    "Assembly field anchored to the session-local reference (no native anchor). It does not persist after Exit AR; re-anchor each session.";
                   this.draw();
                 }
               });
@@ -691,6 +774,7 @@ export class SpatialSession {
     this.session.removeEventListener("select", this.onSelect);
     this.session.removeEventListener("visibilitychange", this.onVisibility);
     this.session.removeEventListener("end", this.onEnd);
+    this.anchorTracker.release();
     disposeObject(this.scene);
     this.renderer.dispose();
     this.renderer.domElement.remove();

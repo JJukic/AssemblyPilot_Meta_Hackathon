@@ -579,3 +579,37 @@ headset (correct/incorrect/uncertain with the actual issue and correction).
 11–13. See the updated verification result and continue building.
 Automated tests mock Meta inference and cover all of these states; they do
 not replace this device test.
+
+## Phase 7 — Autonomous Assembly with stable tabletop anchoring
+
+The assembly field (default 0.48 m × 0.32 m, yellow boundary on the
+tabletop) is a child of the confirmed field origin. After you tap the
+panel to confirm the origin, the field pose comes only from the WebXR
+anchor (or, when `createAnchor` is unavailable, the confirmed
+session-local pose — the panel says which). Step changes, inspection
+results, Guide/Result switching, panel recentering and voice commands
+never write the field transform. A transient anchor-pose dropout holds
+the last confirmed pose as "tracking degraded"; a sustained dropout or
+reference-space reset marks tracking lost instead of adopting a new
+tabletop location. Re-anchoring is always deliberate (Re-anchor button).
+Anchors do not persist across AR sessions in HoloLens Edge.
+
+To use Autonomous Assembly on the MacBook + HoloLens setup:
+
+1. Open the project AR page on the HoloLens, enter immersive AR, and
+   confirm the assembly field on the real table.
+2. In "Autonomous Assembly", keep the camera source on HoloLens to probe
+   simultaneous camera + WebXR on the device, or use the reliable
+   companion path: open the same project page on the MacBook, choose
+   "External tabletop camera", list cameras, and start monitoring there.
+   The HoloLens follows the server step; its field does not move.
+3. Press "Start Autonomous Assembly". Placing blocks triggers one Meta
+   inspection after the scene is stable and sharp; a correct result
+   still needs a separate fresh verification frame. Only the backend's
+   verified progress advances the step — automatically, in the same
+   field. Pause/Stop release the camera and stop all Meta requests.
+
+Simultaneous HoloLens camera + immersive WebXR reliability, and physical
+field stability while walking around the table, remain device checks —
+see the Phase 7 acceptance list in PR #11. Automated tests use synthetic
+frames and mocked Meta responses only; no paid inference runs in tests.
