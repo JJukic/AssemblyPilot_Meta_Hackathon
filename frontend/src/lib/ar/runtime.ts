@@ -35,7 +35,13 @@ export type Action =
   | "auto-stop"
   | "page-prev"
   | "rotate-left"
-  | "rotate-right";
+  | "rotate-right"
+  | "confirm-field"
+  | "field-left-5"
+  | "field-left-1"
+  | "field-right-1"
+  | "field-right-5"
+  | "field-rotate-reset";
 export interface Guidance {
   /** Legacy single target (used when `hologram` is absent). */
   placement: Placement | null;
@@ -71,6 +77,10 @@ export interface Guidance {
   shortInstruction?: string;
   /** Contextual large buttons (≤ 2). Empty while checking. */
   primary?: { id: Action; label: string }[];
+  /** Compact in-AR voice status line and the Start/Stop Voice button label. */
+  voiceLine?: string;
+  voiceTone?: "idle" | "info" | "ok" | "warn" | "error";
+  voiceButton?: string;
   /** Tabletop target marker colour and ghost tint (null = neutral transparent ghost). */
   markerColor?: number;
   ghostTint?: number | null;
@@ -99,7 +109,12 @@ const PRIMARY_Y = 484, PRIMARY_H = 96, SECONDARY_Y = 590, SECONDARY_H = 82, TEXT
 /** Third row stops before the lower-right resize corner. */
 const TEXT_ROW_W = 948;
 /** Bottom of the content area (text/images never draw into the buttons). */
-const CONTENT_BOTTOM = 474;
+const CONTENT_BOTTOM = 448;
+/** Baseline of the always-visible voice status line (between content and buttons). */
+const VOICE_LINE_Y = 476;
+/** Field placement: fine-rotation row and the direct hand-rotation dial (content area). */
+const PLACE_Y = 380, PLACE_H = 84;
+export const FIELD_DIAL = { x: 20, y: 286, w: 984, h: 80 };
 function row(ids: [Action, string, number?][], y: number, h: number, dangerLast = false, width = PANEL_W): PanelButton[] {
   const gap = 10;
   const total = ids.reduce((sum, [, , weight]) => sum + (weight ?? 1), 0);
@@ -124,10 +139,22 @@ const SECONDARY: [Action, string, number?][] = [
 const TEXT_ROW: [Action, string, number?][] = [
   ["page-prev", "◀ Previous Text"],
   ["page", "More Text ▶"],
-  ["camera", "Camera", 0.85],
-  ["rotate-left", "⟲ Rotate", 0.7],
-  ["rotate-right", "⟳ Rotate", 0.7],
-  ["recenter", "Reset Panel Position", 1.35],
+  ["camera", "Camera", 0.8],
+  ["voice", "Start Voice", 0.95],
+  ["rotate-left", "⟲", 0.5],
+  ["rotate-right", "⟳", 0.5],
+  ["recenter", "Reset Panel Position", 1.3],
+];
+/** Initial field placement: confirm + reset (large), and fine rotation steps. */
+const PLACEMENT_PRIMARY: [Action, string, number?][] = [
+  ["confirm-field", "✓ Confirm Assembly Field", 1.7],
+  ["field-rotate-reset", "Reset Rotation"],
+];
+const PLACEMENT_FINE: [Action, string, number?][] = [
+  ["field-left-5", "⟲ 5°"],
+  ["field-left-1", "⟲ 1°"],
+  ["field-right-1", "⟳ 1°"],
+  ["field-right-5", "⟳ 5°"],
 ];
 /**
  * Panel layout: at most two large contextual buttons of the guided flow,
@@ -135,9 +162,18 @@ const TEXT_ROW: [Action, string, number?][] = [
  */
 export function layoutButtons(
   primary: { id: Action; label: string }[],
-  opts: { autoActive?: boolean } = {},
+  opts: { autoActive?: boolean; placing?: boolean } = {},
 ): PanelButton[] {
   const top = primary.slice(0, 2);
+  if (opts.placing) {
+    // Before the field is confirmed: position + orientation controls replace the guided buttons.
+    return [
+      ...row(PLACEMENT_FINE, PLACE_Y, PLACE_H),
+      ...row(PLACEMENT_PRIMARY, PRIMARY_Y, PRIMARY_H).map((b) => ({ ...b, primary: true })),
+      ...row(SECONDARY, SECONDARY_Y, SECONDARY_H, true),
+      ...row(TEXT_ROW, TEXT_Y, TEXT_H, false, TEXT_ROW_W),
+    ];
+  }
   // While Autonomous runs, a distinct Stop sits next to Pause/Resume, so it can be
   // stopped completely without focusing the 2D page (which blurs the session).
   const secondary: [Action, string, number?][] = opts.autoActive
@@ -165,6 +201,15 @@ export const PANEL_MAX_DIST = 3;
 export const PANEL_ROTATE_GAIN = 1.5;
 export const PANEL_MAX_TILT = Math.PI / 3;
 export const PANEL_ROTATE_STEP = Math.PI / 12;
+/** Field dial: 10° of hand-ray sweep turns the field 5° (precise alignment). */
+export const FIELD_DIAL_GAIN = 0.5;
+const DEG = Math.PI / 180;
+const FIELD_STEPS: Record<string, number> = {
+  "field-left-5": 5 * DEG, "field-left-1": 1 * DEG, "field-right-1": -1 * DEG, "field-right-5": -5 * DEG,
+};
+function inRect(p: { x: number; y: number }, r: { x: number; y: number; w: number; h: number }) {
+  return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
+}
 
 const GUIDE_TONE: Record<"ready" | "info" | "ok" | "warn" | "bad", string> = {
   ready: "#2ee66b",
@@ -239,7 +284,11 @@ export class SpatialSession {
   private marker: THREE.Group | null = null;
   private buttons: PanelButton[] = PANEL_BUTTONS;
   private epoch = 0;
+  /** Field yaw about the tabletop normal (parent transform of the whole assembly field). */
   private yaw = 0;
+  private defaultYaw = 0;
+  private fieldYawInit = false;
+  private grabTarget: "panel" | "field" = "panel";
   private distance = 0.65;
   private height = -0.25;
   private panelPlaced = false;
@@ -277,7 +326,7 @@ export class SpatialSession {
   /** Grab snapshot for move/rotate (hand ray + panel pose at pinch start). */
   private grab: {
     origin: THREE.Vector3; dir: THREE.Vector3; distance: number; offset: THREE.Vector3;
-    azimuth: number; elevation: number; yaw: number; pitch: number;
+    azimuth: number; elevation: number; yaw: number; pitch: number; fieldYaw: number;
   } | null = null;
   private resizeStart: { distance: number; scale: number } | null = null;
   private panelPos = new THREE.Vector3();
@@ -496,7 +545,7 @@ export class SpatialSession {
         }
       }
     }
-    this.buttons = layoutButtons(info.primary ?? DEFAULT_PRIMARY, { autoActive: !!info.autoActive });
+    this.buttons = layoutButtons(info.primary ?? DEFAULT_PRIMARY, { autoActive: !!info.autoActive, placing: !this.selected });
     this.applyGuideColors(info);
     this.draw();
   }
@@ -564,6 +613,36 @@ export class SpatialSession {
     c.fillStyle = moving ? "#ffffff" : "#bffaff";
     c.font = "bold 21px sans-serif";
     c.fillText(state === "dragging" ? "⠿ Moving…" : "⠿ Move Panel", r0 + ROTATE_W + 22, 40);
+  }
+  /** Initial placement: what to do, the live field rotation and the direct-rotation dial. */
+  private drawPlacement(c: CanvasRenderingContext2D) {
+    c.fillStyle = GUIDE_TONE.info;
+    c.fillRect(20, 74, 984, 56);
+    c.fillStyle = "#04121c";
+    c.font = "bold 30px sans-serif";
+    c.fillText(this.candidateValid ? "PLACE THE ASSEMBLY FIELD" : "LOOK AT YOUR TABLETOP", 34, 112);
+    c.fillStyle = "#ffffff";
+    c.font = "bold 24px sans-serif";
+    wrapText(
+      this.candidateValid
+        ? "Rotate the field until it matches your baseplate, then select Confirm Assembly Field."
+        : "Look at the table until the cyan field preview appears.",
+      72,
+    ).forEach((line, i) => c.fillText(line, 20, 168 + i * 30));
+    c.fillStyle = "#7df3ff";
+    c.font = "bold 26px sans-serif";
+    const where = this.placementMode === "surface" ? "on detected surface" : this.placementMode === "gaze" ? "placed ahead of your gaze" : "waiting for a surface";
+    c.fillText(`Field rotation: ${this.fieldYawDeg.toFixed(1)}°  ·  ${where}`, 20, 258);
+    const d = FIELD_DIAL;
+    const active = this.grabTarget === "field" && this.manipulation.state === "rotating";
+    c.fillStyle = active ? "#2f9ec7" : "rgba(27,74,102,.95)";
+    c.fillRect(d.x, d.y, d.w, d.h);
+    c.strokeStyle = active ? "#ffffff" : "#7df3ff";
+    c.lineWidth = active ? 5 : 3;
+    c.strokeRect(d.x, d.y, d.w, d.h);
+    c.fillStyle = "#ffffff";
+    c.font = "bold 24px sans-serif";
+    c.fillText(active ? "⟲  Rotating field…  ⟳" : "⟲  Pinch here and move your hand left / right to rotate the field  ⟳", d.x + 20, d.y + 50);
   }
   /** Main guided view: state, short instruction, message, then the full paginated instruction. */
   private drawGuide(c: CanvasRenderingContext2D, info: Guidance) {
@@ -810,6 +889,39 @@ export class SpatialSession {
     const e = new THREE.Euler().setFromQuaternion(this.panelQuat, "YXZ");
     return { position: this.panelPos.toArray() as [number, number, number], yaw: e.y, pitch: e.x, scale: this.panelScale };
   }
+  /** Rebuild the button layout (placement vs guided) without touching any transform. */
+  private relayout() {
+    this.buttons = layoutButtons(this.info.primary ?? DEFAULT_PRIMARY, { autoActive: !!this.info.autoActive, placing: !this.selected });
+    this.draw();
+  }
+  /**
+   * Rotate the WHOLE assembly field about the vertical axis while it is being
+   * placed. Blocks are children of the field, so their relative transforms are
+   * untouched; stored placements, steps and the panel never change. Locked
+   * once confirmed (use Re-anchor to adjust again).
+   */
+  rotateField(deltaRad: number): boolean {
+    if (this.selected) {
+      this.message = "The field is confirmed. Use Re-anchor to adjust its position or rotation.";
+      this.draw();
+      return false;
+    }
+    let yaw = this.yaw + deltaRad;
+    while (yaw > Math.PI) yaw -= 2 * Math.PI;
+    while (yaw <= -Math.PI) yaw += 2 * Math.PI;
+    this.yaw = yaw;
+    this.draw();
+    return true;
+  }
+  resetFieldRotation(): boolean {
+    return this.rotateField(this.defaultYaw - this.yaw);
+  }
+  get fieldYawDeg() {
+    return Math.round(((this.yaw * 180) / Math.PI) * 10) / 10 || 0; // never "-0.0°"
+  }
+  get fieldPlacing() {
+    return !this.selected;
+  }
   /** "Reset Panel Position": upright, facing the user, in front of the head. Panel only. */
   recenterPanel() {
     this.panelPlaced = false;
@@ -855,10 +967,18 @@ export class SpatialSession {
         "to move it farther or closer. Rotate Panel: pinch the rotate",
         "handle and move left/right (turn) or up/down (tilt).",
         "Reset Panel Position brings it back in front of you.",
-        "Optional voice: Show result · Show reference · Recenter · Exit AR",
+        "Start Voice (local Whisper): say Next Step, Check Step, More Text,",
+        "Show Result, Stop Autonomous, Confirm Assembly Field, Exit AR …",
         "Camera shows the exact image sent to Meta.",
       ].forEach((line, i) => c.fillText(line, 20, 112 + i * 36));
-    } else this.drawGuide(c, info);
+    } else if (!this.selected) this.drawPlacement(c);
+    else this.drawGuide(c, info);
+    if (info.voiceLine) {
+      const tone = info.voiceTone ?? "idle";
+      c.fillStyle = TONE_COLOR[tone === "error" || tone === "warn" || tone === "ok" || tone === "info" ? tone : "idle"];
+      c.font = "bold 18px sans-serif";
+      c.fillText(`🎤 ${info.voiceLine}`.slice(0, 104), 20, VOICE_LINE_Y);
+    }
     // Buttons (hover = exact button under the hand-ray cursor)
     for (const b of this.buttons) {
       const isRef = b.id === "reference";
@@ -879,6 +999,8 @@ export class SpatialSession {
       const rawLabel =
         b.id === "auto"
           ? (info.autoButton ?? b.label)
+          : b.id === "voice"
+          ? (info.voiceButton ?? b.label)
           : b.id === "camera"
           ? this.viewMode === "camera"
             ? "Show Instructions"
@@ -991,6 +1113,7 @@ export class SpatialSession {
     this.message =
       "Re-anchor: look at your tabletop until the preview appears, then tap the panel above the buttons to confirm.";
     this.draw();
+    this.relayout(); // placement controls (position + rotation) are available again
   }
   /** Measured, not inferred: what the last rendered XR frame actually contained. */
   get fieldDiagnostics(): FieldDiagnostics {
@@ -1020,8 +1143,18 @@ export class SpatialSession {
   get fieldInView(): boolean | null {
     return this.selected && this.anchorTracker.isAnchored ? fieldInView(this.viewGeometry) : null;
   }
+  /**
+   * Confirm the field at the current preview (position + chosen yaw). If the
+   * surface preview flickers out at that instant, the confirmation stays
+   * pending and is applied on the next frame with a valid preview.
+   */
   confirmOrigin() {
-    if (this.candidateValid && !this.selected) this.confirming = true;
+    if (this.selected) return;
+    this.confirming = true;
+    if (!this.candidateValid) {
+      this.message = "Confirming — look at the table until the field preview appears.";
+      this.draw();
+    }
   }
   private onSourcesChange = () => this.syncInputSources();
 
@@ -1144,6 +1277,14 @@ export class SpatialSession {
       if (dAz > Math.PI) dAz -= 2 * Math.PI;
       if (dAz < -Math.PI) dAz += 2 * Math.PI;
       const dEl = el - g.elevation;
+      if (this.grabTarget === "field") {
+        // Field dial: horizontal hand motion turns the whole field (fine gain); panel untouched.
+        this.manipulation.rotate(Math.abs(dAz));
+        this.yaw = g.fieldYaw;
+        this.rotateField(dAz * FIELD_DIAL_GAIN);
+        this.interaction.manipulation = "rotating field";
+        return;
+      }
       this.manipulation.rotate(Math.max(Math.abs(dAz), Math.abs(dEl)));
       const pitch = THREE.MathUtils.clamp(g.pitch + dEl * PANEL_ROTATE_GAIN, -PANEL_MAX_TILT, PANEL_MAX_TILT);
       this.panelQuat.setFromEuler(new THREE.Euler(pitch, g.yaw + dAz * PANEL_ROTATE_GAIN, 0, "YXZ"));
@@ -1164,8 +1305,10 @@ export class SpatialSession {
     const source = event.inputSource as XRInputSource;
     const result = this.raycastPanel(source, event.frame as XRFrame);
     if (!result?.hit || !result.point) return;
-    const region = panelRegionAt(result.point.x, result.point.y, PANEL_W, PANEL_H);
+    const dial = !this.selected && inRect(result.point, FIELD_DIAL);
+    const region = dial ? "rotate" : panelRegionAt(result.point.x, result.point.y, PANEL_W, PANEL_H);
     if (!region || region === "panel") return;
+    this.grabTarget = dial ? "field" : "panel";
     const hit = region === "resize" ? this.panelPlaneHit(source, event.frame as XRFrame) : result.hit.point.clone();
     if (!hit) return;
     if (!this.manipulation.grab(region, [hit.x, hit.y, hit.z])) return;
@@ -1183,6 +1326,7 @@ export class SpatialSession {
         elevation: Math.asin(THREE.MathUtils.clamp(result.direction.y, -1, 1)),
         yaw: e.y,
         pitch: e.x,
+        fieldYaw: this.yaw,
       };
     }
     this.interaction.manipulation = this.manipulation.state;
@@ -1196,6 +1340,7 @@ export class SpatialSession {
     this.manipSource = null;
     this.resizeStart = null;
     this.grab = null;
+    this.grabTarget = "panel";
     this.persistPanelScale();
     this.interaction.manipulation = "idle";
     this.draw();
@@ -1329,6 +1474,12 @@ export class SpatialSession {
         this.turnPage(button.id === "page" ? 1 : -1);
       } else if (button.id === "rotate-left" || button.id === "rotate-right") {
         this.rotatePanelBy(button.id === "rotate-left" ? PANEL_ROTATE_STEP : -PANEL_ROTATE_STEP, 0);
+      } else if (button.id === "confirm-field") {
+        this.confirmOrigin();
+      } else if (button.id === "field-rotate-reset") {
+        this.resetFieldRotation();
+      } else if (button.id.startsWith("field-")) {
+        this.rotateField(FIELD_STEPS[button.id] ?? 0);
       } else if (button.id === "help") {
         this.helpVisible = !this.helpVisible;
         this.draw();
@@ -1338,7 +1489,8 @@ export class SpatialSession {
     }
     // Non-button panel tap above the button rows: confirm origin when pending.
     // The manipulation bar never confirms the origin (grabbing it must not place the field).
-    if (y >= DRAG_BAR_H && y < PANEL_BUTTONS_TOP && this.candidateValid && !this.selected) {
+    const onDial = !this.selected && inRect(result.point, FIELD_DIAL);
+    if (!onDial && y >= DRAG_BAR_H && y < PANEL_BUTTONS_TOP && this.candidateValid && !this.selected) {
       this.confirming = true;
       this.interaction.lastAction = "confirm-origin";
       return;
@@ -1419,7 +1571,9 @@ export class SpatialSession {
           position.y < viewer.y - 0.1 &&
           position.distanceTo(viewer) < 2
         ) {
-          this.candidate.copy(matrix);
+          // Position only: the field orientation is the user's choice (yaw), never
+          // the hit-test frame (which turns as you look around).
+          this.candidate.makeTranslation(position.x, position.y, position.z);
           this.candidateValid = true;
           this.placementMode = "surface";
           surface = true;
@@ -1440,10 +1594,17 @@ export class SpatialSession {
         this.gazeCandidate(head);
       }
       this.anchorTracker.preview(this.candidateValid);
+      if (this.candidateValid && !this.fieldYawInit) {
+        // First preview of the session: field front (+Z) faces the user.
+        const fwd = new THREE.Vector3(0, 0, -1).transformDirection(head);
+        this.yaw = this.defaultYaw = Math.atan2(-fwd.x, -fwd.z);
+        this.fieldYawInit = true;
+      }
       if (this.confirming && this.candidateValid) {
         this.confirming = false;
         this.selected = true;
         this.fixed.copy(this.candidate);
+        this.relayout(); // placement controls give way to the guided flow; yaw is kept
         this.anchorTracker.confirm(this.candidate.elements, !frame.createAnchor);
         const epoch = ++this.epoch;
         this.message =

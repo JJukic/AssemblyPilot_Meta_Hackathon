@@ -256,3 +256,101 @@ test("persistent capture: one getUserMedia, VAD segmentation, suspended resume, 
   assert.ok(closed >= 1);
   assert.equal(capture.health().mic, "off");
 });
+
+/* ---------- In-AR voice (panel Start/Stop Voice) ---------- */
+const { voicePanel, voiceToggle, VOICE_CONSENT_TEXT } = require("../src/lib/ar/voicePanel.ts");
+
+test("AR voice: started inside AR (after entry), every panel command executes once on one stream; Stop Voice releases the mic", async () => {
+  const capture = new FakeCapture();
+  const got = [];
+  const listening = [];
+  const controller = new LocalVoiceController({
+    api: fakeApi(["Next Step", "Previous Step", "More Text", "Previous Text", "Check Step", "Check Again",
+      "Start Autonomous", "Pause Autonomous", "Resume Autonomous", "Stop Autonomous", "Confirm Assembly Field",
+      "Reset Panel Position", "Show Result", "Show Instructions", "Exit AR"]),
+    captureFactory: () => capture,
+    onCommand: async (cmd) => { got.push(cmd.action); return { ok: true }; },
+    onListeningChange: (l) => listening.push(l),
+  });
+  assert.equal(capture.starts, 0, "nothing records before Start Voice");
+  assert.equal(await controller.start(), true);
+  controller.setXRActive(true); // ARWorkspace does this when started while a session is active
+  for (let i = 0; i < 15; i++) {
+    capture.push();
+    for (let k = 0; k < 6 && got.length <= i; k++) await sleep(5);
+  }
+  assert.deepEqual(got, ["next", "previous", "more-text", "previous-text", "verify", "verify-again", "auto-start", "auto-pause",
+    "auto-resume", "auto-stop", "confirm-field", "recenter", "show-result", "show-instructions", "exit"]);
+  assert.equal(capture.starts, 1, "the microphone is not restarted between commands");
+  controller.stop();
+  assert.equal(capture.releases, 1, "Stop Voice releases the microphone");
+  assert.equal(controller.isListening, false);
+  assert.equal(listening.at(-1), false);
+});
+
+test("AR voice: Whisper backend unreachable and mic permission denied are explicit errors, never a silent Off", async () => {
+  const errors = [];
+  const down = new LocalVoiceController({
+    api: { ...fakeApi(["x"]), createSession: async () => { throw new TypeError("Failed to fetch"); } },
+    captureFactory: () => new FakeCapture(),
+    onCommand: async () => ({ ok: true }),
+    onError: (e) => errors.push(e),
+  });
+  assert.equal(await down.start(), false);
+  assert.match(errors.at(-1), /local voice session|backend/i);
+  const view = voicePanel({ listening: false, busy: false, consentPending: false, processing: false, error: errors.at(-1), diagnostic: null });
+  assert.equal(view.tone, "error");
+  assert.match(view.line, /^Voice error: /);
+  assert.equal(view.button, "Start Voice", "retry possible");
+
+  const denied = new FakeCapture();
+  denied.start = async () => { const e = new Error("denied"); e.name = "NotAllowedError"; throw e; };
+  const micErrors = [];
+  const noMic = new LocalVoiceController({
+    api: fakeApi(["x"]), captureFactory: () => denied, onCommand: async () => ({ ok: true }), onError: (e) => micErrors.push(e),
+  });
+  assert.equal(await noMic.start(), false);
+  assert.match(micErrors.at(-1), /permission/i);
+  assert.equal(noMic.isListening, false);
+});
+
+test("AR voice: consent is explicit (two taps), and the panel shows Listening / Processing / Heard → Executed", () => {
+  assert.equal(voiceToggle({ listening: false, busy: false, consented: false, consentPending: false }), "ask-consent");
+  assert.equal(voiceToggle({ listening: false, busy: false, consented: false, consentPending: true }), "start");
+  assert.equal(voiceToggle({ listening: false, busy: false, consented: true, consentPending: false }), "start");
+  assert.equal(voiceToggle({ listening: false, busy: true, consented: true, consentPending: false }), "busy");
+  assert.equal(voiceToggle({ listening: true, busy: false, consented: true, consentPending: false }), "stop");
+  const base = { listening: false, busy: false, consentPending: false, processing: false, error: "", diagnostic: null };
+  assert.deepEqual(voicePanel(base), { line: "Voice: Off", tone: "idle", button: "Start Voice" });
+  assert.equal(voicePanel({ ...base, consentPending: true }).line, VOICE_CONSENT_TEXT);
+  assert.match(VOICE_CONSENT_TEXT, /not stored/);
+  assert.equal(voicePanel({ ...base, consentPending: true }).button, "Confirm Voice");
+  assert.equal(voicePanel({ ...base, listening: true }).line, "Voice: Listening");
+  assert.equal(voicePanel({ ...base, listening: true, processing: true }).line, "Voice: Processing");
+  const done = voicePanel({ ...base, listening: true, diagnostic: { transcript: "Next Step", action: "next", state: "completed", detail: "Step 2 → 3" } });
+  assert.equal(done.line, "Voice: Listening · Heard “Next Step” → Executed: Step 2 → 3");
+  assert.equal(done.button, "Stop Voice");
+  const unknown = voicePanel({ ...base, listening: true, diagnostic: { transcript: "hello there", action: null, state: "unmatched" } });
+  assert.match(unknown.line, /not a command/);
+  const failed = voicePanel({ ...base, listening: true, diagnostic: { transcript: "Pause Autonomous", action: "auto-pause", state: "failed", reason: "Autonomous is not running" } });
+  assert.match(failed.line, /Not executed: Autonomous is not running/);
+});
+
+test("AR voice: a failing dispatch (e.g. during Autonomous) never stops listening; the next command still runs", async () => {
+  const capture = new FakeCapture();
+  const got = [];
+  const controller = new LocalVoiceController({
+    api: fakeApi(["Pause Autonomous", "Show Result"]),
+    captureFactory: () => capture,
+    onCommand: async (cmd) => { got.push(cmd.action); if (cmd.action === "auto-pause") throw new Error("runner busy"); return { ok: true }; },
+  });
+  await controller.start();
+  controller.setXRActive(true);
+  capture.push();
+  for (let k = 0; k < 10 && got.length < 1; k++) await sleep(5);
+  capture.push();
+  for (let k = 0; k < 10 && got.length < 2; k++) await sleep(5);
+  assert.deepEqual(got, ["auto-pause", "show-result"]);
+  assert.equal(controller.isListening, true);
+  controller.stop();
+});

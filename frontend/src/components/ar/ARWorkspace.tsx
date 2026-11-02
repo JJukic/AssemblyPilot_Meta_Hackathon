@@ -79,6 +79,7 @@ import type { SpatialSession, Action, Guidance, PanelView } from "@/lib/ar/runti
 import { CapturePreviewStore, captureView, indicatorFor, type CaptureRecord } from "@/lib/ar/capturePreview";
 import { snapshotFile } from "@/lib/camera-image";
 import { deriveGuide, shortInstruction, type GuideView } from "@/lib/ar/guidedFlow";
+import { voicePanel, voiceToggle } from "@/lib/ar/voicePanel";
 import type { Snapshot } from "@/types/assembly";
 
 type SpeechCtor = new () => RecognitionLike;
@@ -163,6 +164,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const checkingRef = useRef(false);
   const [manualConfirm, setManualConfirm] = useState<{ stepId: string; at: string } | null>(null);
   const [lastGuideOutcome, setLastGuideOutcome] = useState("");
+  // In-AR voice: explicit two-tap consent inside the panel and a visible last error.
+  const [voiceConsentPending, setVoiceConsentPending] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
   const [checkError, setCheckError] = useState<{ stepId: string; message: string } | null>(null);
   // Inspection-capture preview: the EXACT snapshot handed to the pipeline (≤2 kept, memory only).
   const [previewVersion, setPreviewVersion] = useState(0);
@@ -472,6 +476,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   }, [refPath, view.step_id]);
 
   const fieldLine = active ? describeField(fieldDiag) : "";
+  // Compact voice status for the AR panel (real controller state, never a silent Off).
+  const voiceView = voicePanel({
+    listening: localOn, busy: localBusy, consentPending: voiceConsentPending,
+    processing: captureDiag?.phase === "processing", error: voiceError, diagnostic,
+  });
+  const voiceLine = voiceView.line, voiceTone = voiceView.tone, voiceButton = voiceView.button;
   const autoButton = !autoOn ? "Start Autonomous" : autoStateLabel === "completed" ? "Assembly Complete ✓" : autoPaused ? "Resume Autonomous" : "Pause Autonomous";
   useEffect(() => {
     const blockLabel = step
@@ -496,6 +506,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       anchorLabel: active ? fieldLine : undefined,
       autoLabel: autoOn || extPending ? (autoDiag ? `${autoDiag.headline}${autoDiag.metrics ? ` [${autoDiag.metrics}]` : ""}` : autoStatus) : undefined,
       autoButton,
+      voiceLine,
+      voiceTone,
+      voiceButton,
       autoActive: autoOn && autoStateLabel !== "completed",
       stepLabel: step ? `Step ${step.position} of ${totalSteps}` : "No step",
       guideLabel: guide.label,
@@ -521,7 +534,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
     runtime.current?.setViewMode(resultMode);
-  }, [placement, hologram, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag, guide, shortText]);
+  }, [placement, hologram, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag, guide, shortText, voiceLine, voiceTone, voiceButton]);
 
   useEffect(() => {
     viewRef.current = view;
@@ -722,7 +735,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         return navigate(-1);
       case "verify":
       case "verify-again":
-        // Buttons Check Step / Check Again (no voice path exists for these).
+        // Check Step / Check Again (button or voice): runs the normal fresh-image check;
+        // nothing here can mark a step verified without an accepted inspection.
         return checkStep();
       case "confirm":
         return confirmPosition();
@@ -840,20 +854,55 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         // Handled by the panel itself; panel transform only (never field, step or Autonomous).
         return { ok: true, detail: "Panel rotated" };
       case "voice": {
-        // In-AR push-to-talk fallback: flush the live utterance when
-        // continuous capture runs; otherwise capture exactly one command.
-        if (localRef.current?.isListening) {
-          await localRef.current.pushToTalk();
-          return { ok: true, detail: "Speak now — one command will be transcribed" };
+        // In-AR Start/Stop Voice (local Whisper on the Mac; nothing recorded until started).
+        const toggle = voiceToggle({
+          listening: !!localRef.current?.isListening || localOn,
+          busy: localBusy || !!localRef.current?.isBusy,
+          consented: localConsent,
+          consentPending: voiceConsentPending,
+        });
+        if (toggle === "stop") {
+          stopLocalVoice();
+          setVoiceConsentPending(false);
+          return { ok: true, detail: "Voice stopped — microphone released" };
         }
-        if (!localConsent)
-          return {
-            ok: false,
-            reason: "Local voice not enabled — enable it with consent before entering AR, or use Next/Previous",
-          };
-        void recordOneLocalCommand();
-        return { ok: true, detail: "Push-to-talk recording — speak one complete command" };
+        if (toggle === "busy") return { ok: false, reason: "Voice is starting" };
+        if (toggle === "ask-consent") {
+          setVoiceConsentPending(true);
+          return { ok: true, detail: "Voice consent shown — select Confirm Voice to start" };
+        }
+        setLocalConsent(true);
+        setVoiceConsentPending(false);
+        enableLocalVoice(true);
+        return { ok: true, detail: "Starting voice…" };
       }
+      case "more-text":
+      case "previous-text":
+        if (!runtime.current) return { ok: false, reason: "Text pages are in the AR panel — enter AR first" };
+        runtime.current.turnPage(a === "more-text" ? 1 : -1);
+        return { ok: true, detail: `Text page ${runtime.current.textPage.page + 1} of ${runtime.current.textPage.count}` };
+      case "auto-start":
+        if (runner.active) return { ok: false, reason: `Autonomous is already ${runner.phase}` };
+        await startAutonomous();
+        return runner.active ? { ok: true, detail: "Autonomous started" } : { ok: false, reason: "Autonomous could not start — see the status" };
+      case "auto-pause":
+        return runner.pause() ? { ok: true, detail: "Autonomous paused" } : { ok: false, reason: "Autonomous is not running" };
+      case "auto-resume":
+        return runner.resume() ? { ok: true, detail: "Autonomous resumed" } : { ok: false, reason: "Autonomous is not paused" };
+      case "confirm-field": {
+        const rt = runtime.current;
+        if (!rt) return { ok: false, reason: "No active AR session — enter AR first" };
+        if (!rt.fieldPlacing) return { ok: false, reason: "The field is already confirmed — use Re-anchor to adjust it" };
+        rt.confirmOrigin(); // applied on the next XR frame when a preview exists
+        return { ok: true, detail: `Assembly field confirmed at ${rt.fieldYawDeg.toFixed(1)}°` };
+      }
+      case "field-left-5":
+      case "field-left-1":
+      case "field-right-1":
+      case "field-right-5":
+      case "field-rotate-reset":
+        // Handled by the panel (field yaw only; never blocks, steps, verification or the panel).
+        return { ok: true, detail: `Field rotation ${runtime.current?.fieldYawDeg.toFixed(1) ?? "?"}°` };
       case "stop-listening":
         stopAllVoice();
         return { ok: true, detail: "Microphone recognition stopped" };
@@ -951,9 +1000,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     controller.start();
   }
 
-  function enableLocalVoice() {
-    if (!localConsent || localOn || localRef.current?.isBusy || voiceBusy || micPending.current) return;
+  /** `consented` lets the in-AR Confirm Voice tap start immediately (state updates are async). */
+  function enableLocalVoice(consented = localConsent) {
+    if (!consented || localOn || localRef.current?.isBusy || voiceBusy || micPending.current) return;
     setLocalBusy(true);
+    setVoiceError("");
     localRef.current?.dispose();
     const controller = new LocalVoiceController({
       language: voiceLang.startsWith("de") ? "de" : "en",
@@ -970,6 +1021,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       onError: (s) => {
         if (alive.current) {
           setLocalStatus(s);
+          setVoiceError(s); // shown in the AR panel — never a silent "Off"
           setLocalOn(controller.isListening);
         }
       },
@@ -982,6 +1034,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       if (alive.current && localRef.current === controller) {
         setLocalBusy(false);
         if (!ok) setLocalOn(false);
+        // Started inside immersive AR: tell the controller (keeps the stream, AR status).
+        else if (runtime.current) controller.setXRActive(true);
       }
     });
   }
@@ -1687,7 +1741,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           </>
         )}
       </div>
-      <p className="ar-quick-help">Enter AR, look at your table and tap the top of the panel to place the assembly field. Follow the step above, then select Check.</p>
+      <p className="ar-quick-help">Enter AR and look at your table. Rotate the field preview to match your baseplate (Rotate Left/Right or pinch the rotation bar), select Confirm Assembly Field, then follow the step above and select Check Step.</p>
       <p role="status">{status}</p>
       <details className="ar-options">
         <summary>Device &amp; connection details</summary>
@@ -1734,7 +1788,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         </label>
         <div className="form-actions">
           {!localOn ? (
-            <button className="button primary" disabled={!localConsent || localBusy || voiceBusy || micTest.state === "testing"} onClick={enableLocalVoice}>
+            <button className="button primary" disabled={!localConsent || localBusy || voiceBusy || micTest.state === "testing"} onClick={() => enableLocalVoice()}>
               Enable local voice control
             </button>
           ) : (

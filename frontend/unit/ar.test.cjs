@@ -143,6 +143,12 @@ const matrix = (x) => new THREE.Matrix4().makeTranslation(x, 1.6, 0).toArray();
 const frame = (x = 0) => ({
   getViewerPose: () => ({ transform: { matrix: matrix(x) } }),
 });
+/** Confirm the assembly field so the guided flow (not the placement toolbar) is shown. */
+function confirmField(runtime) {
+  runtime.frame(0, frame());
+  runtime.confirming = true;
+  runtime.frame(1, frame());
+}
 async function setup(session = new Session()) {
   const messages = [],
     actions = [];
@@ -571,6 +577,7 @@ const bitmap = (w, h) => ({ width: w, height: h, closed: 0, close() { this.close
 
 test("capture preview: Camera view draws the exact decoded capture, aspect preserved, never mirrored, distinct from the reference", async () => {
   const { runtime } = await setup();
+  confirmField(runtime);
   const store = new CapturePreviewStore();
   const id = rec(store);
   const ref = bitmap(800, 800);
@@ -676,21 +683,22 @@ const guided = (state) => {
 };
 
 test("guided panel: few large buttons, contextual primary actions, no voice-only or debug controls", () => {
-  const ready = layoutButtons([{ id: "verify", label: "Prüfen" }]);
+  const ready = layoutButtons([{ id: "verify", label: "Check Step" }]);
   const ids = ready.map((b) => b.id);
-  for (const removed of ["reference", "help", "voice", "next"]) assert.ok(!ids.includes(removed), removed);
-  for (const kept of ["page", "page-prev", "recenter", "rotate-left", "rotate-right"]) assert.ok(ids.includes(kept), kept);
-  assert.ok(ready.length <= 12);
+  for (const removed of ["reference", "help", "next"]) assert.ok(!ids.includes(removed), removed);
+  for (const kept of ["page", "page-prev", "recenter", "rotate-left", "rotate-right", "voice"]) assert.ok(ids.includes(kept), kept);
+  assert.ok(ready.length <= 13);
   assert.ok(ready.filter((b) => b.primary).every((b) => b.h >= 96 && b.w >= 400), "primary buttons are large");
-  assert.ok(ready.every((b) => b.h >= 76 && b.w >= 100), "gaze/hand-ray sized");
+  assert.ok(ready.every((b) => b.h >= 76 && b.w >= (b.label.length <= 2 ? 64 : 100)), "gaze/hand-ray sized (icon buttons ≥ 64 px)");
   assert.ok(ready.every((b) => b.y >= PANEL_BUTTONS_TOP && b.x + b.w <= 1024 && b.y + b.h <= 768), "inside the panel, below the content");
   assert.ok(ready.every((b) => !(b.x + b.w > 960 && b.y + b.h > 704)), "clear of the resize corner");
-  const partial = layoutButtons([{ id: "verify", label: "Erneut prüfen" }, { id: "confirm", label: "Position bestätigen" }]);
+  const partial = layoutButtons([{ id: "verify", label: "Check Again" }, { id: "confirm", label: "Confirm Position" }]);
   assert.deepEqual(partial.filter((b) => b.primary).map((b) => b.id), ["verify", "confirm"]);
 });
 
 test("guided panel: main view shows state, short instruction and message — and no debug text", async () => {
   const { runtime } = await setup();
+  confirmField(runtime);
   globalThis.__canvasTexts = [];
   runtime.update(guided("wrong"));
   const texts = globalThis.__canvasTexts.join("\n");
@@ -729,8 +737,9 @@ test("guided hologram: transparent ghost + green target; red when wrong, yellow 
   await runtime.end();
 });
 
-test("guided panel: 'Position bestätigen' and 'Nächster Schritt' are real hand-ray buttons dispatching actions", async () => {
+test("guided panel: Confirm Position and Next Step are real hand-ray buttons dispatching actions", async () => {
   const { runtime, actions } = await setup();
+  confirmField(runtime);
   runtime.update(guided("partial"));
   runtime.frame(0, frame());
   runtime.scene.updateMatrixWorld(true);

@@ -98,16 +98,20 @@ test("7 English and German command aliases map to same actions", () => {
   assert.equal(matchCommand("Referenz anzeigen").action, "show-reference");
   assert.equal(matchCommand("Anleitung vorlesen").action, "read-instructions");
   assert.equal(matchCommand("AR beenden").action, "exit");
-  assert.equal(GERMAN_ALIASES.length, 3);
-  assert.equal(VOICE_COMMANDS.length, 14);
+  assert.ok(GERMAN_ALIASES.length >= 3);
+  assert.ok(VOICE_COMMANDS.length >= 14);
 });
-// 7b. Weiter / Zurück / Bestätigen / Erneut prüfen are buttons only (HoloLens UX).
-test("7b navigation, verify and verify-again are NOT voice commands (EN and DE)", () => {
-  for (const phrase of ["Next step", "Go forward", "Nächster Schritt", "Previous step", "Go back", "Vorheriger Schritt",
-    "Verify step", "Schritt prüfen", "Verify again", "Erneut prüfen", "Nochmal prüfen"])
-    assert.equal(matchCommand(phrase), null, phrase);
-  const actions = new Set(VOICE_COMMANDS.map((c) => c.action).concat(GERMAN_ALIASES.map((c) => c.action)));
-  for (const removed of ["next", "previous", "verify", "verify-again"]) assert.ok(!actions.has(removed), removed);
+// 7b. Every AR panel action required for hands-free use has an English voice command.
+test("7b AR panel voice commands map to the same actions as the panel buttons", () => {
+  const expected = {
+    "Next Step": "next", "Previous Step": "previous", "Show Result": "show-result", "Show Instructions": "show-instructions",
+    "More Text": "more-text", "Previous Text": "previous-text", "Check Step": "verify", "Check Again": "verify-again",
+    "Start Autonomous": "auto-start", "Pause Autonomous": "auto-pause", "Resume Autonomous": "auto-resume",
+    "Stop Autonomous": "auto-stop", "Confirm Assembly Field": "confirm-field", "Reset Panel Position": "recenter",
+    "Stop Listening": "stop-listening", "Exit AR": "exit",
+  };
+  for (const [phrase, action] of Object.entries(expected)) assert.equal(matchCommand(phrase)?.action, action, phrase);
+  for (const bad of ["next", "check", "stop", "do not stop autonomous", "next step and previous step"]) assert.equal(matchCommand(bad), null, bad);
 });
 // 8. Normalization + ambiguous rejection
 test("8 normalization, optional prefix, ambiguous/negated/unrelated rejection", () => {
@@ -184,7 +188,7 @@ test("11 microphone permission denial stops without restart loop", () => {
   c.dispose();
 });
 // 13/14/15/16 voice actions via finalized results only
-test("13-16 voice Show result/Recenter/Re-anchor/Exit dispatch; removed navigation phrases and interim ignored", () => {
+test("13-16 voice Show result/Next/Recenter/Re-anchor/Check/Exit dispatch; interim ignored", () => {
   const got = [];
   const c = controller((cmd) => got.push(cmd.action));
   c.start();
@@ -193,22 +197,23 @@ test("13-16 voice Show result/Recenter/Re-anchor/Exit dispatch; removed navigati
   rec.emitInterim("show result");
   assert.deepEqual(got, []);
   rec.emitFinal("Show result.");
-  rec.emitFinal("Next step"); // button-only now: ignored
+  rec.emitFinal("Next step");
   rec.emitFinal("Recenter");
   // advance past duplicate cooldown by using distinct actions
   rec.emitFinal("Re-anchor");
-  rec.emitFinal("Verify step"); // button-only now: ignored
+  rec.emitFinal("Verify step");
   rec.emitFinal("Exit AR");
-  assert.deepEqual(got, ["show-result", "recenter", "re-anchor", "exit"]);
+  assert.deepEqual(got, ["show-result", "next", "recenter", "re-anchor", "verify", "exit"]);
   c.dispose();
   assert.equal(c.isListening, false);
 });
 // 16 (contd) Verify uses correct project/step and never fabricates verification
-test("16 verification cannot be started by voice at all (button only); no command carries a verified flag", () => {
-  assert.equal(matchCommand("verify step"), null);
-  assert.equal(matchCommand("Schritt prüfen"), null);
-  const cmd = matchCommand("show result");
-  assert.ok(!("verified" in cmd));
+test("16 voice Check Step only starts the normal check; no command carries a verified flag", () => {
+  for (const phrase of ["check step", "verify step", "Schritt prüfen", "check again"]) {
+    const cmd = matchCommand(phrase);
+    assert.ok(["verify", "verify-again"].includes(cmd.action), phrase);
+    assert.ok(!("verified" in cmd));
+  }
 });
 // 12+5 runtime cleanup is covered in ar.test.cjs (session end disposes renderer);
 // here assert controller dispose cleans handlers (mic stream released).

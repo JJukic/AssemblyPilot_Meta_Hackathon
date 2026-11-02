@@ -6,8 +6,7 @@ import re
 import unicodedata
 
 _PHRASES: dict[str, tuple[str, str]] = {}
-# next / previous / verify / verify-again are intentionally not voice commands
-# (HoloLens uses large panel buttons); keywords remain only for ambiguity rejection.
+# Every phrase dispatches the same action as a panel button; voice never verifies a step.
 
 
 def _add(action: str, language: str, phrases: list[str]) -> None:
@@ -15,6 +14,63 @@ def _add(action: str, language: str, phrases: list[str]) -> None:
         _PHRASES[phrase] = (action, language)
 
 
+_add(
+    "next",
+    "en",
+    ["next step", "next steps", "go to next step", "go to the next step", "go forward"],
+)
+_add(
+    "previous",
+    "en",
+    [
+        "previous step",
+        "previous steps",
+        "go to previous step",
+        "go to the previous step",
+        "prev step",
+        "go back",
+        "back one step",
+    ],
+)
+_add(
+    "verify",
+    "en",
+    [
+        "check step",
+        "check this step",
+        "check the step",
+        "verify step",
+        "verify this step",
+        "verify the step",
+        "inspect step",
+    ],
+)
+_add(
+    "verify-again",
+    "en",
+    [
+        "check again",
+        "check it again",
+        "check step again",
+        "verify again",
+        "verify it again",
+        "inspect again",
+    ],
+)
+_add("more-text", "en", ["more text", "show more text", "next page"])
+_add("previous-text", "en", ["previous text", "previous page"])
+_add("auto-start", "en", ["start autonomous", "start autonomous assembly", "start auto"])
+_add("auto-pause", "en", ["pause autonomous", "pause autonomous assembly", "pause auto"])
+_add("auto-resume", "en", ["resume autonomous", "resume autonomous assembly", "resume auto"])
+_add("auto-stop", "en", ["stop autonomous", "stop autonomous assembly", "stop auto"])
+_add(
+    "confirm-field", "en", ["confirm assembly field", "confirm the assembly field", "confirm field"]
+)
+_add("recenter", "en", ["reset panel position", "reset panel"])
+_add("next", "de", ["naechster schritt", "nachster schritt"])
+_add("previous", "de", ["vorheriger schritt"])
+_add("verify", "de", ["schritt pruefen", "schritt prufen"])
+_add("verify-again", "de", ["erneut pruefen", "nochmal pruefen", "schritt erneut pruefen"])
 _add(
     "show-reference",
     "en",
@@ -98,9 +154,7 @@ def normalize_transcript(raw: str) -> str:
     text = re.sub(r"^(hey |ok )?assembly ?pilot[ ,:]? ", "", text).strip()
     if text in ("assemblypilot", "assembly pilot"):
         text = ""
-    text = (
-        text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
-    )
+    text = text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
     return re.sub(r"\s+", " ", text).strip()
 
 

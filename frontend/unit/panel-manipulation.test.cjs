@@ -146,7 +146,7 @@ test("drag: grab title, move without jump, release preserves, field untouched, n
 });
 
 test("resize: aspect preserved, clamped, hit-testing still exact afterwards", async () => {
-  const { runtime, actions, right } = await setup();
+  const { runtime, actions, right } = await anchored();
   assert.equal(runtime.currentPanelScale, 0.85);
   const grabPose = poseAimingAt(panelPoint(runtime, 995, 740));
   runtime.frame(1, frameWith(grabPose));
@@ -323,7 +323,7 @@ test("panel transform is independent: step changes, Result/Guide/Camera switchin
 
 test("long instructions and results are paginated — every word reachable, nothing silently cut", async () => {
   globalThis.__canvasTexts = [];
-  const { runtime } = await setup();
+  const { runtime } = await anchored();
   const words = Array.from({ length: 260 }, (_, i) => `word${i}`);
   runtime.update({ placement: placement(), text: "Step 1", detail: "", instruction: words.join(" "), shortInstruction: "Place the brick.", guideLabel: "Ready" });
   assert.ok(runtime.textPage.count > 1, "long instruction spans several pages");
@@ -363,4 +363,130 @@ test("layout: Move/Rotate handles are separate from buttons; every control fits 
       assert.equal(panelRegionAt(b.x + b.w / 2, b.y + b.h / 2, PANEL_W, PANEL_H), "panel", `${b.id} is a plain button region`);
     }
   }
+});
+
+/* ---------- Initial assembly-field rotation (mocked XR; not proof of HoloLens tracking) ---------- */
+const yawOf = (m) => {
+  const e = new THREE.Euler().setFromRotationMatrix(new THREE.Matrix4().fromArray(m), "YXZ");
+  return (e.y * 180) / Math.PI;
+};
+const hitWith = (pose, hitMatrix) => ({
+  ...frameWith(pose),
+  getHitTestResults: () => [{ getPose: () => ({ transform: { matrix: hitMatrix } }) }],
+});
+const flatHit = () => new THREE.Matrix4().makeTranslation(0, 0.8, -0.6).toArray();
+/** A hit pose whose frame is rotated 70° about Y (as surface hit-tests often are). */
+const turnedHit = () => new THREE.Matrix4().makeRotationY(1.22).setPosition(0, 0.8, -0.6).toArray();
+const press = (runtime, right, id) => {
+  const b = runtime.buttons.find((x) => x.id === id);
+  assert.ok(b, `button ${id} visible`);
+  const pose = poseAimingAt(panelPoint(runtime, b.x + b.w / 2, b.y + b.h / 2));
+  const f = frameWith(pose);
+  runtime.frame(10, f);
+  runtime.debouncer = { tryAccept: () => true };
+  runtime.onSelect({ inputSource: right, frame: f });
+};
+async function placing() {
+  const ctx = await setup();
+  ctx.runtime.hit = { cancel() {} };
+  ctx.runtime.frame(1, hitWith(null, flatHit()));
+  return ctx;
+}
+
+test("field rotation: placement toolbar rotates the whole field before confirm; confirm keeps it and hides the toolbar", async () => {
+  const { runtime, right, actions } = await placing();
+  assert.equal(runtime.fieldPlacing, true);
+  const ids = runtime.buttons.map((b) => b.id);
+  for (const id of ["confirm-field", "field-rotate-reset", "field-left-5", "field-left-1", "field-right-1", "field-right-5"]) assert.ok(ids.includes(id), id);
+  assert.ok(!ids.includes("verify"), "no Check Step before the field exists");
+  const start = runtime.fieldYawDeg;
+  press(runtime, right, "field-left-5");
+  press(runtime, right, "field-left-1");
+  assert.ok(Math.abs(runtime.fieldYawDeg - (start + 6)) < 0.05, "fine steps: 5° + 1°");
+  runtime.frame(11, hitWith(null, flatHit()));
+  assert.ok(Math.abs(yawOf(runtime.origin.matrix.elements) - runtime.fieldYawDeg) < 0.05, "live preview uses the yaw");
+  press(runtime, right, "field-right-5");
+  press(runtime, right, "field-rotate-reset");
+  assert.equal(runtime.fieldYawDeg, start, "Reset Rotation returns to the default (facing the user)");
+  press(runtime, right, "field-left-5");
+  press(runtime, right, "confirm-field");
+  runtime.frame(12, hitWith(null, flatHit()));
+  assert.equal(runtime.fieldPlacing, false);
+  assert.equal(runtime.anchorState, "anchored");
+  assert.ok(Math.abs(yawOf(runtime.origin.matrix.elements) - (start + 5)) < 0.05, "confirmed field keeps the chosen rotation");
+  assert.ok(!runtime.buttons.some((b) => b.id.startsWith("field-") || b.id === "confirm-field"), "placement controls hidden");
+  assert.ok(runtime.buttons.some((b) => b.id === "verify"), "guided flow takes over");
+  // Locked after confirm.
+  assert.equal(runtime.rotateField(0.5), false);
+  assert.ok(Math.abs(runtime.fieldYawDeg - (start + 5)) < 0.05);
+  assert.ok(!actions.includes("verify"), "rotation/confirm never starts a check");
+});
+
+test("field rotation: hit-test frame rotation is ignored; blocks keep their relative transforms", async () => {
+  const { runtime } = await setup();
+  runtime.hit = { cancel() {} };
+  runtime.frame(1, hitWith(null, flatHit()));
+  const yaw = runtime.fieldYawDeg;
+  const field = runtime.origin.children.find((o) => o.name === "assembly-field");
+  const local = field.matrix.elements.slice();
+  runtime.frame(2, hitWith(null, turnedHit()));
+  assert.equal(runtime.fieldYawDeg, yaw, "the surface frame never turns the field");
+  assert.ok(Math.abs(yawOf(runtime.origin.matrix.elements) - yaw) < 0.05);
+  runtime.rotateField(Math.PI / 4);
+  runtime.frame(3, hitWith(null, flatHit()));
+  assert.deepEqual(field.matrix.elements, local, "children are untouched — only the parent field transform turns");
+  // Step switch keeps the field orientation.
+  runtime.update({ placement: { ...placement(), target_block_id: "b2", position_m: [0.04, 0.0096, 0.02] }, text: "Step 2", detail: "" });
+  runtime.frame(4, hitWith(null, flatHit()));
+  assert.ok(Math.abs(runtime.fieldYawDeg - (yaw + 45)) < 0.05, "step change keeps the yaw");
+});
+
+test("field rotation: direct hand dial turns the field, never the panel; panel manipulation never turns the field", async () => {
+  const { runtime, right, actions } = await placing();
+  const yaw0 = runtime.fieldYawDeg;
+  const panelQ = runtime.panel.quaternion.toArray();
+  const panelP = runtime.panelPos.toArray();
+  const { FIELD_DIAL } = require("../src/lib/ar/runtime.ts");
+  const start = poseAimingAt(panelPoint(runtime, FIELD_DIAL.x + FIELD_DIAL.w / 2, FIELD_DIAL.y + FIELD_DIAL.h / 2));
+  runtime.frame(2, hitWith(start, flatHit()));
+  runtime.onSelectStart({ inputSource: right, frame: hitWith(start, flatHit()) });
+  const sweep = poseAimingAt(panelPoint(runtime, FIELD_DIAL.x + FIELD_DIAL.w / 2 + 200, FIELD_DIAL.y + FIELD_DIAL.h / 2));
+  runtime.frame(3, hitWith(sweep, flatHit()));
+  runtime.onSelectEnd({ inputSource: right, frame: hitWith(sweep, flatHit()) });
+  runtime.onSelect({ inputSource: right, frame: hitWith(sweep, flatHit()) });
+  assert.ok(Math.abs(runtime.fieldYawDeg - yaw0) > 1, "hand sweep rotated the field");
+  assert.deepEqual(runtime.panel.quaternion.toArray(), panelQ, "panel orientation untouched by the field dial");
+  assert.deepEqual(runtime.panelPos.toArray(), panelP, "panel position untouched by the field dial");
+  assert.equal(runtime.fieldPlacing, true, "dial release never confirms the field");
+  assert.ok(!actions.includes("verify"));
+  // Panel rotate handle: field yaw unchanged.
+  const yaw1 = runtime.fieldYawDeg;
+  runtime.rotatePanelBy(0.4, 0);
+  press(runtime, right, "rotate-left");
+  assert.equal(runtime.fieldYawDeg, yaw1, "panel rotation never turns the field");
+});
+
+test("field rotation: Re-anchor allows a different orientation; tracking loss keeps the rotation", async () => {
+  const { runtime, right } = await placing();
+  runtime.rotateField(Math.PI / 6);
+  runtime.confirmOrigin();
+  runtime.frame(2, hitWith(null, flatHit()));
+  const first = runtime.fieldYawDeg;
+  assert.equal(runtime.fieldPlacing, false);
+  // Tracking loss / recovery on the anchored field: rotation unchanged.
+  runtime.frame(3, { getViewerPose: () => null, getPose: () => null, getHitTestResults: () => [] });
+  runtime.frame(4, hitWith(null, flatHit()));
+  assert.equal(runtime.fieldYawDeg, first);
+  assert.ok(Math.abs(yawOf(runtime.origin.matrix.elements) - first) < 0.05);
+  // Re-anchor: placement controls are back, the previous rotation is the starting point.
+  press(runtime, right, "reanchor");
+  assert.equal(runtime.fieldPlacing, true);
+  assert.equal(runtime.fieldYawDeg, first, "re-anchor keeps the orientation as the starting point");
+  assert.ok(runtime.buttons.some((b) => b.id === "confirm-field"));
+  runtime.frame(5, hitWith(null, flatHit()));
+  runtime.rotateField(-Math.PI / 3);
+  runtime.confirmOrigin();
+  runtime.frame(6, hitWith(null, flatHit()));
+  assert.equal(runtime.fieldPlacing, false);
+  assert.ok(Math.abs(runtime.fieldYawDeg - (first - 60)) < 0.05, "new orientation confirmed");
 });

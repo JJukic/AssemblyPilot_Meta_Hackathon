@@ -1,5 +1,5 @@
 {
-  "comment": "Canonical parity fixture: frontend (voice.ts) and backend (voice_commands.py) tests both assert every entry. Runtime tables live in those two files and must stay in sync with this fixture. Navigation, verify and verify-again phrases were removed on purpose (HoloLens: buttons only) and are listed under rejected.",
+  "comment": "Canonical parity fixture: frontend (voice.ts) and backend (voice_commands.py) tests both assert every entry. Runtime tables live in those two files and must stay in sync with this fixture. Navigation, Check Step/Check Again, panel paging, Autonomous control and Confirm Assembly Field are voice commands (they dispatch the same actions as the panel buttons; voice never verifies a step).",
   "accepted": [
     [
       "show reference",
@@ -350,6 +350,281 @@
       "zuruck zur anleitung",
       "back-to-instructions",
       "de"
+    ],
+    [
+      "next step",
+      "next",
+      "en"
+    ],
+    [
+      "next steps",
+      "next",
+      "en"
+    ],
+    [
+      "go to next step",
+      "next",
+      "en"
+    ],
+    [
+      "go to the next step",
+      "next",
+      "en"
+    ],
+    [
+      "go forward",
+      "next",
+      "en"
+    ],
+    [
+      "previous step",
+      "previous",
+      "en"
+    ],
+    [
+      "previous steps",
+      "previous",
+      "en"
+    ],
+    [
+      "go to previous step",
+      "previous",
+      "en"
+    ],
+    [
+      "go to the previous step",
+      "previous",
+      "en"
+    ],
+    [
+      "prev step",
+      "previous",
+      "en"
+    ],
+    [
+      "go back",
+      "previous",
+      "en"
+    ],
+    [
+      "back one step",
+      "previous",
+      "en"
+    ],
+    [
+      "check step",
+      "verify",
+      "en"
+    ],
+    [
+      "check this step",
+      "verify",
+      "en"
+    ],
+    [
+      "check the step",
+      "verify",
+      "en"
+    ],
+    [
+      "verify step",
+      "verify",
+      "en"
+    ],
+    [
+      "verify this step",
+      "verify",
+      "en"
+    ],
+    [
+      "verify the step",
+      "verify",
+      "en"
+    ],
+    [
+      "inspect step",
+      "verify",
+      "en"
+    ],
+    [
+      "check again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "check it again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "check step again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "verify again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "verify it again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "inspect again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "more text",
+      "more-text",
+      "en"
+    ],
+    [
+      "show more text",
+      "more-text",
+      "en"
+    ],
+    [
+      "next page",
+      "more-text",
+      "en"
+    ],
+    [
+      "previous text",
+      "previous-text",
+      "en"
+    ],
+    [
+      "previous page",
+      "previous-text",
+      "en"
+    ],
+    [
+      "start autonomous",
+      "auto-start",
+      "en"
+    ],
+    [
+      "start autonomous assembly",
+      "auto-start",
+      "en"
+    ],
+    [
+      "start auto",
+      "auto-start",
+      "en"
+    ],
+    [
+      "pause autonomous",
+      "auto-pause",
+      "en"
+    ],
+    [
+      "pause autonomous assembly",
+      "auto-pause",
+      "en"
+    ],
+    [
+      "pause auto",
+      "auto-pause",
+      "en"
+    ],
+    [
+      "resume autonomous",
+      "auto-resume",
+      "en"
+    ],
+    [
+      "resume autonomous assembly",
+      "auto-resume",
+      "en"
+    ],
+    [
+      "resume auto",
+      "auto-resume",
+      "en"
+    ],
+    [
+      "stop autonomous",
+      "auto-stop",
+      "en"
+    ],
+    [
+      "stop autonomous assembly",
+      "auto-stop",
+      "en"
+    ],
+    [
+      "stop auto",
+      "auto-stop",
+      "en"
+    ],
+    [
+      "confirm assembly field",
+      "confirm-field",
+      "en"
+    ],
+    [
+      "confirm the assembly field",
+      "confirm-field",
+      "en"
+    ],
+    [
+      "confirm field",
+      "confirm-field",
+      "en"
+    ],
+    [
+      "reset panel position",
+      "recenter",
+      "en"
+    ],
+    [
+      "reset panel",
+      "recenter",
+      "en"
+    ],
+    [
+      "naechster schritt",
+      "next",
+      "de"
+    ],
+    [
+      "nachster schritt",
+      "next",
+      "de"
+    ],
+    [
+      "vorheriger schritt",
+      "previous",
+      "de"
+    ],
+    [
+      "schritt pruefen",
+      "verify",
+      "de"
+    ],
+    [
+      "schritt prufen",
+      "verify",
+      "de"
+    ],
+    [
+      "erneut pruefen",
+      "verify-again",
+      "de"
+    ],
+    [
+      "nochmal pruefen",
+      "verify-again",
+      "de"
+    ],
+    [
+      "schritt erneut pruefen",
+      "verify-again",
+      "de"
     ]
   ],
   "rejected": [
@@ -371,33 +646,6 @@
     "what is the next step",
     "verify this",
     "go backwards",
-    "next step",
-    "next steps",
-    "go to next step",
-    "go to the next step",
-    "go forward",
-    "previous step",
-    "previous steps",
-    "go to previous step",
-    "go to the previous step",
-    "prev step",
-    "go back",
-    "back one step",
-    "verify step",
-    "verify this step",
-    "verify the step",
-    "inspect step",
-    "verify again",
-    "verify it again",
-    "verify step again",
-    "inspect again",
-    "naechster schritt",
-    "nachster schritt",
-    "vorheriger schritt",
-    "schritt pruefen",
-    "schritt prufen",
-    "erneut pruefen",
-    "nochmal pruefen",
-    "schritt erneut pruefen"
+    "verify step again"
   ]
 }

@@ -33,9 +33,10 @@ test("WAV encoder emits a valid 16 kHz mono header and PCM payload", () => {
   assert.equal(downsample(new Float32Array(32000), 32000, 16000).length, 16000);
 });
 
-test("verify-again is intentionally NOT a voice command (button 'Erneut prüfen' instead)", () => {
-  assert.equal(matchCommand("Verify again"), null);
-  assert.equal(matchCommand("Erneut prüfen"), null);
+test("Check Again / verify-again is a voice command in English and German; bare fragments are not", () => {
+  assert.equal(matchCommand("Check again").action, "verify-again");
+  assert.equal(matchCommand("Verify again").action, "verify-again");
+  assert.equal(matchCommand("Erneut prüfen").action, "verify-again");
   assert.equal(matchCommand("verify"), null);
 });
 

@@ -83,11 +83,19 @@ def test_unknown_and_ambiguous_commands_do_not_match(client, monkeypatch):
         assert response.json()["action"] is None
 
 
-def test_navigation_and_verify_are_buttons_only_german_aliases_match():
-    # Weiter / Zurück / Bestätigen / Erneut prüfen: HoloLens panel buttons only.
-    for phrase in ["Verify again", "Nächster Schritt", "Schritt erneut prüfen", "Schritt prüfen"]:
-        assert match_command(phrase) is None, phrase
-    assert match_command("Ergebnis anzeigen")["action"] == "show-result"
+def test_ar_panel_voice_commands_and_german_aliases_match():
+    expected = {
+        "Next Step": "next", "Previous Step": "previous", "Check Step": "verify",
+        "Check Again": "verify-again", "Show Result": "show-result",
+        "Show Instructions": "show-instructions", "More Text": "more-text",
+        "Previous Text": "previous-text", "Start Autonomous": "auto-start",
+        "Pause Autonomous": "auto-pause", "Resume Autonomous": "auto-resume",
+        "Stop Autonomous": "auto-stop", "Confirm Assembly Field": "confirm-field",
+        "Reset Panel Position": "recenter", "Stop Listening": "stop-listening",
+        "Exit AR": "exit", "Nächster Schritt": "next", "Schritt erneut prüfen": "verify-again",
+    }
+    for phrase, action in expected.items():
+        assert match_command(phrase)["action"] == action, phrase
     assert match_command("AssemblyPilot, exit AR!")["action"] == "exit"
     assert normalize_transcript("  AssemblyPilot NEXT Step. ") == "next step"
     assert match_command("don't verify step") is None
@@ -153,9 +161,9 @@ def test_command_table_matches_shared_parity_fixture():
         assert match_command(phrase) is None, phrase
 
 
-def test_removed_whisper_variants_never_match():
+def test_ambiguous_and_negated_commands_never_match():
     for phrase in [
-        "Previous steps", "Go back", "Back one step", "Next steps", "Go forward",
-        "Inspect step", "Inspect again",
+        "next step and previous step", "don't go to next step", "do not stop autonomous",
+        "next", "check", "start", "stop", "previous text and more text",
     ]:
         assert match_command(phrase) is None, phrase

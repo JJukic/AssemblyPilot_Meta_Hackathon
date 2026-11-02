@@ -21,7 +21,14 @@ export type VoiceAction =
   | "recenter"
   | "help"
   | "stop-listening"
-  | "exit";
+  | "exit"
+  | "more-text"
+  | "previous-text"
+  | "auto-start"
+  | "auto-pause"
+  | "auto-resume"
+  | "auto-stop"
+  | "confirm-field";
 
 export interface MatchedCommand {
   action: VoiceAction;
@@ -49,15 +56,29 @@ export interface ExecutionOutcome {
 }
 
 /*
- * Next / Previous / Verify / Verify again are deliberately NOT voice
- * commands: on HoloLens they are large panel buttons (Nächster Schritt,
- * Zurück, Prüfen, Erneut prüfen). Their keywords stay in ACTION_KEYWORDS
- * only so that mixed utterances are still rejected as ambiguous.
+ * Every phrase maps to an action that the panel buttons dispatch too. Voice
+ * never verifies a step: Check Step runs the normal fresh-image pipeline.
  */
 const PHRASES: Record<string, { action: VoiceAction; language: "en" | "de" }> = {};
 function add(action: VoiceAction, language: "en" | "de", phrases: string[]) {
   for (const p of phrases) PHRASES[p] = { action, language };
 }
+add("next", "en", ["next step", "next steps", "go to next step", "go to the next step", "go forward"]);
+add("previous", "en", ["previous step", "previous steps", "go to previous step", "go to the previous step", "prev step", "go back", "back one step"]);
+add("verify", "en", ["check step", "check this step", "check the step", "verify step", "verify this step", "verify the step", "inspect step"]);
+add("verify-again", "en", ["check again", "check it again", "check step again", "verify again", "verify it again", "inspect again"]);
+add("more-text", "en", ["more text", "show more text", "next page"]);
+add("previous-text", "en", ["previous text", "previous page"]);
+add("auto-start", "en", ["start autonomous", "start autonomous assembly", "start auto"]);
+add("auto-pause", "en", ["pause autonomous", "pause autonomous assembly", "pause auto"]);
+add("auto-resume", "en", ["resume autonomous", "resume autonomous assembly", "resume auto"]);
+add("auto-stop", "en", ["stop autonomous", "stop autonomous assembly", "stop auto"]);
+add("confirm-field", "en", ["confirm assembly field", "confirm the assembly field", "confirm field"]);
+add("recenter", "en", ["reset panel position", "reset panel"]);
+add("next", "de", ["naechster schritt", "nachster schritt"]);
+add("previous", "de", ["vorheriger schritt"]);
+add("verify", "de", ["schritt pruefen", "schritt prufen"]);
+add("verify-again", "de", ["erneut pruefen", "nochmal pruefen", "schritt erneut pruefen"]);
 add("show-result", "en", ["show result", "show inspection result", "display result", "show the result"]);
 add("show-errors", "en", ["show errors", "show issues", "what is wrong", "show the errors"]);
 add("read-result", "en", ["read result", "read the result"]);

@@ -947,3 +947,92 @@ the XR session (no cross-session persistence is claimed).
 **Language.** The whole UI is English. German voice aliases remain accepted as
 voice input; user-entered names and AI-generated text are shown unchanged.
 
+
+## Voice mode inside immersive AR + initial assembly-field rotation
+
+### Why voice did not work in AR (root causes)
+
+1. **Wrong recognizer on the device.** The in-AR voice path still fell back to the
+   browser `webkitSpeechRecognition`. Edge on HoloLens 2 rejects it with
+   `language-not-supported`, so voice silently showed "Off".
+2. **No way to start voice inside AR.** Local Whisper voice could only be enabled on
+   the 2D page *before* entering AR. Focusing the 2D page blurs the immersive session,
+   and the panel's old `voice` action was only a push-to-talk for an already running
+   controller — otherwise it returned "Local voice not enabled".
+3. **Commands had been removed.** Next/Previous/Check were removed from the voice
+   vocabulary (buttons only), so even working capture could not drive the guided flow.
+4. **Errors were not visible in AR.** A failed session (backend/Whisper unreachable) or
+   a denied microphone only updated a 2D status line.
+
+### What voice does now
+
+- The AR panel has **Start Voice / Stop Voice** (bottom row). Nothing records on AR
+  entry. The first tap shows a consent notice in the panel ("short clips go to Whisper
+  on your Mac, local, not stored"); **Confirm Voice** starts it. Consent given on the
+  2D page before entering AR also works; voice can be started before or after entering AR.
+- It always uses the local Whisper controller (`LocalVoiceController`, backend
+  `/api/voice/*`), never `webkitSpeechRecognition` and no paid speech API. Audio clips
+  are transcribed and discarded; transcripts are not stored.
+- One persistent microphone stream for the whole session — the mic is not restarted
+  between commands. **Stop Voice**, "Stop Listening", Exit AR and session end release it.
+- A status line above the buttons shows the real state: `Voice: Off`, `Voice: Starting…`,
+  `Voice: Listening`, `Voice: Processing`, `Heard “Next Step” → Executed: …` /
+  `→ Not executed: <reason>`, or `Voice error: <message>` (e.g. backend unreachable,
+  microphone permission denied). An error is never shown as a silent Off.
+- Commands (English; German aliases exist for a few): Next Step, Previous Step,
+  Show Result, Show Instructions, More Text, Previous Text, Check Step, Check Again,
+  Start / Pause / Resume / Stop Autonomous, Confirm Assembly Field, Reset Panel Position,
+  Stop Listening, Exit AR. They run through the same `handleAction` dispatcher as the
+  panel buttons (navigation reads `viewRef`, Autonomous reads the runner), so there is no
+  stale React state. Negated ("don't …"), combined ("… and …") and bare fragments
+  ("next", "stop") are rejected.
+- **Voice never verifies a step.** "Check Step" starts the same fresh-image inspection as
+  the button; only an accepted inspection can verify.
+- A failing voice command (or a voice failure) never stops rendering or Autonomous.
+
+### Initial assembly-field rotation
+
+- Before the field is confirmed the panel shows a **placement toolbar**:
+  ⟲ 5° · ⟲ 1° · ⟳ 1° · ⟳ 5°, **✓ Confirm Assembly Field** and **Reset Rotation**,
+  plus a wide **rotation bar** — pinch it and move your hand left/right to turn the
+  field directly (10° of hand sweep = 5° of field). The preview turns live; the current
+  angle is shown ("Field rotation: 12.0°").
+- The field is the parent transform: blocks, ghosts and markers keep their stored
+  positions relative to the field; nothing in the database changes.
+- The surface hit-test now provides **position only** — the field no longer spins with
+  the hit-test frame as you look around. Initially the field front faces you;
+  Reset Rotation returns there.
+- Confirm keeps the chosen orientation and hides the placement controls. After confirm
+  the rotation is locked; **Re-anchor** brings back position + rotation adjustment,
+  starting from the last orientation. Tracking loss and step changes keep the rotation.
+- Panel move/rotate never turns the field, and the field controls never move the panel.
+- The orientation is session-local (local tracking space). It is **not** persisted
+  across XR sessions — after re-entering AR you place and rotate the field again.
+
+### Tests (mocked — no HoloLens, no microphone, no real Whisper/Meta calls)
+
+- `unit/voice-continuous.test.cjs` — voice started after XR entry runs all 15 panel
+  commands once each on one stream; Stop Voice releases the mic; backend unreachable and
+  mic permission denied are explicit errors; consent requires two taps; status texts;
+  failing dispatch keeps listening.
+- `unit/ar-phase61.test.cjs`, `unit/voice-local.test.cjs`, `backend/tests/test_voice.py`,
+  parity fixture `voice-commands.json` — vocabulary, rejection, never a verified flag.
+- `unit/panel-manipulation.test.cjs` — rotate before confirm, confirm keeps rotation and
+  hides the toolbar, hit-test rotation ignored, block-relative transforms preserved,
+  step switch keeps yaw, hand dial turns field not panel, panel rotate never turns the
+  field, re-anchor with a different orientation, tracking loss keeps rotation.
+- Playwright `voice-commands.spec.ts`, `ar.spec.ts` — voice navigation through the
+  shared dispatcher, voice Check Step runs exactly one normal check and never verifies.
+
+### HoloLens checks still to do by hand
+
+1. Start the backend with Whisper on the Mac; enter AR; tap **Start Voice** → consent
+   → **Confirm Voice**; Edge must ask for the microphone. Expect `Voice: Listening`.
+2. Say "Next Step", "More Text", "Show Result", "Check Step": each shows
+   `Heard … → Executed`, and Check Step shows the inspection result (not verified by voice).
+3. Start Autonomous, then say "Pause Autonomous" / "Stop Autonomous" while it runs.
+4. Stop the backend and tap Start Voice → `Voice error: …` must be visible in the panel.
+5. **Stop Voice** → the Edge microphone indicator disappears.
+6. Before confirming: rotate with ⟲/⟳ and the pinch bar until the field matches the
+   baseplate, confirm, walk around (field must not rotate), use Re-anchor, rotate
+   differently and confirm again.

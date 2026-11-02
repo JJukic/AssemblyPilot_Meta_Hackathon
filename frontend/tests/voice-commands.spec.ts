@@ -15,9 +15,12 @@ const api = "http://127.0.0.1:8000";
 const TINY_JPEG = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAwAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDxyiiiv3E8wKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD/9k=", "base64");
 
 // Mocked Whisper: the route returns queued transcripts; everything else is real.
-// Mirrors backend voice_commands.py: next/previous/verify/verify-again were removed
-// on purpose (HoloLens uses buttons), so the mocked backend never matches them.
+// Mirrors (a subset of) backend voice_commands.py — the parity fixture is unit-tested.
 const PHRASES: Record<string, string> = {
+  "next step": "next", "previous step": "previous", "check step": "verify", "check again": "verify-again",
+  "more text": "more-text", "previous text": "previous-text", "start autonomous": "auto-start",
+  "pause autonomous": "auto-pause", "resume autonomous": "auto-resume", "stop autonomous": "auto-stop",
+  "confirm assembly field": "confirm-field", "reset panel position": "recenter", "show result": "show-result",
   "back to instructions": "back-to-instructions", "zurück zur anleitung": "back-to-instructions",
   "show reference": "show-reference", "hide reference": "hide-reference",
   "show instructions": "show-instructions", "read instructions": "read-instructions",
@@ -119,7 +122,7 @@ async function expectDiag(page: Page, text: string) {
   await expect(diag(page)).toContainText(text, { timeout: 15000 });
 }
 
-test("voice cannot navigate or verify (buttons only); unknown/negated phrases are rejected; remaining commands still execute", async ({ page, request }) => {
+test("voice navigates through the shared dispatcher; unknown/negated phrases are rejected; nothing is verified by voice", async ({ page, request }) => {
   test.setTimeout(180000);
   const a = await project3(request);
   const { queue } = await mockVoice(page);
@@ -131,21 +134,24 @@ test("voice cannot navigate or verify (buttons only); unknown/negated phrases ar
   await page.goto(`/ar?project=${a.project.id}`);
   await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
   await enableLocal(page);
-  for (const phrase of ["next step", "go forward", "previous step", "go back", "verify step", "verify again"]) {
-    queue.push(phrase);
-    await expectDiag(page, phrase);
-    await expectDiag(page, "Phrase not recognized");
-  }
-  await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
+  queue.push("next step");
+  await expect(page.getByRole("heading", { name: "Step 2 — Second" })).toBeVisible({ timeout: 15000 });
+  await expectDiag(page, "SUCCESS");
+  queue.push("next step"); // a legitimate repeat executes again from the current step, never a stale one
+  await expect(page.getByRole("heading", { name: "Step 3 — Third" })).toBeVisible({ timeout: 15000 });
+  queue.push("previous step");
+  await expect(page.getByRole("heading", { name: "Step 2 — Second" })).toBeVisible({ timeout: 15000 });
   queue.push("please open the pod bay doors");
   await expectDiag(page, "please open the pod bay doors");
   queue.push("don't go to next step");
   await expectDiag(page, "don't go to next step");
   await expectDiag(page, "Phrase not recognized");
+  await expect(page.getByRole("heading", { name: "Step 2 — Second" })).toBeVisible();
+  queue.push("pause autonomous");
+  await expectDiag(page, "not running");
   queue.push("show instructions");
   await expectDiag(page, "SUCCESS");
-  await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
-  expect(navigationWrites).toBe(0);
+  expect(navigationWrites).toBe(3);
   expect(inspections).toBe(0);
   expect((await (await request.get(`${api}/api/projects/${a.project.id}/progress`)).json())
     .every((s: { status: string }) => s.status !== "verified")).toBe(true);
@@ -183,7 +189,7 @@ test("panel commands execute visibly; re-anchor without AR and stop listening ar
   await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
 });
 
-test("Check is a button (voice 'verify step' does nothing); the button submits one inspection and failure shows the visible fallback; Exit AR cleans up microphone", async ({ page, request }) => {
+test("voice 'check step' runs the normal check exactly once (never verifies); failure shows the visible fallback; Exit AR cleans up microphone", async ({ page, request }) => {
   test.setTimeout(180000);
   const a = await project3(request);
   const { queue } = await mockVoice(page);
@@ -191,15 +197,14 @@ test("Check is a button (voice 'verify step' does nothing); the button submits o
   page.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith("/api/inspect")) inspections++; });
   await page.goto(`/ar?project=${a.project.id}`);
   await enableLocal(page);
-  queue.push("verify step");
-  await expectDiag(page, "Phrase not recognized");
-  expect(inspections).toBe(0);
   const card = page.getByRole("region", { name: "Guided assembly step" });
-  await card.getByRole("button", { name: "Check Step", exact: true }).click();
+  queue.push("check step");
   await expect.poll(() => inspections, { timeout: 30000 }).toBe(1);
   // The disposable test backend has no Meta key: an infrastructure failure, never a verdict.
   await expect(card.getByRole("status", { name: "Step status" })).toHaveText("Check unavailable", { timeout: 20000 });
   await expect(card.getByRole("button", { name: "Confirm Position" })).toBeVisible();
+  await page.waitForTimeout(1500);
+  expect(inspections).toBe(1);
   expect((await (await request.get(`${api}/api/projects/${a.project.id}/progress`)).json())
     .every((s: { status: string }) => s.status !== "verified")).toBe(true);
   // Back in AR, Exit AR through voice stops local listening and mic tracks.
@@ -226,7 +231,7 @@ test("continuous capture reports microphone health and keeps transcribing while 
   await expectDiag(page, "SUCCESS");
 });
 
-test("one-command mode uses the selected language and executes consecutive commands once each (no voice navigation)", async ({ page, request }) => {
+test("one-command mode uses the selected language and executes consecutive commands once each", async ({ page, request }) => {
   test.setTimeout(45000);
   const a = await project3(request);
   const { queue, state } = await mockVoice(page);

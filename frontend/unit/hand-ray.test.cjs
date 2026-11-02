@@ -104,6 +104,8 @@ test("hand ray: cursor + hover track the exact button; select activates once; fi
   const right = { handedness: "right", targetRayMode: "tracked-pointer", targetRaySpace: {} };
   const { runtime, actions } = await setup([right]);
   runtime.frame(0, headFrame(runtime, null)); // place panel
+  runtime.confirming = true; // confirm the field: guided buttons replace the placement toolbar
+  runtime.frame(0, headFrame(runtime, null));
   const pose = aimPose(runtime, "verify");
   const frame = headFrame(runtime, pose);
   runtime.frame(1, frame);

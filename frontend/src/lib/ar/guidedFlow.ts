@@ -90,7 +90,7 @@ export function deriveGuide(input: GuideInput): GuideView {
   if (input.anchored === false)
     return {
       state: "placing", label: "Place field", tone: "info", marker: MARKER.target, ghostTint: null,
-      message: "Look at the table and tap the top of the panel to place the field.", buttons: [],
+      message: "Rotate the field to match your baseplate, then select Confirm Assembly Field.", buttons: [],
     };
   if (input.checking || input.summary?.kind === "inspecting")
     return { state: "checking", label: "Checking…", message: "Hold still — checking the image.", tone: "info", marker: MARKER.target, ghostTint: null, buttons: [] };

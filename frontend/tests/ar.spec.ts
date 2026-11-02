@@ -306,7 +306,7 @@ const TINY_JPEG = Buffer.from(
   "base64",
 );
 
-test("phase6.1 selected step reference shown; navigation/verify are buttons only — voice cannot navigate or verify", async ({ page, request }) => {
+test("phase6.1 selected step reference shown; voice and buttons navigate through the same dispatcher; never verified by voice", async ({ page, request }) => {
   const a = await assembly(request);
   // Upload two step references and explicitly select the second one.
   const ids: string[] = [];
@@ -349,22 +349,19 @@ test("phase6.1 selected step reference shown; navigation/verify are buttons only
       if (fin) results.push(result);
       rec.onresult({ resultIndex: index, results: fin ? results : [...results, result] });
     }, [transcript, isFinal] as const);
-  // Weiter / Zurück / Prüfen are deliberately not voice commands any more.
-  await fire("Next step");
-  await fire("Nächster Schritt");
+  await fire("Next step", false); // interim results never execute
   await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
-  await page.getByRole("button", { name: "Next Step", exact: true }).click();
+  await fire("Next step");
   await expect(page.getByRole("heading", { name: "Step 2 — Yellow on blue" })).toBeVisible();
   await expect(page.locator("img.ar-reference")).toHaveCount(0); // step 2 has no reference: placeholder, no stale image
   await expect(page.getByText("No reference photograph for this step")).toBeVisible();
   await fire("Previous step");
+  await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
+  await page.getByRole("button", { name: "Next Step", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Step 2 — Yellow on blue" })).toBeVisible();
   await page.getByRole("button", { name: "Previous Step", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
   await expect(page.locator("img.ar-reference")).toHaveAttribute("src", new RegExp(ids[1]));
-  await fire("Verify step");
-  await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible(); // stays: no voice verification
-  await expect(page.getByRole("status", { name: "Step status" })).toHaveText("Ready");
   expect((await (await request.get(`${a.base}/progress`)).json()).every((s: { status: string }) => s.status !== "verified")).toBe(true);
 });
 
