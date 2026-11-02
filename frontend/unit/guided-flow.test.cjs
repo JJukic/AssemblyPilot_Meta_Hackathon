@@ -26,10 +26,10 @@ test("short instruction comes from step data, never from camera text", () => {
   assert.ok(shortInstruction([{ color: "red", name: "2x4 brick", quantity: 1 }], true).length < 60, "short enough for HoloLens");
 });
 
-test("Ready → Prüfe → Correct + 'Next step'", () => {
+test("Ready → Checking → Correct + 'Next Step'", () => {
   const ready = deriveGuide(base);
   assert.equal(ready.label, "Ready");
-  assert.deepEqual(ids(ready), ["verify:Check"]);
+  assert.deepEqual(ids(ready), ["verify:Check Step"]);
   assert.equal(ready.marker, MARKER.target);
   const checking = deriveGuide({ ...base, checking: true });
   assert.equal(checking.label, "Checking…");
@@ -38,22 +38,22 @@ test("Ready → Prüfe → Correct + 'Next step'", () => {
   const ok = deriveGuide({ ...base, serverVerified: true });
   assert.equal(ok.label, "Correct");
   assert.equal(ok.message, "Step correct.");
-  assert.deepEqual(ids(ok), ["next:Next step ▶"]);
+  assert.deepEqual(ids(ok), ["next:Next Step ▶"]);
   assert.equal(ok.marker, MARKER.correct);
 });
 
-test("falsch → rot + 'Baustein ausrichten' + 'Check again'; teilweise → gelb + Fallback sichtbar", () => {
+test("wrong → red + 'Adjust the brick' + 'Check Again'; partial → yellow + visible fallback", () => {
   const wrong = deriveGuide({ ...base, summary: sum("inspection", "incorrect") });
   assert.equal(wrong.label, "Try again");
   assert.equal(wrong.message, "Adjust the brick.");
-  assert.deepEqual(ids(wrong), ["verify:Check again"]);
+  assert.deepEqual(ids(wrong), ["verify:Check Again"]);
   assert.equal(wrong.marker, MARKER.wrong);
   assert.equal(wrong.ghostTint, MARKER.wrong);
   const partial = deriveGuide({ ...base, summary: sum("inspection", "uncertain") });
   assert.equal(partial.marker, MARKER.partial);
-  assert.deepEqual(ids(partial), ["verify:Check again", "confirm:Confirm position"]);
+  assert.deepEqual(ids(partial), ["verify:Check Again", "confirm:Confirm Position"]);
   const failed = deriveGuide({ ...base, summary: sum("error", null) });
-  assert.ok(ids(failed).includes("confirm:Confirm position"), "fallback visible when the check cannot run");
+  assert.ok(ids(failed).includes("confirm:Confirm Position"), "fallback visible when the check cannot run");
 });
 
 test("a correct inspection alone is never 'Correct' (fresh verification still needed); manual confirm is labelled as such", () => {
@@ -65,7 +65,7 @@ test("a correct inspection alone is never 'Correct' (fresh verification still ne
   const confirmed = deriveGuide({ ...base, manuallyConfirmed: true, summary: sum("inspection", "uncertain") });
   assert.equal(confirmed.state, "confirmed");
   assert.match(confirmed.message, /not AI verified/);
-  assert.deepEqual(ids(confirmed), ["next:Next step ▶"]);
+  assert.deepEqual(ids(confirmed), ["next:Next Step ▶"]);
 });
 
 test("field not placed shows a placement hint; last step completes without a next button", () => {
@@ -82,5 +82,5 @@ test("a check that could not run (camera unavailable) shows an error with the vi
   const v = deriveGuide({ ...base, checkError: "Keine Prüfung möglich: Kamera nicht verfügbar", summary: sum("inspection", "incorrect") });
   assert.equal(v.state, "error");
   assert.match(v.message, /Kamera nicht verfügbar/);
-  assert.deepEqual(ids(v), ["verify:Check again", "confirm:Confirm position"]);
+  assert.deepEqual(ids(v), ["verify:Check Again", "confirm:Confirm Position"]);
 });

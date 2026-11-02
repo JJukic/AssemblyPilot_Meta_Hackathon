@@ -92,14 +92,15 @@ test("complete registry → project → camera workflow persists and cleans up c
   await page.getByRole("link", { name: "Open in workspace" }).click();
   await expect(page.getByRole("heading", { name: "Harbor bridge", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Place ocean base", exact: true })).toBeVisible();
-  await expect(page.getByText("Ocean brick revised", { exact: true })).toBeVisible();
+  // The step's block list (the same name also appears as <option> in target pickers).
+  await expect(page.getByRole("listitem").filter({ hasText: "Ocean brick revised" }).first()).toBeVisible();
   await expect(page.getByAltText("Reference for Place ocean base")).toBeVisible();
   await expect(page.getByRole("status", { name: "Backend: Connected" })).toBeVisible();
   await page.getByRole("button", { name: "Start camera" }).click();
   await expect(page.getByRole("status", { name: "Camera: Connected" })).toBeVisible();
   await page.getByRole("button", { name: "Capture", exact: true }).click();
   await expect(page.getByAltText("Latest captured LEGO assembly")).toBeVisible();
-  await page.getByRole("button", { name: "Next step", exact: true }).click();
+  await page.getByRole("button", { name: "Next Step", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Check alignment", exact: true })).toBeVisible();
   await page.getByRole("combobox", { name: "Assembly project", exact: true }).selectOption("");
   await expect(page.getByRole("heading", { name: "LEGO Demo Assembly" })).toBeVisible();

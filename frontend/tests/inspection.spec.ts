@@ -105,7 +105,7 @@ test("changing steps cancels pending display and late answers cannot migrate", a
   await capture(page);
   await page.getByRole("button", { name: "Inspect with Meta AI" }).click();
   await expect(page.getByRole("button", { name: "Inspecting with Meta…" })).toBeVisible();
-  await page.getByRole("button", { name: "Next step", exact: true }).click();
+  await page.getByRole("button", { name: "Next Step", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Inspect the top", exact: true })).toBeVisible();
   release();
   await expect(page.getByRole("button", { name: "Inspect with Meta AI" })).toBeEnabled();

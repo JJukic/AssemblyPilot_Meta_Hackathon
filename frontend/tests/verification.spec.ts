@@ -163,7 +163,7 @@ for (const change of ["step", "capture", "specification"] as const) {
     await begin(page, initial);
     await page.getByRole("button", { name: "Capture & Verify", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Verifying Assembly…" })).toBeVisible();
-    if (change === "step") await page.getByRole("button", { name: "Next step", exact: true }).click();
+    if (change === "step") await page.getByRole("button", { name: "Next Step", exact: true }).click();
     else if (change === "capture") await page.getByRole("button", { name: "Capture", exact: true }).click();
     else {
       await page.route("**/api/projects/loop-project", (route) => route.fulfill({ json: { ...project,
@@ -445,7 +445,7 @@ test("Settings cancels an in-flight inspection and retains the manually viewed s
   await page.getByRole("navigation").getByRole("link", { name: "Workspace", exact: true }).click();
   await expect(page.getByRole("button", { name: "Inspect with Meta AI", exact: true })).toBeEnabled();
   await expect(page.getByText("Late cancelled inspection", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Next step", exact: true }).click();
+  await page.getByRole("button", { name: "Next Step", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Inspect the finish", exact: true })).toBeVisible();
   await page.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByRole("navigation").getByRole("link", { name: "Workspace", exact: true }).click();

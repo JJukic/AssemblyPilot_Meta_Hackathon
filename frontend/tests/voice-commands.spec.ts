@@ -195,11 +195,11 @@ test("Check is a button (voice 'verify step' does nothing); the button submits o
   await expectDiag(page, "Phrase not recognized");
   expect(inspections).toBe(0);
   const card = page.getByRole("region", { name: "Guided assembly step" });
-  await card.getByRole("button", { name: "Check", exact: true }).click();
+  await card.getByRole("button", { name: "Check Step", exact: true }).click();
   await expect.poll(() => inspections, { timeout: 30000 }).toBe(1);
   // The disposable test backend has no Meta key: an infrastructure failure, never a verdict.
   await expect(card.getByRole("status", { name: "Step status" })).toHaveText("Check unavailable", { timeout: 20000 });
-  await expect(card.getByRole("button", { name: "Confirm position" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Confirm Position" })).toBeVisible();
   expect((await (await request.get(`${api}/api/projects/${a.project.id}/progress`)).json())
     .every((s: { status: string }) => s.status !== "verified")).toBe(true);
   // Back in AR, Exit AR through voice stops local listening and mic tracks.

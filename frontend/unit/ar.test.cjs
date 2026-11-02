@@ -282,7 +282,7 @@ test("horizontal hit-test surface selection and input-driven navigation do not v
   const verifyBtn = PANEL_BUTTONS.find((b) => b.id === "verify");
   // Convert the Verify button centre (canvas px, top-left origin) to panel-local metres.
   const localX = ((verifyBtn.x + verifyBtn.w / 2) / PANEL_W - 0.5) * 0.72;
-  const localY = (0.5 - (verifyBtn.y + verifyBtn.h / 2) / PANEL_H) * 0.45;
+  const localY = (0.5 - (verifyBtn.y + verifyBtn.h / 2) / PANEL_H) * 0.54; // PANEL_WORLD_H
   const q = new THREE.Quaternion();
   const aim = new THREE.Vector3(localX, localY, 0).applyMatrix4(
     runtime.panel.matrixWorld,
@@ -671,18 +671,20 @@ const guided = (state) => {
   const g = deriveGuide({ anchored: true, checking: false, serverVerified: state === "ok", manuallyConfirmed: false, isLastStep: false,
     summary: state === "wrong" ? { kind: "inspection", overall: { kind: "incorrect" } } : state === "partial" ? { kind: "inspection", overall: { kind: "uncertain" } } : null });
   return { placement: placement(), text: "Step 1", detail: "", guideLabel: g.label, guideMessage: g.message, guideTone: g.tone,
-    shortInstruction: "Lege den roten 2×4-Stein auf die grüne Markierung.", primary: g.buttons, markerColor: g.marker, ghostTint: g.ghostTint,
-    voiceLabel: "Voice: listening — DEBUG", anchorLabel: "AR FIELD ANCHORED · rendered DEBUG", stepLabel: "Schritt 1 von 3" };
+    shortInstruction: "Place the red 2×4 brick on the green marker.", primary: g.buttons, markerColor: g.marker, ghostTint: g.ghostTint,
+    voiceLabel: "Voice: listening — DEBUG", anchorLabel: "AR FIELD ANCHORED · rendered DEBUG", stepLabel: "Step 1 of 3" };
 };
 
 test("guided panel: few large buttons, contextual primary actions, no voice-only or debug controls", () => {
   const ready = layoutButtons([{ id: "verify", label: "Prüfen" }]);
   const ids = ready.map((b) => b.id);
-  for (const removed of ["recenter", "reference", "page", "help", "voice", "next"]) assert.ok(!ids.includes(removed), removed);
-  assert.ok(ready.length <= 8);
-  assert.ok(ready.filter((b) => b.primary).every((b) => b.h >= 100 && b.w >= 400), "primary buttons are large");
-  assert.ok(ready.every((b) => b.h >= 80 && b.w >= 140), "gaze/hand-ray sized");
-  assert.ok(ready.every((b) => b.y >= PANEL_BUTTONS_TOP && b.x + b.w <= 1024 && b.y + b.h <= 576), "clear of the resize corner");
+  for (const removed of ["reference", "help", "voice", "next"]) assert.ok(!ids.includes(removed), removed);
+  for (const kept of ["page", "page-prev", "recenter", "rotate-left", "rotate-right"]) assert.ok(ids.includes(kept), kept);
+  assert.ok(ready.length <= 12);
+  assert.ok(ready.filter((b) => b.primary).every((b) => b.h >= 96 && b.w >= 400), "primary buttons are large");
+  assert.ok(ready.every((b) => b.h >= 76 && b.w >= 100), "gaze/hand-ray sized");
+  assert.ok(ready.every((b) => b.y >= PANEL_BUTTONS_TOP && b.x + b.w <= 1024 && b.y + b.h <= 768), "inside the panel, below the content");
+  assert.ok(ready.every((b) => !(b.x + b.w > 960 && b.y + b.h > 704)), "clear of the resize corner");
   const partial = layoutButtons([{ id: "verify", label: "Erneut prüfen" }, { id: "confirm", label: "Position bestätigen" }]);
   assert.deepEqual(partial.filter((b) => b.primary).map((b) => b.id), ["verify", "confirm"]);
 });
@@ -692,11 +694,11 @@ test("guided panel: main view shows state, short instruction and message — and
   globalThis.__canvasTexts = [];
   runtime.update(guided("wrong"));
   const texts = globalThis.__canvasTexts.join("\n");
-  assert.match(texts, /Schritt 1 von 3/);
+  assert.match(texts, /Step 1 of 3/);
   assert.match(texts, /TRY AGAIN/);
-  assert.match(texts, /2×4-Stein/);
+  assert.match(texts, /red 2×4 brick/);
   assert.match(texts, /Adjust the brick/);
-  assert.match(texts, /Check again/);
+  assert.match(texts, /Check Again/);
   assert.ok(!/DEBUG/.test(texts), "voice/anchor debug rows are not drawn in the main view");
   await runtime.end();
 });
@@ -736,7 +738,7 @@ test("guided panel: 'Position bestätigen' and 'Nächster Schritt' are real hand
   const press = (id) => {
     const b = runtime.currentButtons.find((x) => x.id === id);
     const localX = ((b.x + b.w / 2) / PANEL_W - 0.5) * 0.72;
-    const localY = (0.5 - (b.y + b.h / 2) / PANEL_H) * 0.45;
+    const localY = (0.5 - (b.y + b.h / 2) / PANEL_H) * 0.54; // PANEL_WORLD_H
     const aim = new THREE.Vector3(localX, localY, 0).applyMatrix4(runtime.panel.matrixWorld);
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), aim.sub(new THREE.Vector3(0, 1.6, 0)).normalize());
     runtime.onSelect({
@@ -840,7 +842,7 @@ test("panel Stop auto: dispatched by hand ray, keeps XR, anchor and hologram; di
   assert.ok(b, "Stop auto is on the panel while Autonomous runs");
   assert.notEqual(b.x, runtime.currentButtons.find((x) => x.id === "auto").x, "Stop and Pause are distinct controls");
   runtime.scene.updateMatrixWorld(true);
-  const aim = new THREE.Vector3(((b.x + b.w / 2) / PANEL_W - 0.5) * 0.72, (0.5 - (b.y + b.h / 2) / PANEL_H) * 0.45, 0).applyMatrix4(runtime.panel.matrixWorld);
+  const aim = new THREE.Vector3(((b.x + b.w / 2) / PANEL_W - 0.5) * 0.72, (0.5 - (b.y + b.h / 2) / PANEL_H) * 0.54, 0).applyMatrix4(runtime.panel.matrixWorld);
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), aim.sub(new THREE.Vector3(0, 1.6, 0)).normalize());
   runtime.onSelect({ inputSource: { handedness: "right", targetRaySpace: {} }, frame: { getPose: () => ({ transform: { matrix: new THREE.Matrix4().compose(new THREE.Vector3(0, 1.6, 0), q, new THREE.Vector3(1, 1, 1)).toArray() } }) } });
   assert.deepEqual(actions, ["auto-stop"]);

@@ -12,13 +12,13 @@ test("renders the dashboard and all five manually navigable steps", async ({ pag
   await expect(page.getByRole("heading", { name: "Build with a clearer view." })).toBeVisible();
   await expect(page.getByRole("status", { name: "Backend: Connected" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Build the base" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Previous", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Previous Step", exact: true })).toBeDisabled();
   await expect(page.getByText("Reference photograph needed")).toBeVisible();
   for (const title of ["Connect the foundation", "Add the left support", "Add the right support", "Bridge the supports"]) {
-    await page.getByRole("button", { name: "Next step", exact: true }).click();
+    await page.getByRole("button", { name: "Next Step", exact: true }).click();
     await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
   }
-  await expect(page.getByRole("button", { name: "Next step", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Next Step", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Step 1: Build the base", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Build the base" })).toBeVisible();
   await expect(page.getByText("Steps are not AI verified.", { exact: false })).toBeVisible();

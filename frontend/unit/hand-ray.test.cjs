@@ -78,7 +78,7 @@ const matrix = (x) => new THREE.Matrix4().makeTranslation(x, 1.6, 0).toArray();
 function aimPose(runtime, buttonId, from = new THREE.Vector3(0, 1.6, 0)) {
   const b = PANEL_BUTTONS.find((x) => x.id === buttonId);
   const localX = ((b.x + b.w / 2) / PANEL_W - 0.5) * 0.72;
-  const localY = (0.5 - (b.y + b.h / 2) / PANEL_H) * 0.45;
+  const localY = (0.5 - (b.y + b.h / 2) / PANEL_H) * 0.54; // PANEL_WORLD_H
   runtime.scene.updateMatrixWorld(true);
   const target = new THREE.Vector3(localX, localY, 0).applyMatrix4(runtime.panel.matrixWorld);
   const q = new THREE.Quaternion().setFromUnitVectors(

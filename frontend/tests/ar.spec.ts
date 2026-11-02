@@ -168,7 +168,7 @@ test("shared step navigation never verifies; direct camera launch selects that s
   await expect(
     page.getByRole("heading", { name: "Step 1 — Blue base" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next Step", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Step 2 — Yellow on blue" }),
   ).toBeVisible();
@@ -187,7 +187,7 @@ test("shared step navigation never verifies; direct camera launch selects that s
   await expect(
     page.getByRole("heading", { name: "Step 1 — Blue base" }),
   ).toBeVisible({ timeout: 6000 });
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next Step", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Step 2 — Yellow on blue" }),
   ).toBeVisible();
@@ -280,7 +280,7 @@ test("old placement is hidden on navigation and disconnection; reconnect restore
   await expect(
     page.getByRole("img", { name: "2D intended placement" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next Step", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Step 2 — Yellow on blue" }),
   ).toBeVisible();
@@ -353,13 +353,13 @@ test("phase6.1 selected step reference shown; navigation/verify are buttons only
   await fire("Next step");
   await fire("Nächster Schritt");
   await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next Step", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Step 2 — Yellow on blue" })).toBeVisible();
   await expect(page.locator("img.ar-reference")).toHaveCount(0); // step 2 has no reference: placeholder, no stale image
   await expect(page.getByText("No reference photograph for this step")).toBeVisible();
   await fire("Previous step");
   await expect(page.getByRole("heading", { name: "Step 2 — Yellow on blue" })).toBeVisible();
-  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await page.getByRole("button", { name: "Previous Step", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
   await expect(page.locator("img.ar-reference")).toHaveAttribute("src", new RegExp(ids[1]));
   await fire("Verify step");
@@ -414,7 +414,7 @@ test("multi-block hologram: author, stack via explicit height help, duplicate, s
   expect((await (await request.get(`${a.base}/progress`)).json()).every((s: { status: string }) => s.status !== "verified")).toBe(true);
 
   await page.goto(`/ar?project=${a.project.id}`);
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next Step", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Step 2 — Yellow on blue" })).toBeVisible();
   await expect(page.getByRole("img", { name: "2D intended placement" })).toBeVisible();
   await expect(page.getByRole("img", { name: "2D height view (front)" })).toBeVisible();

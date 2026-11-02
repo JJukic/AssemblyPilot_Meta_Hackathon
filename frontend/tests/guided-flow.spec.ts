@@ -107,27 +107,27 @@ test("guided demo: Check → falsch → Check again → korrekt → Next step �
   await expect(page.getByRole("button", { name: "Enable local voice control", exact: true })).toBeDisabled();
   await page.getByText("Voice control · Off", { exact: true }).click();
 
-  await card(page).getByRole("button", { name: "Check", exact: true }).click();
+  await card(page).getByRole("button", { name: "Check Step", exact: true }).click();
   await expect(state(page)).toHaveText("Try again", { timeout: 20000 });
   await expect(card(page)).toContainText("Adjust the brick.");
-  await expect(card(page).getByRole("button", { name: "Next step" })).toHaveCount(0);
+  await expect(card(page).getByRole("button", { name: "Next Step" })).toHaveCount(0);
 
   next = "correct";
-  await card(page).getByRole("button", { name: "Check again" }).click();
+  await card(page).getByRole("button", { name: "Check Again" }).click();
   await expect(state(page)).toHaveText("Correct", { timeout: 30000 });
   await expect(card(page)).toContainText("Step correct.");
   expect(calls).toEqual(["inspect:incorrect", "inspect:correct", "verify"]);
 
-  await card(page).getByRole("button", { name: "Next step" }).click();
+  await card(page).getByRole("button", { name: "Next Step" }).click();
   await expect(card(page)).toContainText("Step 2 of 2", { timeout: 15000 });
   await expect(state(page)).toHaveText("Ready", { timeout: 15000 });
   await page.getByText("Full instructions, reference & inspection results", { exact: true }).click();
   await expect(page.getByRole("heading", { name: `Step 2 — ${s2.title}` })).toBeVisible();
 
   next = "uncertain";
-  await card(page).getByRole("button", { name: "Check", exact: true }).click();
+  await card(page).getByRole("button", { name: "Check Step", exact: true }).click();
   await expect(state(page)).toHaveText("Position uncertain", { timeout: 20000 });
-  await card(page).getByRole("button", { name: "Confirm position" }).click();
+  await card(page).getByRole("button", { name: "Confirm Position" }).click();
   await expect(state(page)).toHaveText("Confirmed");
   await expect(card(page)).toContainText("not AI verified");
   // Manual confirmation never writes backend verification.

@@ -158,7 +158,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [anchorUi, setAnchorUi] = useState("unplaced");
   const [fieldDiag, setFieldDiag] = useState<FieldDiagnostics>(EMPTY_FIELD_DIAGNOSTICS);
   const [autoDiag, setAutoDiag] = useState<AutoStatus | null>(null);
-  // Guided flow: a running "Prüfen" and an explicit USER confirmation (never backend verification).
+  // Guided flow: a running Check Step and an explicit USER confirmation (never backend verification).
   const [checkingStep, setCheckingStep] = useState(false);
   const checkingRef = useRef(false);
   const [manualConfirm, setManualConfirm] = useState<{ stepId: string; at: string } | null>(null);
@@ -472,7 +472,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   }, [refPath, view.step_id]);
 
   const fieldLine = active ? describeField(fieldDiag) : "";
-  const autoButton = !autoOn ? "Auto ▶" : autoStateLabel === "completed" ? "Done ✓" : autoPaused ? "Resume" : "Pause";
+  const autoButton = !autoOn ? "Start Autonomous" : autoStateLabel === "completed" ? "Assembly Complete ✓" : autoPaused ? "Resume Autonomous" : "Pause Autonomous";
   useEffect(() => {
     const blockLabel = step
       ? step.required_blocks
@@ -722,7 +722,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         return navigate(-1);
       case "verify":
       case "verify-again":
-        // Button "Prüfen" / "Erneut prüfen" (no voice path exists for these).
+        // Buttons Check Step / Check Again (no voice path exists for these).
         return checkStep();
       case "confirm":
         return confirmPosition();
@@ -832,7 +832,13 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         setHelpVisible((v) => !v);
         return { ok: true, detail: "Available commands toggled" };
       case "page":
-        return { ok: true, detail: "Next text page" };
+        return { ok: true, detail: "More Text" };
+      case "page-prev":
+        return { ok: true, detail: "Previous Text" };
+      case "rotate-left":
+      case "rotate-right":
+        // Handled by the panel itself; panel transform only (never field, step or Autonomous).
+        return { ok: true, detail: "Panel rotated" };
       case "voice": {
         // In-AR push-to-talk fallback: flush the live utterance when
         // continuous capture runs; otherwise capture exactly one command.
@@ -857,7 +863,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         const phase = runner.phase;
         if (phase === "completed")
           return { ok: true, detail: "Assembly complete — no further automatic requests" };
-        if (phase === "starting") return { ok: false, reason: "Camera is starting — use Stop auto to cancel" };
+        if (phase === "starting") return { ok: false, reason: "Camera is starting — use Stop Autonomous to cancel" };
         if (phase === "running") {
           pauseAutonomous();
           return { ok: true, detail: "Monitoring paused (camera kept open, no Meta requests)" };
@@ -1379,9 +1385,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   }
 
   /**
-   * Guided "Prüfen" / "Erneut prüfen": a fresh inspection; if it is correct,
+   * Guided Check Step / Check Again: a fresh inspection; if it is correct,
    * a SEPARATE later frame is verified by the backend. Never auto-advances
-   * (the user taps "Nächster Schritt") unless Autonomous Assembly is on.
+   * (the user taps Next Step) unless Autonomous Assembly is on.
    */
   async function checkStep(): Promise<ExecutionOutcome> {
     if (checkingRef.current) return { ok: false, reason: "Check already in progress" };
@@ -1409,18 +1415,18 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       if (alive.current) setCheckingStep(false);
     }
   }
-  /** Visible manual fallback ("Position bestätigen"): user-confirmed, never AI/backend-verified. */
+  /** Visible manual fallback (Confirm Position): user-confirmed, never AI/backend-verified. */
   function confirmPosition(): ExecutionOutcome {
     const stepId = viewRef.current.step_id;
     if (!stepId) return { ok: false, reason: "Current step is unknown" };
     if (!["partial", "error"].includes(guide.state))
-      return { ok: false, reason: "Confirm position is only available when the automatic check is uncertain" };
+      return { ok: false, reason: "Confirm Position is only available when the automatic check is uncertain" };
     setManualConfirm({ stepId, at: new Date().toISOString() });
     return {
       ok: true,
       detail: isLastStep
         ? "Position confirmed by you (not AI verified). This was the final step."
-        : "Position confirmed by you (not AI verified). Next step is now available.",
+        : "Position confirmed by you (not AI verified). Next Step is now available.",
     };
   }
 
@@ -1711,7 +1717,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           Voice language{" "}
           <select value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)} disabled={voiceBusy || localOn || localBusy}>
             <option value="en-US">English (en-US)</option>
-            <option value="de-DE">Deutsch (de-DE)</option>
+            <option value="de-DE">German (de-DE)</option>
           </select>
         </label>
         <p>
@@ -1828,7 +1834,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
               <li key={c.spoken}>“{c.spoken}” — {c.description}</li>
             ))}
           </ul>
-          <p>German aliases ({voiceLang === "de-DE" ? "active language" : "set language to Deutsch to use"}): {GERMAN_ALIASES.map((g) => `“${g.spoken}”`).join(" · ")}</p>
+          <p>German aliases ({voiceLang === "de-DE" ? "active language" : "set the voice language to German to use"}): {GERMAN_ALIASES.map((g) => `“${g.spoken}”`).join(" · ")}</p>
           <p>Optional prefix: say “AssemblyPilot” before a command, e.g. “AssemblyPilot, next step”.</p>
         </details>
         {!voiceSupported.supported && (
@@ -2040,8 +2046,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       {selectedRef && <p>Selected reference: {selectedRef.original_filename} ({selectedRef.width}×{selectedRef.height})</p>}
       {refError && <p role="alert">{refError}</p>}
       <div className="form-actions">
-        <button className="button secondary" disabled={!online || step?.position === 1} onClick={() => void navigate(-1)}>Previous</button>
-        <button className="button secondary" disabled={!online || step?.position === totalSteps} onClick={() => void navigate(1)}>Next</button>
+        <button className="button secondary" disabled={!online || step?.position === 1} onClick={() => void navigate(-1)} aria-label="Previous Step">◀ Previous Step</button>
+        <button className="button secondary" disabled={!online || step?.position === totalSteps} onClick={() => void navigate(1)} aria-label="Next Step">Next Step ▶</button>
         <button className="button secondary" onClick={() => setShowReference((v) => !v)}>{showReference ? "Hide reference" : "Show reference"}</button>
         <button className="button primary" disabled={!step || !online} onClick={() => void verify()}>Verify Step — camera workspace</button>
         <button className="button secondary" disabled={!step || !online} onClick={() => void verifyAgain()}>Verify Again — fresh verification</button>

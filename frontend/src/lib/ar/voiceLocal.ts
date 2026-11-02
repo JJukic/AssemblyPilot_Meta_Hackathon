@@ -597,7 +597,7 @@ export class LocalVoiceController {
         if (!this.running) return;
         if (ok) {
           this.deps.onStatus?.(
-            `Listening (${this.deps.language ?? "en"}) in AR — microphone active. Say “Next step”.`,
+            `Listening (${this.deps.language ?? "en"}) in AR — microphone active. Say a command such as “Show result”.`,
           );
           this.emitCapture({ message: "Microphone active in immersive AR" });
         } else {

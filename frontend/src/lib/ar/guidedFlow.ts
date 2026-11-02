@@ -1,13 +1,13 @@
 /**
  * Guided HoloLens assembly flow (pure, testable).
  *
- * One short visible instruction ("Lege den roten 2×4-Stein auf die grüne
- * Markierung."), one clear state and at most two large contextual buttons.
+ * One short visible instruction ("Place the red 2×4 brick on the green
+ * marker."), one clear state and at most two large contextual buttons.
  * The state is derived ONLY from real data: server progress, the latest
  * inspection summary for this step, a running check, and an explicit
  * user confirmation. Nothing here marks a step verified.
  *
- * "Confirm position" is a visible manual fallback when the automatic
+ * Confirm Position is a visible manual fallback when the automatic
  * check is uncertain or unavailable. It is recorded as USER-confirmed, never
  * as AI/backend verification, and is never triggered by voice.
  */
@@ -69,10 +69,10 @@ export const MARKER = {
   partial: 0xffd23f,
 } as const;
 
-const NEXT: GuideButton = { id: "next", label: "Next step ▶" };
-const CHECK: GuideButton = { id: "verify", label: "Check" };
-const RECHECK: GuideButton = { id: "verify", label: "Check again" };
-const CONFIRM: GuideButton = { id: "confirm", label: "Confirm position" };
+const NEXT: GuideButton = { id: "next", label: "Next Step ▶" };
+const CHECK: GuideButton = { id: "verify", label: "Check Step" };
+const RECHECK: GuideButton = { id: "verify", label: "Check Again" };
+const CONFIRM: GuideButton = { id: "confirm", label: "Confirm Position" };
 
 export function deriveGuide(input: GuideInput): GuideView {
   const done = (state: GuideState, label: string, message: string): GuideView => ({
@@ -97,7 +97,7 @@ export function deriveGuide(input: GuideInput): GuideView {
   if (input.checkError)
     return { state: "error", label: "Check unavailable", message: input.checkError, tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
   const s = input.summary;
-  if (!s) return { state: "ready", label: "Ready", message: "Place the brick, then select Check.", tone: "ready", marker: MARKER.target, ghostTint: null, buttons: [CHECK] };
+  if (!s) return { state: "ready", label: "Ready", message: "Place the brick, then select Check Step.", tone: "ready", marker: MARKER.target, ghostTint: null, buttons: [CHECK] };
   if (s.kind === "error")
     return { state: "error", label: "Check unavailable", message: "Check the camera or connection, or confirm the position yourself.", tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
   switch (s.overall?.kind) {
@@ -105,7 +105,7 @@ export function deriveGuide(input: GuideInput): GuideView {
       return input.isLastStep ? done("complete", "Complete", "Assembly complete.") : done("correct", "Correct", "Step correct.");
     case "correct":
       // An inspection said correct; the separate fresh verification is still missing.
-      return { state: "almost", label: "Almost correct", message: "Looks correct — select Check again for a fresh verification image.", tone: "ok", marker: MARKER.correct, ghostTint: null, buttons: [RECHECK] };
+      return { state: "almost", label: "Almost correct", message: "Looks correct — select Check Again for a fresh verification image.", tone: "ok", marker: MARKER.correct, ghostTint: null, buttons: [RECHECK] };
     case "incorrect":
       return { state: "retry", label: "Try again", message: "Adjust the brick.", tone: "bad", marker: MARKER.wrong, ghostTint: MARKER.wrong, buttons: [RECHECK] };
     case "uncertain":

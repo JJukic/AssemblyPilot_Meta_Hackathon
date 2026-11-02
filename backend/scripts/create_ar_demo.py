@@ -48,13 +48,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api", default="http://127.0.0.1:8000")
     api = parser.parse_args().api.rstrip("/")
-    brick = call(api, "POST", "/api/blocks", {"name": "2x4 Stein", "color": "red"})
-    project = call(api, "POST", "/api/projects", {"name": "AR-Demo: roter 2×4-Stein"})
+    brick = call(api, "POST", "/api/blocks", {"name": "2x4 brick", "color": "red"})
+    project = call(api, "POST", "/api/projects", {"name": "AR demo: red 2×4 brick"})
     steps = [
-        ("Roten 2×4-Stein setzen", "Lege den roten 2×4-Stein auf die grüne Markierung.", 0.0),
+        ("Place the red 2×4 brick", "Place the red 2×4 brick on the green marker.", 0.0),
         (
-            "Zweiten 2×4-Stein setzen",
-            "Lege den zweiten roten 2×4-Stein auf die grüne Markierung.",
+            "Place the second 2×4 brick",
+            "Place the second red 2×4 brick on the green marker.",
             0.04,
         ),
     ]

@@ -815,35 +815,32 @@ assessment next to the capture that produced it). Tap **Camera** to toggle.
   expected reference instead of a capture.
 - The preview is panel-only and never touches the field, origin or anchor.
 
-## Geführter HoloLens-Ablauf (Buttons statt Sprachbefehle)
+## Guided HoloLens flow (buttons instead of voice commands)
 
-Das AR-Panel zeigt pro Schritt nur: **Schritt X von Y**, einen farbigen
-Status (Bereit · Prüfe … · Korrekt · Noch einmal versuchen · Teilweise
-korrekt · Prüfung nicht möglich · Bestätigt), eine Kurzanweisung aus den
-Schrittdaten (z. B. „Lege den roten 2×4-Stein auf die grüne Markierung.“ —
-keine Kamera-Texterkennung) und höchstens zwei große Buttons:
+The AR panel shows **Step X of Y**, a coloured state (Ready · Checking… ·
+Correct · Try again · Partially correct · Check unavailable · Confirmed), a
+short instruction generated from the step data (e.g. "Place the red 2×4 brick
+on the green marker." — no camera text recognition) and at most two large
+contextual buttons:
 
-| Zustand | Hologramm | Buttons |
+| State | Hologram | Buttons |
 |---|---|---|
-| Bereit | transparenter Geist + **grüne** Zielmarkierung | Prüfen |
-| Prüfe … | unverändert | — |
-| Noch einmal versuchen („Baustein ausrichten“) | Markierung + Geist **rot** | Erneut prüfen |
-| Teilweise korrekt / Prüfung nicht möglich | Markierung **gelb** | Erneut prüfen · Position bestätigen |
-| Korrekt („Schritt korrekt“) | **grün** | Nächster Schritt |
-| Bestätigt (manuell, nicht KI-geprüft) | grün | Nächster Schritt |
+| Ready | transparent ghost + **green** target marker | Check Step |
+| Checking… | unchanged | — |
+| Try again ("Adjust the brick.") | marker + ghost **red** | Check Again |
+| Partially correct / Check unavailable | marker **yellow** | Check Again · Confirm Position |
+| Correct ("Step correct.") | **green** | Next Step |
+| Confirmed (manual, not AI-checked) | green | Next Step |
 
-„Prüfen“ nimmt ein frisches Bild auf und inspiziert es; ist es korrekt,
-verifiziert das Backend automatisch ein **separates, späteres** Bild. Erst
-dann erscheint „Nächster Schritt“ (kein automatisches Weiterschalten, außer
-im Autonomous-Modus). „Position bestätigen“ erscheint nur, wenn die Prüfung
-unsicher ist oder nicht laufen konnte; es schreibt **keine** Backend-
-Verifikation. Darunter immer: ◀ Zurück · Neu ausrichten · Kamera · Ergebnis ·
-Auto · BEENDEN. Weiter/Zurück/Prüfen/Erneut prüfen sind bewusst **keine**
-Sprachbefehle mehr; Debug-Texte stehen nur in der Kamera-Ansicht bzw. auf
-der 2D-Seite. Die 2D-Seite zeigt dieselbe geführte Karte als Fallback.
+Check Step captures a fresh image and inspects it; if it is correct, the
+backend verifies a **separate, later** image automatically. Only then does
+Next Step appear (no automatic advance unless Autonomous mode is on). Confirm
+Position appears only when the check is uncertain or could not run; it never
+writes backend verification. Next/Previous/Check/Check Again are deliberately
+**not** voice commands; the 2D page shows the same guided card as a fallback.
 
-Demo-Projekt (2 Schritte, roter 2×4-Stein auf Grundplatte, rein additiv):
-`cd backend && uv run python scripts/create_ar_demo.py` → gibt die AR-URL aus.
+Demo project (two steps, red 2×4 brick on a baseplate, additive only):
+`cd backend && uv run python scripts/create_ar_demo.py` → prints the AR URL.
 
 ## Cumulative multi-block step holograms
 
@@ -914,3 +911,39 @@ needed (focusing the 2D slate would blur the immersive session).
   session-only, so monitoring has no trustworthy field afterwards). Start it
   again after re-entering AR. On a companion device that never enters AR,
   Autonomous is stopped only by Stop.
+
+## AR panel: more text, English UI, HoloLens-style window manipulation
+
+The floating panel is 1024×768 px (0.72 × 0.54 m at scale 1, default scale
+0.85) — about 40 % more content height than before, without covering much more
+of the workspace.
+
+**Text.** Long step instructions (Guide view: state, short instruction,
+message, then the full instruction and required bricks) and complete Meta
+results (Result view: wrapped headline plus every line — expected/observed,
+fixes, next action) are paginated with **More Text ▶ / ◀ Previous Text**
+and a "Text page N of M" indicator. Nothing is silently cut. Pages are kept
+per view; a new result starts at its first page.
+
+**Window controls** (top bar, like a HoloLens window):
+- **⠿ Move Panel** — pinch the bar and drag. The grabbed point follows your
+  hand ray; push your hand forward/back along the ray to move the panel
+  farther/closer (×3 gain, 0.3–3 m).
+- **⟲ Rotate Panel** — pinch this handle and move your hand left/right to turn
+  (yaw) or up/down to tilt (pitch, limited to ±60°). Rotation starts only on
+  this handle, never from normal button taps.
+- **◢ corner** — resize (unchanged).
+- Air-tap fallback (no hand manipulation needed): **⟲ / ⟳ Rotate** (15°) and
+  **Reset Panel Position** (upright, facing you, in front of your head).
+
+A pinch that moves or rotates never activates a button. Releasing leaves the
+panel where it is in world space (it does not follow your head). Tracking loss
+during a gesture ends it at the last transform. The panel transform is
+separate from the tabletop field: moving, rotating or resetting the panel never
+changes the field, anchor, hologram, step, Autonomous Assembly or camera
+monitoring, and Re-anchor no longer moves the panel. The panel pose lasts for
+the XR session (no cross-session persistence is claimed).
+
+**Language.** The whole UI is English. German voice aliases remain accepted as
+voice input; user-entered names and AI-generated text are shown unchanged.
+
