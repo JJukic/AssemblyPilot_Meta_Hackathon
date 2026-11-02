@@ -54,6 +54,7 @@ export interface InteractionDiagnostics {
   lastAction: string | null;
   lastFailure: string | null;
   hasTrackedRay: boolean;
+  manipulation: string;
 }
 
 export const EMPTY_DIAGNOSTICS: InteractionDiagnostics = {
@@ -64,6 +65,7 @@ export const EMPTY_DIAGNOSTICS: InteractionDiagnostics = {
   lastAction: null,
   lastFailure: null,
   hasTrackedRay: false,
+  manipulation: "idle",
 };
 
 /** Effective hover across hands: any source currently on a button wins. */

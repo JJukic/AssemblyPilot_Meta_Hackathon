@@ -8,6 +8,9 @@ import {
   EMPTY_DIAGNOSTICS, SelectDebouncer, effectiveHover, rayEndpoint, uvToPanel,
   type InteractionDiagnostics,
 } from "./interaction";
+import {
+  ManipulationMachine, PANEL_SCALE_DEFAULT, clampPanelScale, panelRegionAt,
+} from "./panel-manipulation";
 
 export type Action =
   | "previous"
@@ -150,6 +153,14 @@ export class SpatialSession {
   private lastHoverDrawn: { x: number; y: number } | null = null;
   private pressedTimer: ReturnType<typeof setTimeout> | null = null;
   private debouncer = new SelectDebouncer(300);
+  readonly manipulation = new ManipulationMachine();
+  private manipSource: XRInputSource | null = null;
+  private dragOffset = new THREE.Vector3();
+  private resizeStart: { distance: number; scale: number } | null = null;
+  private panelPos = new THREE.Vector3();
+  private panelQuat = new THREE.Quaternion();
+  private panelScale = PANEL_SCALE_DEFAULT;
+  get currentPanelScale() { return this.panelScale; }
   private fieldConfig: AssemblyFieldConfig = { ...DEFAULT_FIELD };
   private fieldGroup: THREE.Group | null = null;
   private reticle = new THREE.Mesh(
@@ -188,10 +199,13 @@ export class SpatialSession {
       }),
     );
     this.panel.renderOrder = 10;
+    this.loadPanelScale();
     this.scene.add(this.origin, this.panel, this.reticle);
     this.rebuildField();
     session.addEventListener("end", this.onEnd);
     session.addEventListener("select", this.onSelect);
+    session.addEventListener("selectstart", this.onSelectStart);
+    session.addEventListener("selectend", this.onSelectEnd);
     session.addEventListener("visibilitychange", this.onVisibility);
     session.addEventListener("inputsourceschange", this.onSourcesChange);
   }
@@ -263,6 +277,39 @@ export class SpatialSession {
     group.add(plane, boundary, front);
     this.fieldGroup = group;
     this.origin.add(group);
+  }
+  private applyPanelTransform() {
+    this.panel.matrixAutoUpdate = false;
+    this.panel.matrix.compose(
+      this.panelPos,
+      this.panelQuat,
+      new THREE.Vector3(this.panelScale, this.panelScale, 1),
+    );
+    this.panel.matrixWorldNeedsUpdate = true;
+  }
+  /** Explicit user actions; these affect ONLY the floating panel. */
+  resetPanelSize() {
+    this.panelScale = PANEL_SCALE_DEFAULT;
+    this.applyPanelTransform();
+    this.persistPanelScale();
+    this.message = "Panel size reset. The assembly field did not move.";
+    this.draw();
+  }
+  setPanelScale(scale: number) {
+    this.panelScale = clampPanelScale(scale);
+    this.applyPanelTransform();
+    this.persistPanelScale();
+  }
+  private persistPanelScale() {
+    try {
+      localStorage.setItem("assemblypilot.panel-scale", String(this.panelScale));
+    } catch { /* storage unavailable in this context */ }
+  }
+  private loadPanelScale() {
+    try {
+      const raw = Number(localStorage.getItem("assemblypilot.panel-scale"));
+      if (Number.isFinite(raw) && raw > 0) this.panelScale = clampPanelScale(raw);
+    } catch { /* keep the default */ }
   }
   update(info: Guidance) {
     this.info = info;
@@ -344,6 +391,13 @@ export class SpatialSession {
     c.fillStyle = "rgba(4,16,26,.96)";
     c.fillRect(0, 0, PANEL_W, PANEL_H);
     const info = this.info;
+    // Title bar = drag handle. Highlight tracks the manipulation state.
+    const manipState = this.manipulation.state;
+    c.fillStyle = manipState === "dragging" ? "#2f9ec7" : manipState === "hovering_drag_handle" ? "#1d6d8a" : "rgba(20,50,70,.95)";
+    c.fillRect(0, 0, PANEL_W, 56);
+    c.fillStyle = "#bffaff";
+    c.font = "20px sans-serif";
+    c.fillText(manipState === "dragging" ? "⠿ MOVING PANEL — release to drop" : "⠿ AssemblyPilot", PANEL_W - 260, 38);
     const stepLabel = info.stepLabel ?? info.text.split("—")[0]?.trim() ?? "";
     const title = info.title ?? info.text;
     // Header
@@ -571,6 +625,16 @@ export class SpatialSession {
       c.arc(this.hoverPoint.x, this.hoverPoint.y, 4, 0, Math.PI * 2);
       c.fill();
     }
+    // Resize handle (lower-right corner): grip box, highlighted on hover/active.
+    const resizing = manipState === "resizing" || manipState === "hovering_resize_handle";
+    c.fillStyle = resizing ? "#2f9ec7" : "rgba(27,74,102,.9)";
+    c.fillRect(PANEL_W - 64, PANEL_H - 64, 64, 64);
+    c.strokeStyle = resizing ? "#ffffff" : "#7df3ff";
+    c.lineWidth = resizing ? 5 : 3;
+    c.strokeRect(PANEL_W - 64, PANEL_H - 64, 64, 64);
+    c.fillStyle = "#ffffff";
+    c.font = "bold 26px sans-serif";
+    c.fillText("◢", PANEL_W - 44, PANEL_H - 20);
     if (this.hoveredButton && !info.anchorLabel) {
       c.fillStyle = "#7df3ff";
       c.font = "bold 19px sans-serif";
@@ -691,9 +755,72 @@ export class SpatialSession {
     return { origin, direction, hit, point, button: panelButtonAt(point.x, point.y) };
   }
 
+  private panelPlaneHit(source: XRInputSource, xrFrame: XRFrame): THREE.Vector3 | null {
+    if (!this.reference || typeof xrFrame.getPose !== "function") return null;
+    const pose = xrFrame.getPose(source.targetRaySpace, this.reference);
+    if (!pose) return null;
+    const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
+    const origin = new THREE.Vector3().setFromMatrixPosition(m);
+    const direction = new THREE.Vector3(0, 0, -1).transformDirection(m).normalize();
+    const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(this.panelQuat);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, this.panelPos);
+    return new THREE.Raycaster(origin, direction).ray.intersectPlane(plane, new THREE.Vector3());
+  }
+
+  private applyManipulation(source: XRInputSource, xrFrame: XRFrame) {
+    if (!this.manipulation.active || this.manipSource !== source) return;
+    const hit = this.panelPlaneHit(source, xrFrame);
+    if (!hit) {
+      // Tracking lost mid-gesture: end at the last applied transform.
+      this.manipulation.cancel();
+      this.manipSource = null;
+      this.interaction.manipulation = "idle (tracking lost — panel kept its position)";
+      this.interaction.lastFailure = "Manipulation cancelled: hand tracking lost; panel kept its last position";
+      return;
+    }
+    this.manipulation.move([hit.x, hit.y, hit.z]);
+    if (this.manipulation.state === "dragging") {
+      this.panelPos.copy(hit).add(this.dragOffset);
+    } else if (this.manipulation.state === "resizing" && this.resizeStart) {
+      const distance = Math.max(0.05, hit.distanceTo(this.panelPos));
+      this.panelScale = clampPanelScale(this.resizeStart.scale * (distance / this.resizeStart.distance));
+    }
+    this.applyPanelTransform();
+    this.interaction.manipulation = this.manipulation.state;
+  }
+
+  private onSelectStart = (event: XRInputSourceEvent) => {
+    if (this.manipulation.active) return;
+    const source = event.inputSource as XRInputSource;
+    const result = this.raycastPanel(source, event.frame as XRFrame);
+    if (!result?.hit || !result.point) return;
+    const region = panelRegionAt(result.point.x, result.point.y, PANEL_W, PANEL_H);
+    if (!region || region === "panel") return;
+    const hit = this.panelPlaneHit(source, event.frame as XRFrame);
+    if (!hit) return;
+    if (!this.manipulation.grab(region, [hit.x, hit.y, hit.z])) return;
+    this.manipSource = source;
+    if (region === "drag") this.dragOffset.copy(this.panelPos).sub(hit);
+    else this.resizeStart = { distance: Math.max(0.05, hit.distanceTo(this.panelPos)), scale: this.panelScale };
+    this.interaction.manipulation = this.manipulation.state;
+    this.interaction.lastFailure = null;
+    this.draw();
+  };
+
+  private onSelectEnd = () => {
+    if (!this.manipulation.active) return;
+    this.manipulation.release();
+    this.manipSource = null;
+    this.resizeStart = null;
+    this.persistPanelScale();
+    this.interaction.manipulation = "idle";
+    this.draw();
+  };
+
   private updateInputRays(xrFrame: XRFrame) {
     if (this.ended) return;
     this.syncInputSources();
+    if (this.manipSource) this.applyManipulation(this.manipSource, xrFrame);
     let anyTracked = false;
     let intersects = false;
     for (const [source, visual] of this.inputVisuals) {
@@ -737,6 +864,12 @@ export class SpatialSession {
       ...d,
       tracked: Array.from(this.inputVisuals.values())[i]?.line.visible ?? d.tracked,
     }));
+    if (!this.manipulation.active) {
+      const point = this.hoverPoint;
+      const region = point ? panelRegionAt(point.x, point.y, PANEL_W, PANEL_H) : null;
+      this.manipulation.hover(region, !!effectiveHover(this.hoverBySource.values()));
+      this.interaction.manipulation = this.manipulation.state;
+    }
     const hoverId = effectiveHover(this.hoverBySource.values());
     const hoverButton = hoverId ? PANEL_BUTTONS.find((b) => b.id === hoverId) ?? null : null;
     const moved = this.hoverPoint
@@ -758,6 +891,16 @@ export class SpatialSession {
     if (!this.debouncer.tryAccept(key, Date.now())) {
       this.interaction.lastFailure = "Duplicate select ignored (one gesture, one action)";
       return;
+    }
+    if (this.manipulation.active) {
+      if (source !== this.manipSource) {
+        this.interaction.lastFailure = "Select ignored: panel manipulation in progress with the other hand";
+        return;
+      }
+      if (this.manipulation.moved) {
+        this.interaction.lastFailure = "Click suppressed: the pinch moved/resized the panel";
+        return;
+      }
     }
     if (!this.reference || !this.tracking) {
       this.interaction.lastFailure = "Select ignored: XR tracking unavailable";
@@ -834,10 +977,10 @@ export class SpatialSession {
     this.tracking = true;
     const head = new THREE.Matrix4().fromArray(pose.transform.matrix);
     if (!this.panelPlaced) {
-      this.panel.matrixAutoUpdate = false;
-      this.panel.matrix
-        .copy(head)
-        .multiply(new THREE.Matrix4().makeTranslation(0, 0.12, -0.85));
+      this.panelPos.setFromMatrixPosition(head);
+      this.panelQuat.setFromRotationMatrix(head);
+      this.panelPos.add(new THREE.Vector3(0, 0.12, -0.85).applyQuaternion(this.panelQuat));
+      this.applyPanelTransform();
       this.panelPlaced = true;
     }
     this.updateInputRays(frame);
@@ -949,6 +1092,8 @@ export class SpatialSession {
     this.anchor?.delete();
     this.setReferenceImage(null);
     this.session.removeEventListener("select", this.onSelect);
+    this.session.removeEventListener("selectstart", this.onSelectStart);
+    this.session.removeEventListener("selectend", this.onSelectEnd);
     this.session.removeEventListener("visibilitychange", this.onVisibility);
     this.session.removeEventListener("inputsourceschange", this.onSourcesChange);
     this.session.removeEventListener("end", this.onEnd);

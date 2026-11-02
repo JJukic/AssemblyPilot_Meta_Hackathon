@@ -656,3 +656,20 @@ summary through `/api/ar-camera`; the HoloLens polls for it and shows
 it without leaving AR. Whether native in-XR camera capture works on
 HoloLens Edge is a device result, not a code assumption — run the
 acceptance scenario in PR #11 and record which path the probe took.
+
+## Draggable and resizable AR panel
+
+The instruction panel is a spatial window (default 85% size). Pinch
+the title bar (⠿ AssemblyPilot) and move your hand to drag it — the
+grab offset is preserved, so it does not jump; release to drop it. It
+keeps that position across steps, results and view switches, and never
+follows your head. Pinch the ◢ lower-right corner and move outward or
+inward to resize (aspect preserved, 65–140%); the preferred scale is
+remembered between sessions, the position is not (recenter instead).
+A pinch that begins on the title bar or corner can never fire a
+button, and a moved pinch suppresses its click. Losing hand tracking
+mid-drag keeps the panel where it was. Dragging/resizing writes only
+the panel mesh transform — the anchored assembly field is untouched.
+Fallbacks: "Recenter panel" and "Reset panel size" on the AR page.
+Real-device manipulation feel (drag smoothness, readable sizes) is a
+pending HoloLens check; automated tests use mocked XR inputs.
