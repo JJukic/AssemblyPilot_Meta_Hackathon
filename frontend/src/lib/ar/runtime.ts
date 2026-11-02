@@ -3,6 +3,7 @@ import { disposeObject, ghost } from "./geometry";
 import type { Placement } from "./data";
 import { fitRect } from "./reference";
 import { paginate, verificationLabel, wrapText, type VerificationStatus } from "./panel";
+import type { CaptureView, IndicatorTone } from "./capturePreview";
 import {
   AnchorTracker, DEFAULT_FIELD, EMPTY_FIELD_DIAGNOSTICS, fieldCorners, fieldInView, fieldViewGeometry,
   validPose, type AssemblyFieldConfig, type FieldDiagnostics,
@@ -27,7 +28,8 @@ export type Action =
   | "help"
   | "voice"
   | "result"
-  | "auto";
+  | "auto"
+  | "camera";
 export interface Guidance {
   placement: Placement | null;
   text: string;
@@ -52,6 +54,7 @@ export interface Guidance {
   resultErrorsOnly?: boolean;
 }
 
+export type PanelView = "guide" | "result" | "camera";
 export const PANEL_W = 1024;
 export const PANEL_H = 640;
 export interface PanelButton {
@@ -92,6 +95,7 @@ export const PANEL_BUTTONS: PanelButton[] = [
       ["reanchor", "Re-anchor"],
       ["recenter", "Recenter"],
       ["reference", "Reference"],
+      ["camera", "Camera"],
       ["result", "Result"],
       ["page", "More text"],
       ["help", "Help"],
@@ -106,6 +110,14 @@ export function panelButtonAt(x: number, y: number): PanelButton | null {
     null
   );
 }
+
+const TONE_COLOR: Record<IndicatorTone, string> = {
+  idle: "#9fb3c0",
+  info: "#7df3ff",
+  ok: "#6dffa8",
+  warn: "#ffd166",
+  error: "#ff9d9d",
+};
 
 type RefImage = {
   width: number;
@@ -154,7 +166,12 @@ export class SpatialSession {
   private refImage: RefImage | null = null;
   private showReference = true;
   private helpVisible = false;
-  private viewMode: "guide" | "result" = "guide";
+  private viewMode: PanelView = "guide";
+  /** Decoded inspection captures, keyed by capture id; bounded to the ≤2 ids referenced below. */
+  private captureImages = new Map<number, RefImage>();
+  private captureCurrent: CaptureView | null = null;
+  private captureResult: CaptureView | null = null;
+  private indicator: { label: string; tone: IndicatorTone } = { label: "", tone: "idle" };
   private resultPage = 0;
   private instructionPage = 0;
   private lastInstruction = "";
@@ -386,7 +403,68 @@ export class SpatialSession {
     this.helpVisible = value;
     this.draw();
   }
-  setViewMode(mode: "guide" | "result") {
+  /**
+   * Inspection-capture views. `current` = latest capture (Camera view),
+   * `result` = capture that produced the displayed result (thumbnail in the
+   * Result view). Bitmaps of ids no longer referenced are closed here.
+   * Panel-only: never touches the origin, anchor or assembly field.
+   */
+  setCaptures(current: CaptureView | null, result: CaptureView | null, indicator: { label: string; tone: IndicatorTone }) {
+    this.captureCurrent = current;
+    this.captureResult = result;
+    this.indicator = indicator;
+    for (const [id, image] of Array.from(this.captureImages)) {
+      if (id !== current?.id && id !== result?.id) {
+        try { image.close?.(); } catch { /* already closed */ }
+        this.captureImages.delete(id);
+      }
+    }
+    this.draw();
+  }
+  /** Attach a decoded image; returns false (caller must close it) when the id is stale. */
+  setCaptureBitmap(id: number, decoded: { width: number; height: number; close?: () => void }): boolean {
+    const image = decoded as unknown as RefImage;
+    if (this.ended || (id !== this.captureCurrent?.id && id !== this.captureResult?.id)) return false;
+    const old = this.captureImages.get(id);
+    if (old && old !== image) {
+      try { old.close?.(); } catch { /* already closed */ }
+    }
+    this.captureImages.set(id, image);
+    this.draw();
+    return true;
+  }
+  get captureImageCount() {
+    return this.captureImages.size;
+  }
+  private drawCapture(c: CanvasRenderingContext2D, view: CaptureView, box: { x: number; y: number; w: number; h: number }) {
+    const image = this.captureImages.get(view.id);
+    c.strokeStyle = view.tone === "error" ? "#ff6b6b" : view.isNew ? "#ffffff" : "#38d9ff";
+    c.lineWidth = view.isNew ? 5 : 3;
+    c.strokeRect(box.x, box.y, box.w, box.h);
+    if (image) {
+      // Aspect-preserving, unmirrored: positive width/height, no transforms.
+      const fit = fitRect(image.width, image.height, box.w - 8, box.h - 8);
+      try {
+        c.drawImage(image as unknown as CanvasImageSource, box.x + 4 + fit.x, box.y + 4 + fit.y, fit.w, fit.h);
+      } catch {
+        c.fillStyle = "#ffd166";
+        c.font = "21px sans-serif";
+        c.fillText("Captured image could not be drawn", box.x + 14, box.y + 60);
+      }
+    } else {
+      c.fillStyle = "#ffd166";
+      c.font = "21px sans-serif";
+      c.fillText("Decoding the captured image…", box.x + 14, box.y + 60);
+    }
+    if (view.tone === "error" && !view.sent) {
+      c.fillStyle = "rgba(139,30,45,.85)";
+      c.fillRect(box.x + 4, box.y + box.h - 40, box.w - 8, 36);
+      c.fillStyle = "#ffffff";
+      c.font = "bold 20px sans-serif";
+      c.fillText("NOT SENT TO META", box.x + 14, box.y + box.h - 15);
+    }
+  }
+  setViewMode(mode: PanelView) {
     if (this.viewMode !== mode) this.resultPage = 0;
     this.viewMode = mode;
     this.draw();
@@ -445,16 +523,47 @@ export class SpatialSession {
           : "#ffb3b3";
     c.font = "bold 24px sans-serif";
     c.fillText(vLabel, 560, 38);
-    // Title (2 lines)
+    // Persistent inspection indicator (real pipeline events only).
+    if (this.indicator.label) {
+      c.fillStyle = TONE_COLOR[this.indicator.tone];
+      c.font = "bold 20px sans-serif";
+      c.fillText(this.indicator.label.slice(0, 22), 300, 38);
+    }
+    // Title (2 lines) — omitted in Camera view to give the image room.
     c.fillStyle = "#ffffff";
     c.font = "bold 30px sans-serif";
-    wrapText(title, 62)
-      .slice(0, 2)
-      .forEach((line, i) => c.fillText(line, 20, 76 + i * 34));
+    if (this.viewMode !== "camera")
+      wrapText(title, 62)
+        .slice(0, 2)
+        .forEach((line, i) => c.fillText(line, 20, 76 + i * 34));
     const hasRef = !!info.hasReference;
     const showRef = hasRef && this.showReference;
     const maxChars = showRef ? 42 : 68;
-    if (this.viewMode === "result" && info.resultHeadline) {
+    if (this.viewMode === "camera") {
+      const view = this.captureCurrent;
+      if (!view) {
+        c.fillStyle = "#eafcff";
+        c.font = "25px sans-serif";
+        [
+          "No inspection frame captured for this step yet.",
+          "This view shows ONLY the exact camera image selected",
+          "for a Meta inspection (autonomous or Verify Step) —",
+          "never live video and never the reference photo.",
+        ].forEach((line, i) => c.fillText(line, 20, 110 + i * 34));
+      } else {
+        this.drawCapture(c, view, { x: 12, y: 62, w: 620, h: 302 });
+        c.fillStyle = view.isNew ? "#ffffff" : "#83e8eb";
+        c.font = "bold 18px sans-serif";
+        c.fillText(view.isNew ? "● NEW FRAME CAPTURED" : view.title.slice(0, 34), 646, 86);
+        c.fillStyle = TONE_COLOR[view.tone];
+        c.font = "bold 22px sans-serif";
+        wrapText(view.status, 28).slice(0, 2).forEach((line, i) => c.fillText(line, 646, 116 + i * 28));
+        c.fillStyle = "#eafcff";
+        c.font = "19px sans-serif";
+        view.lines.flatMap((line) => wrapText(line, 34)).slice(0, 8)
+          .forEach((line, i) => c.fillText(line, 646, 178 + i * 24));
+      }
+    } else if (this.viewMode === "result" && info.resultHeadline) {
       // Real Meta result: headline answers "is it correct?", lines answer
       // "what is wrong?" and "what next?", paginated — never truncated.
       const toneColor: Record<string, string> = {
@@ -484,7 +593,14 @@ export class SpatialSession {
           168 + 6 * 30,
         );
       }
-      if (hasRef) {
+      if (this.captureResult) {
+        // The result is shown next to the exact image that produced it.
+        const box = { x: 664, y: 116, w: 340, h: 250 };
+        c.fillStyle = "#83e8eb";
+        c.font = "bold 19px sans-serif";
+        c.fillText(`CAPTURED FRAME ${this.captureResult.time}${this.captureResult.sent ? " (sent)" : " (not sent)"}`, box.x + 8, box.y - 8);
+        this.drawCapture(c, this.captureResult, box);
+      } else if (hasRef) {
         const box = { x: 664, y: 116, w: 340, h: 250 };
         c.strokeStyle = "#38d9ff";
         c.lineWidth = 3;
@@ -515,7 +631,7 @@ export class SpatialSession {
       const help = [
         "Voice / button commands:",
         "Next step · Previous step · Verify step",
-        "Show reference · Hide reference",
+        "Show/Hide reference · Camera = exact frame sent to Meta",
         "Show instructions · Read instructions",
         "Re-anchor · Recenter · Help · Stop listening · Exit AR",
         "Auto ▶ starts hands-free monitoring (tap again to pause).",
@@ -634,6 +750,10 @@ export class SpatialSession {
       const rawLabel =
         b.id === "auto"
           ? (info.autoButton ?? b.label)
+          : b.id === "camera"
+          ? this.viewMode === "camera"
+            ? "Guide"
+            : "Camera"
           : b.id === "result"
           ? this.viewMode === "result"
             ? "Guide"
@@ -644,7 +764,11 @@ export class SpatialSession {
               : "Show ref."
             : b.label;
       const label = this.hoveredButton?.id === b.id ? rawLabel.toUpperCase() : rawLabel;
-      const w = c.measureText(label).width;
+      let w = c.measureText(label).width;
+      if (w > b.w - 12) {
+        c.font = b.danger ? "bold 22px sans-serif" : "bold 18px sans-serif";
+        w = c.measureText(label).width;
+      }
       c.fillText(label, b.x + Math.max(8, (b.w - w) / 2), b.y + 52);
     }
     // Targeting cursor drawn in panel space at the exact ray hit.
@@ -1012,6 +1136,9 @@ export class SpatialSession {
       } else if (button.id === "reference") {
         this.showReference = !this.showReference;
         this.draw();
+      } else if (button.id === "camera") {
+        this.viewMode = this.viewMode === "camera" ? "guide" : "camera";
+        this.draw();
       } else if (button.id === "result") {
         this.viewMode = this.viewMode === "result" ? "guide" : "result";
         this.resultPage = 0;
@@ -1218,6 +1345,10 @@ export class SpatialSession {
     this.hit?.cancel();
     this.anchor?.delete();
     this.setReferenceImage(null);
+    for (const image of this.captureImages.values()) {
+      try { image.close?.(); } catch { /* already closed */ }
+    }
+    this.captureImages.clear();
     this.session.removeEventListener("select", this.onSelect);
     this.session.removeEventListener("selectstart", this.onSelectStart);
     this.session.removeEventListener("selectend", this.onSelectEnd);

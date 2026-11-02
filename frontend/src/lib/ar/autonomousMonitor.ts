@@ -191,7 +191,18 @@ export class MonitorCamera implements AutoCamera {
         if (candidates.length < count) await new Promise((r) => setTimeout(r, intervalMs));
       }
       const pick = pickBestCandidate(candidates.map((c) => c.stats), minClock);
-      if (!pick.ok) return { ok: false, reason: pick.reason };
+      if (!pick.ok) {
+        // Show the user what the camera actually saw (labelled NOT SENT); never uploaded.
+        const shown = candidates.reduce<(typeof candidates)[number] | null>(
+          (best, c) => (!best || c.stats.sharpness > best.stats.sharpness ? c : best), null);
+        return {
+          ok: false,
+          reason: pick.reason,
+          preview: shown
+            ? { dataUrl: shown.canvas.toDataURL("image/jpeg", 0.8), width: vw, height: vh, capturedAt: shown.capturedAt }
+            : null,
+        };
+      }
       const winner = candidates[pick.index];
       return {
         ok: true,

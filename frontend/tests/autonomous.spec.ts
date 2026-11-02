@@ -97,3 +97,34 @@ test("initial assessment: already-placed stable construction is assessed once, n
   expect(state.inspects).toBe(1);
   await page.getByRole("button", { name: "Stop Autonomous Assembly" }).click();
 });
+
+test("capture preview: the panel preview record is the exact uploaded JPEG (same SHA-256 as the request body)", async ({ page, request }) => {
+  test.setTimeout(60000);
+  const project = await project2(request);
+  await fakeCamera(page);
+  const uploads: string[] = [];
+  await page.route("**/api/inspect", async (r) => {
+    const body = r.request().postDataBuffer() ?? Buffer.alloc(0);
+    const marker = body.indexOf('name="image"');
+    const start = body.indexOf("\r\n\r\n", marker) + 4;
+    const boundary = body.subarray(0, body.indexOf("\r\n"));
+    const end = body.indexOf(boundary, start) - 2;
+    const { createHash } = await import("node:crypto");
+    uploads.push(createHash("sha256").update(body.subarray(start, end)).digest("hex"));
+    return r.fulfill({ status: 422, json: { detail: "mocked invalid inspection" } });
+  });
+  await page.goto(`/ar?project=${project.id}`);
+  await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
+  await page.getByRole("button", { name: "Start Autonomous Assembly" }).click();
+  await expect(autoStatus(page)).toContainText("Watching for physical assembly changes", { timeout: 20000 });
+  await page.getByRole("button", { name: "Inspect Now" }).click();
+  await expect.poll(() => uploads.length, { timeout: 20000 }).toBe(1);
+  await page.getByText("Inspection diagnostics (latest request)").click();
+  const preview = page.getByRole("status", { name: "AR panel capture preview" });
+  await expect(preview).toContainText(`SHA-256 ${uploads[0]}`, { timeout: 10000 });
+  await expect(preview).toContainText("upload started yes");
+  await expect(preview).toContainText("same image as this trace");
+  await expect(page.getByRole("status", { name: "Inspection diagnostics" })).toContainText(uploads[0]);
+  expect(uploads.length).toBe(1);
+  await page.getByRole("button", { name: "Stop Autonomous Assembly" }).click();
+});

@@ -247,3 +247,36 @@ test("failure classification never turns infrastructure into a visual verdict", 
   assert.equal(classifyFailure(Object.assign(new Error("The operation was aborted"), { name: "AbortError" })), "aborted");
   assert.equal(classifyFailure(new Error("Invalid verification evidence. No verification was accepted.")), "invalid_response");
 });
+
+test("rejected burst: the unsent frame is reported for the panel, nothing is inspected or charged", async () => {
+  const { c, env, tick, world } = harness();
+  const rejected = [];
+  c.deps.onFrameRejected = (preview, reason) => rejected.push({ preview, reason });
+  await tick(6);
+  env.selection = { ok: false, reason: "No usable fresh frame in the burst (too dark).", preview: { dataUrl: "data:image/jpeg;base64,DARK", width: 1280, height: 720, capturedAt: "t" } };
+  env.scene = block(world, 80, 60, 10, 8);
+  await tick(8);
+  assert.equal(env.calls.length, 0);
+  assert.equal(c.machine.inspectionsUsed, 0);
+  assert.ok(rejected.length >= 1);
+  assert.equal(rejected[0].preview.dataUrl, "data:image/jpeg;base64,DARK");
+});
+
+test("the frame given to inspect() is exactly the selected frame object (no re-capture between selection and upload)", async () => {
+  const { c, env, tick, world } = harness();
+  const selected = [], inspected = [];
+  const select = c.deps.selectFrame;
+  c.deps.selectFrame = async (minClock) => {
+    const result = await select(minClock);
+    if (result.ok) selected.push(result.frame);
+    return result;
+  };
+  const inspect = c.deps.inspect;
+  c.deps.inspect = async (intent, frame, stepId) => { inspected.push(frame); return inspect(intent, frame, stepId); };
+  env.respond = { kind: "inspection", status: "incorrect" };
+  await tick(6);
+  env.scene = block(world, 80, 60, 10, 8);
+  await tick(8);
+  assert.equal(inspected.length, 1);
+  assert.equal(inspected[0], selected[0], "identical object: same snapshot, same data URL, same clock");
+});

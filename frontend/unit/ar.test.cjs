@@ -112,7 +112,9 @@ global.document = {
       clearRect() {},
       fillRect() {},
       strokeRect() {},
-      drawImage() {},
+      drawImage(image, x, y, w, h) {
+        (globalThis.__drawCalls ??= []).push({ image, x, y, w, h });
+      },
       fillText(text) {
         (globalThis.__canvasTexts ??= []).push(String(text));
       },
@@ -557,4 +559,107 @@ test("panel Auto button exists in the first row, keeps a large EXIT, and dispatc
   assert.equal(panelButtonAt(auto.x + 4, auto.y + 4).id, "auto");
   assert.ok(exit.w >= 200);
   assert.ok(PANEL_BUTTONS.every((b) => b.x + b.w <= 1024));
+});
+
+/* ---------- Inspection capture preview in the AR panel ---------- */
+const { captureView, CapturePreviewStore } = require("../src/lib/ar/capturePreview.ts");
+const rec = (store, over = {}) => store.begin({
+  projectId: "p", stepId: "s1", source: "hololens camera", intent: "inspect",
+  capturedAt: new Date().toISOString(), width: 1280, height: 720, dataUrl: "data:image/jpeg;base64,AA", detail: "", ...over,
+});
+const bitmap = (w, h) => ({ width: w, height: h, closed: 0, close() { this.closed++; } });
+
+test("capture preview: Camera view draws the exact decoded capture, aspect preserved, never mirrored, distinct from the reference", async () => {
+  const { runtime } = await setup();
+  const store = new CapturePreviewStore();
+  const id = rec(store);
+  const ref = bitmap(800, 800);
+  runtime.update({ placement: placement(), text: "Step 1", detail: "", hasReference: true });
+  runtime.setReferenceImage(ref);
+  runtime.setCaptures(captureView(store.current), null, { label: "◉ CAPTURED", tone: "info" });
+  const shot = bitmap(1280, 720);
+  assert.equal(runtime.setCaptureBitmap(id, shot), true);
+  globalThis.__drawCalls = [];
+  globalThis.__canvasTexts = [];
+  runtime.setViewMode("camera");
+  const calls = globalThis.__drawCalls.filter((c) => c.image === shot);
+  assert.equal(calls.length, 1, "the capture is drawn in Camera view");
+  assert.ok(!globalThis.__drawCalls.some((c) => c.image === ref), "Camera view never shows the reference photo");
+  const { w, h } = calls[0];
+  assert.ok(w > 0 && h > 0, "positive width/height: no mirroring");
+  assert.ok(Math.abs(w / h - 1280 / 720) < 0.01, "aspect ratio preserved");
+  assert.ok(w >= 500, "large enough to judge a printed face");
+  assert.ok(globalThis.__canvasTexts.some((t) => t.includes("◉ CAPTURED")), "indicator visible");
+  globalThis.__drawCalls = [];
+  runtime.setViewMode("guide");
+  assert.ok(globalThis.__drawCalls.some((c) => c.image === ref), "Guide view still shows the reference");
+  assert.ok(!globalThis.__drawCalls.some((c) => c.image === shot));
+  await runtime.end();
+  assert.equal(shot.closed, 1, "session end releases the capture bitmap");
+});
+
+test("capture preview: stale decodes are refused, replaced captures are released, at most two bitmaps kept", async () => {
+  const { runtime } = await setup();
+  const store = new CapturePreviewStore();
+  const first = rec(store);
+  store.finish(first, "complete", "Meta response received", "✗ Incorrect");
+  runtime.setCaptures(captureView(store.current), captureView(store.lastResult), { label: "", tone: "idle" });
+  const a = bitmap(1280, 720);
+  runtime.setCaptureBitmap(first, a);
+  const second = rec(store);
+  runtime.setCaptures(captureView(store.current), captureView(store.lastResult), { label: "", tone: "idle" });
+  assert.equal(a.closed, 0, "first capture still backs the displayed result");
+  const third = rec(store);
+  store.finish(third, "failed", "transport", "TRANSPORT ERROR");
+  runtime.setCaptures(captureView(store.current), captureView(store.lastResult), { label: "", tone: "idle" });
+  assert.equal(a.closed, 1, "no longer referenced: released");
+  const late = bitmap(1280, 720);
+  assert.equal(runtime.setCaptureBitmap(second, late), false, "a late decode of a superseded capture is refused");
+  assert.ok(runtime.captureImageCount <= 2);
+  await runtime.end();
+});
+
+test("capture preview: Result view pairs the result with ITS capture, not with a newer one", async () => {
+  const { runtime } = await setup();
+  const store = new CapturePreviewStore();
+  const old = rec(store);
+  store.finish(old, "complete", "", "✗ Incorrect");
+  const newer = rec(store);
+  runtime.update({ placement: placement(), text: "Step 1", detail: "", resultHeadline: "✗ Incorrect", resultTone: "incorrect", resultLines: ["Fix it"] });
+  runtime.setCaptures(captureView(store.current), captureView(store.byId(old)), { label: "", tone: "idle" });
+  const oldImg = bitmap(1280, 720), newImg = bitmap(1280, 720);
+  runtime.setCaptureBitmap(old, oldImg);
+  runtime.setCaptureBitmap(newer, newImg);
+  globalThis.__drawCalls = [];
+  runtime.setViewMode("result");
+  assert.ok(globalThis.__drawCalls.some((c) => c.image === oldImg));
+  assert.ok(!globalThis.__drawCalls.some((c) => c.image === newImg));
+  await runtime.end();
+});
+
+test("capture preview never touches the anchored field; panel resize, Camera button and view toggling still work", async () => {
+  const { runtime, tracked, anchor } = await anchoredSetup();
+  runtime.frame(2, tracked());
+  const pose = runtime.origin.matrix.clone();
+  const field = runtime.fieldGroup;
+  const store = new CapturePreviewStore();
+  for (let i = 0; i < 5; i++) {
+    const id = rec(store);
+    runtime.setCaptures(captureView(store.current), null, { label: "◉ INSPECTING", tone: "info" });
+    runtime.setCaptureBitmap(id, bitmap(1280, 720));
+    runtime.setViewMode(i % 2 ? "camera" : "result");
+    runtime.frame(3 + i, tracked(0.2));
+  }
+  assert.deepEqual(runtime.origin.matrix.elements, pose.elements);
+  assert.equal(runtime.fieldGroup, field);
+  assert.equal(runtime.fieldDiagnostics.fieldRendered, true);
+  assert.equal(anchor.deleted ?? 0, 0);
+  runtime.setPanelScale(1.2);
+  assert.equal(runtime.currentPanelScale, 1.2);
+  const { PANEL_BUTTONS, panelButtonAt } = require("../src/lib/ar/runtime.ts");
+  const cam = PANEL_BUTTONS.find((b) => b.id === "camera");
+  assert.ok(cam && cam.w >= 100);
+  assert.equal(panelButtonAt(cam.x + 3, cam.y + 3).id, "camera");
+  assert.ok(PANEL_BUTTONS.every((b) => b.x + b.w <= 1024));
+  await runtime.end();
 });

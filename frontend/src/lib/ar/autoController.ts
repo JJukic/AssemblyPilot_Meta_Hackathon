@@ -45,7 +45,8 @@ export interface SelectedFrame {
   sharpness: number;
 }
 
-export type Selection = { ok: true; frame: SelectedFrame } | { ok: false; reason: string };
+/** On rejection, `preview` is the best rejected candidate — shown as NOT SENT, never uploaded. */
+export type Selection = { ok: true; frame: SelectedFrame } | { ok: false; reason: string; preview?: Snapshot | null };
 
 export type InspectOutcome =
   | { kind: "inspection"; status: "correct" | "incorrect" | "uncertain"; needsView?: boolean }
@@ -93,6 +94,8 @@ export interface AutoDeps {
   context(): AutoContext;
   /** Re-check server progress and advance exactly one step if verified. */
   advance(stepId: string): Promise<void>;
+  /** A burst was rejected before upload (panel shows the unsent frame and why). */
+  onFrameRejected?(preview: Snapshot | null, reason: string): void;
   onStatus(status: AutoStatus): void;
   now(): number;
 }
@@ -312,6 +315,7 @@ export class AutoController {
     if (this.stopped || this.deps.context().stepId !== stepId || m.stepId !== stepId) return "Step changed";
     if (!selection.ok) {
       this.lastRejection = selection.reason;
+      this.deps.onFrameRejected?.(selection.preview ?? null, selection.reason);
       m.frameRejected();
       this.emit("quality_insufficient", "IMAGE QUALITY INSUFFICIENT", `${selection.reason} Nothing was sent to Meta.`);
       return selection.reason;

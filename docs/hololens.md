@@ -781,3 +781,36 @@ field was also hidden whenever the step hologram was absent.
   attempted up to 3 times (retries on 429/5xx), and SAM runs only when
   issues are reported (≤2 concepts) — worst case about 5 requests.
 
+
+## Inspection capture preview in the AR panel
+
+The floating panel has three views: **Guide** (instructions + expected
+reference), **Camera** (the inspection capture) and **Result** (Meta
+assessment next to the capture that produced it). Tap **Camera** to toggle.
+
+- The Camera view shows ONLY the exact snapshot object handed to the
+  inspection pipeline — the same data URL whose JPEG bytes are uploaded
+  and hashed (SHA-256 = the trace correlation id). It never shows live
+  video, the reference photo or a WebXR screenshot. Autonomous: the burst
+  winner. Manual Verify Step: the validated capture.
+- A burst where every candidate is rejected shows the best rejected frame
+  labelled **NOT SENT TO META** with the reason; it is never uploaded.
+- Phases follow real events: FRAME CAPTURED · VALIDATING → IMAGE REJECTED
+  or SENT TO BACKEND · INSPECTION RUNNING (set when the HTTP request
+  starts; the backend reports no intermediate progress, so no separate
+  "backend received"/"Meta started" state is claimed) → INSPECTION COMPLETE
+  ("Meta response received", attempts and latency as reported by the
+  backend) or INSPECTION FAILED (camera / transport / provider / conflict /
+  stale / rejected). A title-bar indicator (WATCHING · CAPTURED ·
+  INSPECTING · RESULT RECEIVED · ERROR) is visible in every view.
+- The backend re-encodes the upload (resized copy, SHA-checked in
+  `analyzed_snapshot`) and may add a print crop to the Muse request; that
+  crop is not returned, so the panel does not claim to show it.
+- At most two decoded images are kept (latest capture, capture behind the
+  shown result); replaced bitmaps are closed, late decodes of superseded
+  captures are discarded, a step change clears both, session end releases
+  all. Nothing is stored or uploaded for the preview.
+- Results from the external camera companion arrive without an image on
+  the HoloLens (no extra upload is made); the Result view then shows the
+  expected reference instead of a capture.
+- The preview is panel-only and never touches the field, origin or anchor.
