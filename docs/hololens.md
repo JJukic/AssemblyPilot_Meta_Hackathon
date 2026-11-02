@@ -689,3 +689,25 @@ memory only) with its fingerprint. Black, blank or content-free
 frames are rejected before upload and reported as camera failures,
 never as Meta uncertainty. A transport/backend failure is an
 inspection error, not an uncertain diagnosis.
+
+## Fully autonomous monitoring (head-motion tolerant)
+
+Autonomous Assembly now compensates global camera motion before
+judging change: each downscaled frame is registered to the previous
+one by its best integer translation, brightness-normalized, and only
+the remaining local difference inside the assembly region counts.
+Natural head sway therefore neither triggers Meta nor resets the
+stability wait, while a placed/removed/rotated block still qualifies
+after three stable observations. Recent candidate frames are scored
+(sharpness, exposure, stillness) in a bounded window of ten; the
+changed object's bounding box is estimated locally — if it is tiny in
+frame, the panel asks you to move closer instead of spending a Meta
+call that would return "print not read". The full frame is always the
+Meta image (the backend zoom-crops the print server-side); no crop is
+fabricated or substituted. One InspectionCoordinator lease serializes
+manual Verify, autonomous triggers and companion captures per step,
+navigation waits for Meta, and step changes invalidate stale work.
+Budgets: 20 s cooldown, 4 automatic calls per step, 12 per session.
+Tick "Assess blocks already placed" to allow one controlled initial
+inspection of a stable scene. Registration is approximate — the panel
+never claims camera pixels and hologram coordinates are identical.

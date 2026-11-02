@@ -245,3 +245,135 @@ export function classifyUncertain(input: {
     return { cause: "semantic", reason: "Meta Muse Spark assessed the physical image but could not establish correctness (visibility, occlusion or ambiguity). Follow the requested additional view." };
   return { cause: "none", reason: "" };
 }
+
+/* --------- Global-motion compensation on downscaled gray frames --------- */
+
+export interface RoiRect { x0: number; y0: number; x1: number; y1: number }
+
+/**
+ * Best integer translation of `curr` relative to `prev` (searched on a
+ * stride-2 grid). Head sway mostly translates the whole image; aligning
+ * by this shift removes that global motion before local diffing. This
+ * is a cheap registration, not a claim of exact camera calibration.
+ */
+export function estimateGlobalShift(
+  prev: Uint8Array, curr: Uint8Array, w: number, h: number, maxShift = 3,
+): { dx: number; dy: number; alignedDiff: number } {
+  let best = { dx: 0, dy: 0, alignedDiff: Number.POSITIVE_INFINITY };
+  for (let dy = -maxShift; dy <= maxShift; dy++) {
+    for (let dx = -maxShift; dx <= maxShift; dx++) {
+      let sum = 0, n = 0;
+      for (let y = 2; y < h - 2; y += 2) {
+        for (let x = 2; x < w - 2; x += 2) {
+          const cx = x + dx, cy = y + dy;
+          if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
+          sum += Math.abs(curr[cy * w + cx] - prev[y * w + x]) / 255;
+          n++;
+        }
+      }
+      const diff = n ? sum / n : 1;
+      if (diff < best.alignedDiff) best = { dx, dy, alignedDiff: diff };
+    }
+  }
+  return best;
+}
+
+/** ROI/outside diffs AFTER compensating the estimated global shift. */
+export function alignedDiffs(
+  prev: Uint8Array, curr: Uint8Array, w: number, h: number, roi: RoiRect,
+): { dx: number; dy: number; roiDiff: number; outsideDiff: number } {
+  const { dx, dy } = estimateGlobalShift(prev, curr, w, h);
+  // Global exposure/lighting shift is not an assembly change: estimate
+  // and remove the mean brightness delta before diffing.
+  let deltaSum = 0, deltaN = 0;
+  for (let y = 0; y < h; y += 2) {
+    for (let x = 0; x < w; x += 2) {
+      const cx = x + dx, cy = y + dy;
+      if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
+      deltaSum += curr[cy * w + cx] - prev[y * w + x];
+      deltaN++;
+    }
+  }
+  const meanDelta = deltaN ? deltaSum / deltaN : 0;
+  let roiSum = 0, roiN = 0, outSum = 0, outN = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const cx = x + dx, cy = y + dy;
+      if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
+      const d = Math.abs(curr[cy * w + cx] - meanDelta - prev[y * w + x]) / 255;
+      if (x >= roi.x0 && x < roi.x1 && y >= roi.y0 && y < roi.y1) { roiSum += d; roiN++; }
+      else { outSum += d; outN++; }
+    }
+  }
+  return {
+    dx, dy,
+    roiDiff: roiN ? roiSum / roiN : 0,
+    outsideDiff: outN ? outSum / outN : 0,
+  };
+}
+
+/** Normalized bounding box of locally changed pixels (after alignment). */
+export function diffBoundingBox(
+  prev: Uint8Array, curr: Uint8Array, w: number, h: number,
+  threshold = 0.12, dx = 0, dy = 0,
+): { x: number; y: number; w: number; h: number; fraction: number } | null {
+  let minX = w, minY = h, maxX = -1, maxY = -1, count = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const cx = x + dx, cy = y + dy;
+      if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
+      if (Math.abs(curr[cy * w + cx] - prev[y * w + x]) / 255 > threshold) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        count++;
+      }
+    }
+  }
+  if (maxX < 0 || count < 8) return null;
+  return {
+    x: minX / w, y: minY / h,
+    w: (maxX - minX + 1) / w, h: (maxY - minY + 1) / h,
+    fraction: count / (w * h),
+  };
+}
+
+/* ---------------- Bounded best-frame selection ---------------- */
+
+export interface FrameCandidate {
+  at: number;
+  frameTime: number;
+  hash: string;
+  sharpness: number;
+  meanBrightness: number;
+  roiDiff: number;
+}
+
+export function frameQualityScore(c: FrameCandidate): number {
+  const sharp = Math.min(1, c.sharpness / 40);
+  const exposure = 1 - Math.min(1, Math.abs(c.meanBrightness - 128) / 128);
+  const still = 1 - Math.min(1, c.roiDiff / 0.05);
+  return sharp * 0.55 + exposure * 0.25 + still * 0.2;
+}
+
+/** Small ring of recent candidate metadata — never stores image data. */
+export class BestFrameWindow {
+  private items: FrameCandidate[] = [];
+  constructor(private capacity = 10) {}
+  add(c: FrameCandidate) {
+    this.items.push(c);
+    if (this.items.length > this.capacity) this.items.shift();
+  }
+  get size() { return this.items.length; }
+  best(minScore = 0.35): FrameCandidate | null {
+    let winner: FrameCandidate | null = null;
+    let score = -1;
+    for (const item of this.items) {
+      const s = frameQualityScore(item);
+      if (s > score) { score = s; winner = item; }
+    }
+    return winner && score >= minScore ? winner : null;
+  }
+  clear() { this.items = []; }
+}

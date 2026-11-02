@@ -64,7 +64,8 @@ import {
   InspectionTrace, encodedByteSize, snapshotFingerprint,
   type InspectionDiagnostics,
 } from "@/lib/ar/inspectionTrace";
-import { classifyUncertain, type FrameQuality } from "@/lib/ar/monitoring";
+import { BestFrameWindow, classifyUncertain, type FrameQuality } from "@/lib/ar/monitoring";
+import { InspectionCoordinator } from "@/lib/ar/coordinator";
 import type { TraceSummary } from "@/lib/ar/inspectionResult";
 import type { ProjectDetail } from "@/types/projects";
 import type { SpatialSession, Action, Guidance } from "@/lib/ar/runtime";
@@ -143,6 +144,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     [camDeviceId, setCamDeviceId] = useState("");
   const [anchorUi, setAnchorUi] = useState("unplaced");
   const [pairingCode, setPairingCode] = useState("");
+  const [assessPlaced, setAssessPlaced] = useState(false);
   const [lastTrace, setLastTrace] = useState<InspectionDiagnostics | null>(null);
   const [lastFrame, setLastFrame] = useState<{ dataUrl: string; source: string; capturedAt: string; fingerprint: string; width: number; height: number } | null>(null);
   const [showFrame, setShowFrame] = useState(false);
@@ -150,6 +152,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [companionOn, setCompanionOn] = useState(false);
   const [interactionUi, setInteractionUi] = useState("");
   const machineRef = useRef<AutonomousMachine | null>(null);
+  const coordinatorRef = useRef(new InspectionCoordinator());
+  const frameWindowRef = useRef(new BestFrameWindow(10));
+  const initialStableRef = useRef(0);
   const gateRef = useRef(new FrameGate());
   const monitorRef = useRef<MonitorCamera | null>(null);
   const autoTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -423,6 +428,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   }, [active]);
   useEffect(() => {
     if (view.step_id) {
+      coordinatorRef.current.invalidateStep();
       machineRef.current?.stepChanged(view.step_id);
       autoWorkflow.current = null;
       gateRef.current.reset();
@@ -463,6 +469,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
 
   async function navigate(offset: number): Promise<ExecutionOutcome> {
     if (!project) return { ok: false, reason: "Project is still loading" };
+    if (coordinatorRef.current.busy && !advancingRef.current)
+      return { ok: false, reason: "Inspection running — navigation waits until Meta finishes" };
     if (!online) return { ok: false, reason: "Project state unavailable (offline)" };
     const current = viewRef.current;
     const index = project.steps.findIndex((s) => s.id === current.step_id);
@@ -878,6 +886,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     stepId: string,
     opts: { cameraSource?: string; quality?: FrameQuality; frameFresh?: boolean } = {},
   ): Promise<{ overallStatus: "correct" | "incorrect" | "uncertain" | "error"; verificationStatus?: string }> {
+    const lease = coordinatorRef.current.acquire(projectId, stepId, intent);
+    if (lease === null) return { overallStatus: "error" };
     const source = opts.cameraSource ?? cameraSource;
     const trace = new InspectionTrace(source, projectId, stepId);
     trace.stage("CAPTURE_REQUESTED", `${intent} requested`);
@@ -895,6 +905,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       trace.data.frameQuality = opts.quality.reason;
       trace.data.metaCalled = false;
       trace.fail(`FRAME_VALIDATED failed: ${opts.quality.reason}. No image was sent to Meta.`);
+      coordinatorRef.current.release(lease);
       trace.save();
       setLastTrace({ ...trace.data });
       const summary = autoErrorSummary(projectId, stepId, `No usable camera frame: ${opts.quality.reason}. Nothing was sent to Meta.`);
@@ -1005,6 +1016,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       setResultSummary(summary);
       return { overallStatus: "error" };
     } finally {
+      coordinatorRef.current.release(lease);
       if (autoAbort.current === controller) autoAbort.current = null;
     }
   }
@@ -1067,6 +1079,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   /* -------- Verify Step inside immersive AR (never exits XR) -------- */
   async function verifyInAR(mode: "inspect" | "verify" = "inspect"): Promise<ExecutionOutcome> {
     if (!active) return verify(mode); // explicit camera-workspace flow only outside XR
+    if (coordinatorRef.current.busy)
+      return { ok: false, reason: "An inspection is already running for this step — wait for its result in the panel" };
     if (!view.step_id || !project) return { ok: false, reason: "Current step is unknown" };
     const stepId = view.step_id;
     setStatus("Verify Step: capturing a fresh camera frame inside AR…");
@@ -1172,6 +1186,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     gateRef.current.reset();
     autoWorkflow.current = null;
     machine.start(projectId, view.step_id);
+    if (assessPlaced) machine.armInitialAssessment();
+    initialStableRef.current = 0;
     setAutoOn(true);
     setAutoPaused(false);
     syncAutoLabel();
@@ -1230,6 +1246,20 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         return;
       }
       misses = 0;
+      frameWindowRef.current.add({
+        at: sample.at, frameTime: sample.frameTime, hash: sample.hash,
+        sharpness: sample.sharpness, meanBrightness: monitorRef.current?.lastMeanBrightness ?? 0,
+        roiDiff: sample.roiDiff,
+      });
+      if (m.initialAssessmentArmed && m.state === "monitoring") {
+        if (sample.roiDiff < 0.008 && sample.sharpness >= 4) {
+          if (++initialStableRef.current >= 5) {
+            m.noteInitialAssessment();
+            setAutoStatus("Assessing the already-placed construction once (initial assessment)…");
+            void runAutoTrigger(false);
+          }
+        } else initialStableRef.current = 0;
+      }
       if (m.state === "correct_awaiting_verification" && gateRef.current.freshFrame(sample)) {
         void runAutoTrigger(false);
         return;
@@ -1241,7 +1271,19 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       else if (decision.kind === "occluded") setAutoStatus("Assembly appears obstructed — waiting for a clear view.");
       else if (decision.kind === "frozen") { m.cameraUnavailable(); setAutoStatus(decision.reason + " Monitoring paused; choose External or Manual."); }
       else if (decision.kind === "qualified") {
+        const box = monitorRef.current?.lastChangeBox;
+        if (box && box.fraction < 0.004) {
+          // The changed object is tiny in frame: spending Meta here would
+          // likely return 'print not read'. Ask for a better viewpoint.
+          setAutoStatus("ANOTHER VIEW NEEDED — the changed block is very small in the camera image. Move closer so the block and its printed side fill more of the view; monitoring continues.");
+          return;
+        }
+        if (!frameWindowRef.current.best()) {
+          setAutoStatus("Collecting a sharper, better-exposed frame before spending a Meta request…");
+          return;
+        }
         gateRef.current.noteInspected(decision.hash);
+        frameWindowRef.current.clear();
         void runAutoTrigger(false);
       }
       syncAutoLabel();
@@ -1559,6 +1601,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
             <option value="external">External tabletop camera</option>
             <option value="manual">Manual capture</option>
           </select>
+        </label>
+        <label>
+          <input type="checkbox" checked={assessPlaced} disabled={autoOn} onChange={(e) => setAssessPlaced(e.target.checked)} />{" "}
+          Assess blocks already placed when monitoring starts (one controlled inspection)
         </label>
         {cameraSource === "external" && (
           <label>

@@ -9,7 +9,7 @@
  * fresh snapshot through the existing Meta pipeline.
  */
 import type { Snapshot } from "@/types/assembly";
-import { assessCameraProbe, assessFrameQuality, type CameraVerdict, type FrameQuality, type FrameSample } from "./monitoring";
+import { alignedDiffs, assessCameraProbe, assessFrameQuality, diffBoundingBox, type CameraVerdict, type FrameQuality, type FrameSample } from "./monitoring";
 
 const W = 64, H = 48;
 
@@ -19,6 +19,9 @@ export class MonitorCamera {
   private statsCanvas: HTMLCanvasElement | null = null;
   private prev: Uint8Array | null = null;
   deviceLabel = "";
+  lastShift = { dx: 0, dy: 0 };
+  lastChangeBox: { x: number; y: number; w: number; h: number; fraction: number } | null = null;
+  lastMeanBrightness = 0;
 
   get live() {
     return !!this.stream?.getVideoTracks().some((t) => t.readyState === "live");
@@ -86,21 +89,27 @@ export class MonitorCamera {
       hash ^= gray[i] >> 2;
       hash = Math.imul(hash, 16777619);
     }
-    const inRoi = (x: number, y: number) => x >= 16 && x < 48 && y >= 12 && y < 36;
-    let roiSum = 0, roiN = 0, outSum = 0, outN = 0, sharp = 0, sharpN = 0;
+    let roiDiff = 0, outsideDiff = 0, sharp = 0, sharpN = 0;
+    let brightnessSum = 0;
+    for (let i = 0; i < gray.length; i++) brightnessSum += gray[i];
+    this.lastMeanBrightness = gray.length ? brightnessSum / gray.length : 0;
     if (prev) {
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        const i = y * W + x;
-        const d = Math.abs(gray[i] - prev[i]) / 255;
-        if (inRoi(x, y)) { roiSum += d; roiN++; } else { outSum += d; outN++; }
-        if (inRoi(x, y) && x + 1 < W) { sharp += Math.abs(gray[i] - gray[i + 1]); sharpN++; }
+      // Compensate global head/camera motion BEFORE judging local change.
+      const aligned = alignedDiffs(prev, gray, W, H, { x0: 16, y0: 12, x1: 48, y1: 36 });
+      this.lastShift = { dx: aligned.dx, dy: aligned.dy };
+      roiDiff = aligned.roiDiff;
+      outsideDiff = aligned.outsideDiff;
+      this.lastChangeBox = diffBoundingBox(prev, gray, W, H, 0.12, aligned.dx, aligned.dy);
+      for (let y = 12; y < 36; y++) for (let x = 16; x < 47; x++) {
+        sharp += Math.abs(gray[y * W + x] - gray[y * W + x + 1]);
+        sharpN++;
       }
     }
     const sharpness = sharpN ? sharp / sharpN : 0;
     return {
       hash: (hash >>> 0).toString(16),
-      roiDiff: roiN ? roiSum / roiN : 0,
-      outsideDiff: outN ? outSum / outN : 0,
+      roiDiff,
+      outsideDiff,
       sharpness,
       frameTime: video.currentTime,
       at: Date.now(),

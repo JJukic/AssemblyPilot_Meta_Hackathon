@@ -81,3 +81,18 @@ test("manual camera mode enables autonomous advance watching without continuous 
   await page.getByRole("button", { name: "Stop Autonomous Assembly" }).click();
   await expect(autoStatus(page)).toContainText("stopped");
 });
+
+test("initial assessment: already-placed stable construction is assessed once, never repeatedly", async ({ page, request }) => {
+  test.setTimeout(60000);
+  const a = await project2(request);
+  const state = await fakeCamera(page);
+  await page.goto(`/ar?project=${a.id}`);
+  await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
+  await page.getByLabel(/Assess blocks already placed/).check();
+  await page.getByRole("button", { name: "Start Autonomous Assembly" }).click();
+  await expect(autoStatus(page)).toContainText("monitoring active", { timeout: 20000 });
+  await expect.poll(() => state.inspects, { timeout: 20000 }).toBe(1);
+  await page.waitForTimeout(3000);
+  expect(state.inspects).toBe(1);
+  await page.getByRole("button", { name: "Stop Autonomous Assembly" }).click();
+});

@@ -37,15 +37,19 @@ export type AutoIntent = "inspect" | "verify" | "advance" | "none";
 export interface AutoConfig {
   minIntervalMs: number;
   maxAutoPerStep: number;
+  maxPerSession: number;
 }
 
-export const DEFAULT_AUTO: AutoConfig = { minIntervalMs: 20_000, maxAutoPerStep: 4 };
+export const DEFAULT_AUTO: AutoConfig = { minIntervalMs: 20_000, maxAutoPerStep: 4, maxPerSession: 12 };
 
 export class AutonomousMachine {
   state: AutoState = "idle";
   projectId = "";
   stepId = "";
   inspectionsUsed = 0;
+  sessionUsed = 0;
+  initialAssessmentArmed = false;
+  initialAssessmentUsed = false;
   lastRequestAt = 0;
   hasInspection = false;
   lastOutcome: "correct" | "incorrect" | "uncertain" | "error" | null = null;
@@ -60,8 +64,19 @@ export class AutonomousMachine {
 
   start(projectId: string, stepId: string) {
     this.projectId = projectId;
+    this.sessionUsed = 0;
+    this.initialAssessmentUsed = false;
     this.beginStep(stepId);
     this.state = "camera_initializing";
+  }
+
+  /** One controlled assessment of an already-placed, stable construction. */
+  armInitialAssessment() {
+    if (!this.initialAssessmentUsed) this.initialAssessmentArmed = true;
+  }
+  noteInitialAssessment() {
+    this.initialAssessmentArmed = false;
+    this.initialAssessmentUsed = true;
   }
 
   private beginStep(stepId: string) {
@@ -131,10 +146,13 @@ export class AutonomousMachine {
     if (this.outstanding) return { intent: "none", reason: "A Meta request is already running" };
     if (this.inspectionsUsed >= this.config.maxAutoPerStep)
       return { intent: "none", reason: `Automatic inspection limit (${this.config.maxAutoPerStep}) reached for this step — use Inspect Now or continue manually` };
+    if (this.sessionUsed >= this.config.maxPerSession)
+      return { intent: "none", reason: `Session Meta budget (${this.config.maxPerSession}) reached — restart Autonomous Assembly to continue` };
     if (!opts.manual && now - this.lastRequestAt < this.config.minIntervalMs && this.lastRequestAt > 0)
       return { intent: "none", reason: "Inspection cooldown — waiting before the next automatic Meta request" };
     this.outstanding = true;
     this.inspectionsUsed++;
+    this.sessionUsed++;
     this.lastRequestAt = now;
     const intent: AutoIntent = this.hasInspection ? "verify" : "inspect";
     this.state = intent === "verify" ? "verifying" : "inspecting";
