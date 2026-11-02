@@ -613,3 +613,25 @@ Simultaneous HoloLens camera + immersive WebXR reliability, and physical
 field stability while walking around the table, remain device checks —
 see the Phase 7 acceptance list in PR #11. Automated tests use synthetic
 frames and mocked Meta responses only; no paid inference runs in tests.
+
+## Hand ray, panel cursor and Air Tap
+
+In immersive AR each tracked XR input source gets a cyan ray rendered
+from its `targetRaySpace` pose. The ray ends at the panel when it hits
+it; a ring-and-dot cursor (plus the same ring in the panel texture)
+marks the exact intersection, and the button under it highlights with
+its label uppercased. Air Tap re-runs the identical ray→UV→pixel→
+button hit test, so the activated button is the one you saw targeted;
+selects are debounced per hand (300 ms) and a click feedback flash
+confirms activation. Pointing away removes ray-end cursor and hover;
+losing tracking hides the ray rather than showing a stale position.
+Hand interaction never writes the assembly-field transform.
+
+Real-device check (pending): enter AR, confirm the field, extend one
+hand and confirm you see the ray; point at the panel and confirm the
+cursor sits exactly under your aim; hover Next Step (highlight), Air
+Tap, confirm the step changes and the field has not moved; repeat with
+Previous and the other hand; point away and confirm hover/cursor
+disappear; confirm Exit AR works. If no ray appears, open "XR
+interaction diagnostics" on the AR page — it reports sources, tracking,
+hover and the last failure reason; no tracking is ever simulated.

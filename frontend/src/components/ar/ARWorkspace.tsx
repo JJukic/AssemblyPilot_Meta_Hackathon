@@ -132,6 +132,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     [camDevices, setCamDevices] = useState<{ deviceId: string; label: string }[]>([]),
     [camDeviceId, setCamDeviceId] = useState("");
   const [anchorUi, setAnchorUi] = useState("unplaced");
+  const [interactionUi, setInteractionUi] = useState("");
   const machineRef = useRef<AutonomousMachine | null>(null);
   const gateRef = useRef(new FrameGate());
   const monitorRef = useRef<MonitorCamera | null>(null);
@@ -395,7 +396,13 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   }, [view]);
   useEffect(() => {
     if (!active) return;
-    const timer = setInterval(() => setAnchorUi(runtime.current?.anchorState ?? "unplaced"), 500);
+    const timer = setInterval(() => {
+      setAnchorUi(runtime.current?.anchorState ?? "unplaced");
+      const d = runtime.current?.interaction;
+      if (d) setInteractionUi(
+        `sources: ${d.sources.map((x) => `${x.handedness}/${x.targetRayMode}${x.tracked ? "" : " (untracked)"}`).join(", ") || "none"} · panel hit: ${d.rayIntersectsPanel ? "yes" : "no"} · hover: ${d.hoveredButton ?? "none"} · last select: ${d.lastSelect ?? "none"} · last action: ${d.lastAction ?? "none"} · last failure: ${d.lastFailure ?? "none"}`,
+      );
+    }, 500);
     return () => clearInterval(timer);
   }, [active]);
   useEffect(() => {
@@ -1120,6 +1127,13 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         )}
       </div>
       <p role="status">{status}</p>
+      {active && (
+        <details>
+          <summary>XR interaction diagnostics (developer)</summary>
+          <p role="status" aria-label="XR interaction diagnostics">{interactionUi || "No XR input source reported yet."}</p>
+          <p>If no tracked hand ray is reported, HoloLens Edge has not provided a usable target ray for this session. The panel buttons on this page and the HoloLens Start gesture (Exit AR) remain available; no hand tracking is simulated.</p>
+        </details>
+      )}
       <p>{online ? "Connected to project state" : "Project state unavailable — hologram hidden and verification unknown"}</p>
 
       <fieldset className="ar-voice">

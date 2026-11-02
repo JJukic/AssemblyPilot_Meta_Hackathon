@@ -4,6 +4,10 @@ import type { Placement } from "./data";
 import { fitRect } from "./reference";
 import { paginate, verificationLabel, wrapText, type VerificationStatus } from "./panel";
 import { AnchorTracker, DEFAULT_FIELD, fieldCorners, type AssemblyFieldConfig } from "./field";
+import {
+  EMPTY_DIAGNOSTICS, SelectDebouncer, effectiveHover, rayEndpoint, uvToPanel,
+  type InteractionDiagnostics,
+} from "./interaction";
 
 export type Action =
   | "previous"
@@ -137,6 +141,15 @@ export class SpatialSession {
   private instructionPage = 0;
   private lastInstruction = "";
   readonly anchorTracker = new AnchorTracker();
+  readonly interaction: InteractionDiagnostics = { ...EMPTY_DIAGNOSTICS, sources: [] };
+  private inputVisuals = new Map<XRInputSource, { line: THREE.Line; cursor: THREE.Group }>();
+  private hoverBySource = new Map<XRInputSource, Action | null>();
+  private hoveredButton: PanelButton | null = null;
+  private hoverPoint: { x: number; y: number } | null = null;
+  private pressedButton: Action | null = null;
+  private lastHoverDrawn: { x: number; y: number } | null = null;
+  private pressedTimer: ReturnType<typeof setTimeout> | null = null;
+  private debouncer = new SelectDebouncer(300);
   private fieldConfig: AssemblyFieldConfig = { ...DEFAULT_FIELD };
   private fieldGroup: THREE.Group | null = null;
   private reticle = new THREE.Mesh(
@@ -180,6 +193,7 @@ export class SpatialSession {
     session.addEventListener("end", this.onEnd);
     session.addEventListener("select", this.onSelect);
     session.addEventListener("visibilitychange", this.onVisibility);
+    session.addEventListener("inputsourceschange", this.onSourcesChange);
   }
   async initialize() {
     try {
@@ -519,17 +533,19 @@ export class SpatialSession {
     c.fillStyle = "#bffaff";
     c.font = "19px sans-serif";
     if (!info.anchorLabel) c.fillText(this.message.slice(0, 96), 20, 444);
-    // Buttons
+    // Buttons (hover = exact button under the hand-ray cursor)
     for (const b of PANEL_BUTTONS) {
       const isRef = b.id === "reference";
-      c.fillStyle = b.danger ? "#8b1e2d" : isRef && !this.showReference ? "#33505f" : "#1b4a66";
+      const hovered = this.hoveredButton?.id === b.id;
+      const pressed = this.pressedButton === b.id;
+      c.fillStyle = pressed ? "#ffffff" : hovered ? "#2f9ec7" : b.danger ? "#8b1e2d" : isRef && !this.showReference ? "#33505f" : "#1b4a66";
       c.fillRect(b.x, b.y, b.w, b.h);
-      c.strokeStyle = b.danger ? "#ff8fa3" : "#7df3ff";
-      c.lineWidth = 3;
+      c.strokeStyle = pressed ? "#ffffff" : hovered ? "#ffffff" : b.danger ? "#ff8fa3" : "#7df3ff";
+      c.lineWidth = hovered || pressed ? 6 : 3;
       c.strokeRect(b.x, b.y, b.w, b.h);
-      c.fillStyle = "#ffffff";
+      c.fillStyle = pressed ? "#04202f" : "#ffffff";
       c.font = b.danger ? "bold 27px sans-serif" : "bold 23px sans-serif";
-      const label =
+      const rawLabel =
         b.id === "result"
           ? this.viewMode === "result"
             ? "Guide"
@@ -539,8 +555,26 @@ export class SpatialSession {
               ? "Hide ref."
               : "Show ref."
             : b.label;
+      const label = this.hoveredButton?.id === b.id ? rawLabel.toUpperCase() : rawLabel;
       const w = c.measureText(label).width;
       c.fillText(label, b.x + Math.max(8, (b.w - w) / 2), b.y + 52);
+    }
+    // Targeting cursor drawn in panel space at the exact ray hit.
+    if (this.hoverPoint) {
+      c.strokeStyle = "#7df3ff";
+      c.lineWidth = 5;
+      c.beginPath();
+      c.arc(this.hoverPoint.x, this.hoverPoint.y, 17, 0, Math.PI * 2);
+      c.stroke();
+      c.fillStyle = "#ffffff";
+      c.beginPath();
+      c.arc(this.hoverPoint.x, this.hoverPoint.y, 4, 0, Math.PI * 2);
+      c.fill();
+    }
+    if (this.hoveredButton && !info.anchorLabel) {
+      c.fillStyle = "#7df3ff";
+      c.font = "bold 19px sans-serif";
+      c.fillText(`Targeting: ${this.hoveredButton.label}`, 20, 444);
     }
     this.texture.needsUpdate = true;
     const status = this.message;
@@ -593,24 +627,163 @@ export class SpatialSession {
   confirmOrigin() {
     if (this.candidateValid && !this.selected) this.confirming = true;
   }
-  private onSelect = (event: XRInputSourceEvent) => {
-    if (!this.reference || !this.tracking) return;
-    const pose = event.frame.getPose(
-      event.inputSource.targetRaySpace,
-      this.reference,
+  private onSourcesChange = () => this.syncInputSources();
+
+  private makeCursor(): THREE.Group {
+    const group = new THREE.Group();
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.009, 0.012, 32),
+      new THREE.MeshBasicMaterial({ color: 0x7df3ff, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthTest: false }),
     );
-    if (!pose) return;
+    const dot = new THREE.Mesh(
+      new THREE.CircleGeometry(0.0028, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthTest: false }),
+    );
+    ring.renderOrder = 20;
+    dot.renderOrder = 21;
+    group.add(ring, dot);
+    group.visible = false;
+    return group;
+  }
+
+  private syncInputSources() {
+    const list = (this.session as XRSession).inputSources;
+    const sources: XRInputSource[] = list ? Array.from(list) : [];
+    for (const source of sources) {
+      if (this.inputVisuals.has(source)) continue;
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
+        new THREE.LineBasicMaterial({ color: 0x7df3ff, transparent: true, opacity: 0.75 }),
+      );
+      line.renderOrder = 15;
+      line.visible = false;
+      const cursor = this.makeCursor();
+      this.inputVisuals.set(source, { line, cursor });
+      this.scene.add(line, cursor);
+    }
+    for (const [source, visual] of Array.from(this.inputVisuals)) {
+      if (sources.includes(source)) continue;
+      this.scene.remove(visual.line, visual.cursor);
+      disposeObject(visual.line);
+      disposeObject(visual.cursor);
+      this.inputVisuals.delete(source);
+      this.hoverBySource.delete(source);
+    }
+    this.interaction.sources = sources.map((source) => ({
+      handedness: source.handedness ?? "none",
+      targetRayMode: source.targetRayMode ?? "unknown",
+      tracked: this.inputVisuals.get(source)?.line.visible ?? false,
+    }));
+  }
+
+  /** THE panel hit test: cursor, hover and Air Tap all use this one path. */
+  private raycastPanel(inputSource: XRInputSource, xrFrame: XRFrame) {
+    if (!this.reference || typeof xrFrame.getPose !== "function") return null;
+    const pose = xrFrame.getPose(inputSource.targetRaySpace, this.reference);
+    if (!pose) return null;
     const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
-    const ray = new THREE.Raycaster(
-      new THREE.Vector3().setFromMatrixPosition(m),
-      new THREE.Vector3(0, 0, -1).transformDirection(m),
-    );
-    const hit = ray.intersectObject(this.panel)[0];
-    if (!hit?.uv) return;
-    const y = (1 - hit.uv.y) * PANEL_H,
-      x = hit.uv.x * PANEL_W;
-    const button = panelButtonAt(x, y);
+    const origin = new THREE.Vector3().setFromMatrixPosition(m);
+    const direction = new THREE.Vector3(0, 0, -1).transformDirection(m).normalize();
+    const ray = new THREE.Raycaster(origin, direction);
+    const hit = ray.intersectObject(this.panel)[0] ?? null;
+    if (!hit?.uv) return { origin, direction, hit: null, point: null, button: null };
+    const point = uvToPanel(hit.uv, PANEL_W, PANEL_H);
+    return { origin, direction, hit, point, button: panelButtonAt(point.x, point.y) };
+  }
+
+  private updateInputRays(xrFrame: XRFrame) {
+    if (this.ended) return;
+    this.syncInputSources();
+    let anyTracked = false;
+    let intersects = false;
+    for (const [source, visual] of this.inputVisuals) {
+      const result = this.raycastPanel(source, xrFrame);
+      if (!result) {
+        visual.line.visible = false;
+        visual.cursor.visible = false;
+        this.hoverBySource.set(source, null);
+        continue;
+      }
+      anyTracked = true;
+      const end = rayEndpoint(
+        [result.origin.x, result.origin.y, result.origin.z],
+        [result.direction.x, result.direction.y, result.direction.z],
+        result.hit ? result.hit.distance : null,
+      );
+      visual.line.geometry.setFromPoints([
+        result.origin,
+        new THREE.Vector3(end[0], end[1], end[2]),
+      ]);
+      visual.line.visible = true;
+      if (result.hit && result.point) {
+        intersects = true;
+        const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(
+          this.panel.getWorldQuaternion(new THREE.Quaternion()),
+        );
+        visual.cursor.position.copy(result.hit.point).addScaledVector(normal, 0.004);
+        visual.cursor.quaternion.copy(this.panel.getWorldQuaternion(new THREE.Quaternion()));
+        visual.cursor.visible = true;
+        this.hoverBySource.set(source, result.button?.id ?? null);
+        this.hoverPoint = result.point;
+      } else {
+        visual.cursor.visible = false;
+        this.hoverBySource.set(source, null);
+      }
+    }
+    this.interaction.hasTrackedRay = anyTracked;
+    this.interaction.rayIntersectsPanel = intersects;
+    if (!intersects) this.hoverPoint = null;
+    this.interaction.sources = this.interaction.sources.map((d, i) => ({
+      ...d,
+      tracked: Array.from(this.inputVisuals.values())[i]?.line.visible ?? d.tracked,
+    }));
+    const hoverId = effectiveHover(this.hoverBySource.values());
+    const hoverButton = hoverId ? PANEL_BUTTONS.find((b) => b.id === hoverId) ?? null : null;
+    const moved = this.hoverPoint
+      ? Math.abs(this.hoverPoint.x - (this.lastHoverDrawn?.x ?? -99)) > 3 ||
+        Math.abs(this.hoverPoint.y - (this.lastHoverDrawn?.y ?? -99)) > 3
+      : this.lastHoverDrawn !== null;
+    if (hoverButton?.id !== this.hoveredButton?.id || moved) {
+      this.hoveredButton = hoverButton;
+      this.interaction.hoveredButton = hoverButton?.id ?? null;
+      this.lastHoverDrawn = this.hoverPoint ? { ...this.hoverPoint } : null;
+      this.draw();
+    }
+  }
+
+  private onSelect = (event: XRInputSourceEvent) => {
+    const source = event.inputSource as XRInputSource;
+    const key = `${source.handedness ?? "none"}:${source.targetRayMode ?? "ray"}`;
+    this.interaction.lastSelect = `${key} @ ${new Date().toISOString()}`;
+    if (!this.debouncer.tryAccept(key, Date.now())) {
+      this.interaction.lastFailure = "Duplicate select ignored (one gesture, one action)";
+      return;
+    }
+    if (!this.reference || !this.tracking) {
+      this.interaction.lastFailure = "Select ignored: XR tracking unavailable";
+      return;
+    }
+    const result = this.raycastPanel(source, event.frame as XRFrame);
+    if (!result) {
+      this.interaction.lastFailure = "Select ignored: input ray has no tracked pose";
+      return;
+    }
+    if (!result.hit || !result.point) {
+      this.interaction.lastFailure = "Select ignored: ray did not intersect the panel";
+      return;
+    }
+    const { y } = result.point;
+    const button = result.button;
     if (button) {
+      this.pressedButton = button.id;
+      this.interaction.lastAction = button.id;
+      this.interaction.lastFailure = null;
+      this.draw();
+      if (this.pressedTimer) clearTimeout(this.pressedTimer);
+      this.pressedTimer = setTimeout(() => {
+        this.pressedButton = null;
+        if (!this.ended) this.draw();
+      }, 220);
       if (button.id === "reanchor") {
         this.reset();
       } else if (button.id === "recenter") {
@@ -645,7 +818,10 @@ export class SpatialSession {
     // Non-button panel tap above the button rows: confirm origin when pending.
     if (y < 452 && this.candidateValid && !this.selected) {
       this.confirming = true;
+      this.interaction.lastAction = "confirm-origin";
+      return;
     }
+    this.interaction.lastFailure = "Select on the panel but outside any button — nothing activated";
   };
   private frame = (_time: number, frame?: XRFrame) => {
     if (!frame || !this.reference || this.ended) return;
@@ -664,6 +840,7 @@ export class SpatialSession {
         .multiply(new THREE.Matrix4().makeTranslation(0, 0.12, -0.85));
       this.panelPlaced = true;
     }
+    this.updateInputRays(frame);
     if (this.selected && this.anchor) {
       const tracked = frame.getPose(this.anchor.anchorSpace, this.reference);
       const held = this.anchorTracker.onPose(tracked ? tracked.transform.matrix : null);
@@ -773,7 +950,12 @@ export class SpatialSession {
     this.setReferenceImage(null);
     this.session.removeEventListener("select", this.onSelect);
     this.session.removeEventListener("visibilitychange", this.onVisibility);
+    this.session.removeEventListener("inputsourceschange", this.onSourcesChange);
     this.session.removeEventListener("end", this.onEnd);
+    if (this.pressedTimer) clearTimeout(this.pressedTimer);
+    this.inputVisuals.clear();
+    this.hoverBySource.clear();
+    this.debouncer.reset();
     this.anchorTracker.release();
     disposeObject(this.scene);
     this.renderer.dispose();
