@@ -27,6 +27,9 @@ export function HologramPreview({
     ...rects.map((r) => Math.max(Math.abs(r.x0), Math.abs(r.x1), Math.abs(r.z0), Math.abs(r.z1)) + 20),
   );
   const maxTop = Math.max(40, ...all.map((p) => p.position_m[1] * 1000 + p.dimensions.y_mm + 10));
+  // Front view is zoomed to the blocks' actual X range so heights stay readable.
+  const xMin = Math.min(-20, ...rects.map((r) => r.x0)) - 10, xMax = Math.max(20, ...rects.map((r) => r.x1)) + 10;
+  const frontW = xMax - xMin, frontH = Math.max(maxTop * 1.3, frontW * 0.45);
   const style = (i: number) =>
     i < assembled.length
       ? { fill: "#8a96a0", fillOpacity: 0.25, stroke: "#9aa7b0", strokeWidth: extent / 150 }
@@ -69,20 +72,20 @@ export function HologramPreview({
       </figure>
       <figure>
         <svg
-          viewBox={`${-extent} ${-maxTop * 1.15} ${extent * 2} ${maxTop * 1.3}`}
+          viewBox={`${xMin} ${-frontH + frontH * 0.12} ${frontW} ${frontH}`}
           role="img"
           aria-label="2D height view (front)"
         >
-          <rect x={-extent} y={-maxTop * 1.15} width={extent * 2} height={maxTop * 1.3} fill="#152536" />
-          <path d={`M${-extent} 0H${extent}`} stroke="#c8d3dc" strokeWidth={Math.max(1, maxTop / 60)} />
+          <rect x={xMin} y={-frontH + frontH * 0.12} width={frontW} height={frontH} fill="#152536" />
+          <path d={`M${xMin} 0H${xMax}`} stroke="#c8d3dc" strokeWidth={Math.max(0.6, frontW / 300)} />
           {all.map((p, i) => {
             const r = rects[i];
             const bottom = p.position_m[1] * 1000;
             return (
               <g key={i}>
-                <rect x={r.x0} y={-(bottom + p.dimensions.y_mm)} width={r.x1 - r.x0} height={p.dimensions.y_mm} {...style(i)} strokeWidth={Math.max(0.6, style(i).strokeWidth / 3)} />
+                <rect x={r.x0} y={-(bottom + p.dimensions.y_mm)} width={r.x1 - r.x0} height={p.dimensions.y_mm} {...style(i)} strokeWidth={Math.max(0.3, frontW / 250) * (i - assembled.length === selected ? 2.5 : 1)} />
                 {label(i) && (
-                  <text x={(r.x0 + r.x1) / 2} y={-(bottom + p.dimensions.y_mm / 2) + Math.min(font, p.dimensions.y_mm) / 3} fontSize={Math.min(font, p.dimensions.y_mm * 0.9)} textAnchor="middle" fill="#ffffff">
+                  <text x={(r.x0 + r.x1) / 2} y={-(bottom + p.dimensions.y_mm / 2) + Math.min(frontW / 14, p.dimensions.y_mm * 0.8) / 3} fontSize={Math.min(frontW / 14, p.dimensions.y_mm * 0.8)} textAnchor="middle" fill="#ffffff">
                     {label(i)}
                   </text>
                 )}

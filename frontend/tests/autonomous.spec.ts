@@ -1,4 +1,16 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+
+// The AR page groups secondary controls in collapsed sections (details.ar-options).
+// These specs exercise the contents, so the sections are opened on every load;
+// the collapsed default itself is covered in ar.spec.ts.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    // Nested sections too — except the React-controlled voice command list (its state is under test).
+    const open = () => document.querySelectorAll<HTMLDetailsElement>("details.ar-options:not([open]), details.ar-options details:not([open])")
+      .forEach((d) => { if (d.querySelector("summary")?.textContent !== "Available voice commands") d.setAttribute("open", ""); });
+    new MutationObserver(open).observe(document, { childList: true, subtree: true });
+  });
+});
 const api = "http://127.0.0.1:8000";
 
 async function project2(request: APIRequestContext) {
@@ -41,6 +53,13 @@ async function fakeCamera(page: Page) {
   return state;
 }
 
+/** Open a (possibly already opened) section without toggling it closed. */
+async function openSection(page: Page, summary: string) {
+  await page.getByText(summary, { exact: true }).waitFor({ state: "attached" });
+  await page.evaluate((text) => document.querySelectorAll("details").forEach((d) => {
+    if (d.querySelector("summary")?.textContent === text) d.open = true;
+  }), summary);
+}
 const autoStatus = (page: Page) => page.getByRole("status", { name: "Autonomous assembly state" });
 
 test("autonomous monitoring never inspects an unchanged scene; Inspect Now makes exactly one guarded request", async ({ page, request }) => {
@@ -59,7 +78,7 @@ test("autonomous monitoring never inspects an unchanged scene; Inspect Now makes
   expect(state.inspects).toBe(1);
   // Transport failure must be diagnosable as "Meta not successfully assessed",
   // never as a genuine uncertain visual judgment.
-  await page.getByText("Inspection diagnostics (latest request)").click();
+  await openSection(page, "Inspection diagnostics (latest request)");
   await expect(page.locator('[aria-label="Inspection diagnostics"]'))
     .toContainText("Meta called: NO", { timeout: 10000 });
   await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
@@ -119,7 +138,7 @@ test("capture preview: the panel preview record is the exact uploaded JPEG (same
   await expect(autoStatus(page)).toContainText("Watching for physical assembly changes", { timeout: 20000 });
   await page.getByRole("button", { name: "Inspect Now" }).click();
   await expect.poll(() => uploads.length, { timeout: 20000 }).toBe(1);
-  await page.getByText("Inspection diagnostics (latest request)").click();
+  await openSection(page, "Inspection diagnostics (latest request)");
   const preview = page.getByRole("status", { name: "AR panel capture preview" });
   await expect(preview).toContainText(`SHA-256 ${uploads[0]}`, { timeout: 10000 });
   await expect(preview).toContainText("upload started yes");

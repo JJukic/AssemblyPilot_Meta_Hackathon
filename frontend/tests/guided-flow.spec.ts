@@ -135,3 +135,16 @@ test("guided demo: Check → falsch → Check again → korrekt → Next step �
   expect(progress.find((p: { step_id: string }) => p.step_id === s2.id).status).not.toBe("verified");
   expect(s1.id).toBeTruthy();
 });
+
+test("AR page: secondary sections are collapsed by default and open with one click", async ({ page, request }) => {
+  const a = await demo(request);
+  await fakeCamera(page);
+  await page.goto(`/ar?project=${a.project.id}`);
+  await expect(card(page)).toContainText("Step 1 of 2");
+  const sections = page.locator("details.ar-options");
+  expect(await sections.count()).toBeGreaterThan(2);
+  await expect(page.locator("details.ar-options[open]")).toHaveCount(0);
+  await page.getByText("Placement tools & 2D preview", { exact: true }).click();
+  await expect(page.getByRole("img", { name: "2D intended placement" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "2D height view (front)" })).toBeVisible();
+});

@@ -1656,7 +1656,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       <p role="status">{status}</p>
       <details className="ar-options">
         <summary>Device &amp; connection details</summary>
-        <p role="status">{cap.message}</p>
+        {/* When AR is unavailable the same message is already shown outside this section. */}
+        {cap.available && <p role="status">{cap.message}</p>}
         <p>Device: {device}. Connection and physical alignment must be tested on your HoloLens.</p>
       {active && (
         <details>

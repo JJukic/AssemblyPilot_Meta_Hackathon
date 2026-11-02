@@ -1,4 +1,16 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+
+// The AR page groups secondary controls in collapsed sections (details.ar-options).
+// These specs exercise the contents, so the sections are opened on every load;
+// the collapsed default itself is covered in ar.spec.ts.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    // Nested sections too — except the React-controlled voice command list (its state is under test).
+    const open = () => document.querySelectorAll<HTMLDetailsElement>("details.ar-options:not([open]), details.ar-options details:not([open])")
+      .forEach((d) => { if (d.querySelector("summary")?.textContent !== "Available voice commands") d.setAttribute("open", ""); });
+    new MutationObserver(open).observe(document, { childList: true, subtree: true });
+  });
+});
 const api = "http://127.0.0.1:8000";
 const TINY_JPEG = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAwAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDxyiiiv3E8wKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD/9k=", "base64");
 
@@ -171,7 +183,7 @@ test("panel commands execute visibly; re-anchor without AR and stop listening ar
   await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
 });
 
-test("Prüfen is a button (voice 'verify step' does nothing); the button submits one inspection and failure shows the visible fallback; Exit AR cleans up microphone", async ({ page, request }) => {
+test("Check is a button (voice 'verify step' does nothing); the button submits one inspection and failure shows the visible fallback; Exit AR cleans up microphone", async ({ page, request }) => {
   test.setTimeout(180000);
   const a = await project3(request);
   const { queue } = await mockVoice(page);
@@ -182,12 +194,12 @@ test("Prüfen is a button (voice 'verify step' does nothing); the button submits
   queue.push("verify step");
   await expectDiag(page, "Phrase not recognized");
   expect(inspections).toBe(0);
-  const card = page.getByRole("region", { name: "Geführter Montageschritt" });
-  await card.getByRole("button", { name: "Prüfen", exact: true }).click();
+  const card = page.getByRole("region", { name: "Guided assembly step" });
+  await card.getByRole("button", { name: "Check", exact: true }).click();
   await expect.poll(() => inspections, { timeout: 30000 }).toBe(1);
   // The disposable test backend has no Meta key: an infrastructure failure, never a verdict.
-  await expect(card.getByRole("status", { name: "Schrittstatus" })).toHaveText("Prüfung nicht möglich", { timeout: 20000 });
-  await expect(card.getByRole("button", { name: "Position bestätigen" })).toBeVisible();
+  await expect(card.getByRole("status", { name: "Step status" })).toHaveText("Check unavailable", { timeout: 20000 });
+  await expect(card.getByRole("button", { name: "Confirm position" })).toBeVisible();
   expect((await (await request.get(`${api}/api/projects/${a.project.id}/progress`)).json())
     .every((s: { status: string }) => s.status !== "verified")).toBe(true);
   // Back in AR, Exit AR through voice stops local listening and mic tracks.

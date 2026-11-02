@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "@/lib/api";
-import { getPlacements, getScene, savePlacements, type Placement } from "@/lib/ar/data";
+import { getPlacements, getScene, savePlacements, validPlacement, type Placement } from "@/lib/ar/data";
 import {
-  blockLabel, duplicateBlock, nextFreeInstance, proxyBlock, splitScene, stackHelp, validateHologram,
+  blockLabel, duplicateBlock, nextFreeInstance, proxyBlock, stackHelp, validateHologram,
   type RequiredBlock,
 } from "@/lib/ar/hologram";
 import { HologramPreview } from "@/components/ar/HologramPreview";
@@ -18,7 +18,8 @@ import type { ProjectStep } from "@/types/projects";
 export function PlacementEditor({ projectId, step }: { projectId: string; step: ProjectStep }) {
   const [loadedStep, setLoadedStep] = useState("");
   const [blocks, setBlocks] = useState<Placement[]>([]);
-  const [earlier, setEarlier] = useState<Placement[]>([]);
+  // Earlier steps' blocks with an unambiguous label (their names belong to other steps).
+  const [earlier, setEarlier] = useState<{ label: string; placement: Placement }[]>([]);
   const [selected, setSelected] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
   const [status, setStatus] = useState("");
@@ -35,7 +36,9 @@ export function PlacementEditor({ projectId, step }: { projectId: string; step: 
         const scene = await getScene(projectId, step.id).catch(() => null);
         if (!active) return;
         setBlocks(own.placements);
-        setEarlier(splitScene(scene, step.id).assembled);
+        setEarlier((scene?.blocks ?? [])
+          .filter((b) => b.step_id !== step.id && validPlacement(b.placement))
+          .map((b) => ({ label: `step ${b.step_position} block #${b.placement.instance}`, placement: b.placement })));
         setSelected(0);
         setConfirmed(false);
       } catch (e) {
@@ -54,7 +57,7 @@ export function PlacementEditor({ projectId, step }: { projectId: string; step: 
   const labels = blocks.map((p, i) => `${i + 1} · ${blockLabel(p, required)}`);
   const help = value
     ? stackHelp(value, [
-        ...earlier.map((p) => ({ label: `earlier ${blockLabel(p, required)}`, placement: p })),
+        ...earlier,
         ...blocks.map((p, i) => ({ label: labels[i], placement: p })),
       ])
     : null;
@@ -218,7 +221,7 @@ export function PlacementEditor({ projectId, step }: { projectId: string; step: 
           )}
           <p>Click the top view to move the selected block (X/Z). Numbers match the block list.</p>
           <HologramPreview
-            assembled={earlier}
+            assembled={earlier.map((e) => e.placement)}
             current={blocks}
             selected={selected}
             onPickTop={(x, z) => value && change({ position_m: [x, value.position_m[1], z] })}

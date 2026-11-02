@@ -4,6 +4,18 @@ import {
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
+
+// The AR page groups secondary controls in collapsed sections (details.ar-options).
+// These specs exercise the contents, so the sections are opened on every load;
+// the collapsed default itself is covered in ar.spec.ts.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    // Nested sections too — except the React-controlled voice command list (its state is under test).
+    const open = () => document.querySelectorAll<HTMLDetailsElement>("details.ar-options:not([open]), details.ar-options details:not([open])")
+      .forEach((d) => { if (d.querySelector("summary")?.textContent !== "Available voice commands") d.setAttribute("open", ""); });
+    new MutationObserver(open).observe(document, { childList: true, subtree: true });
+  });
+});
 const api = "http://127.0.0.1:8000";
 async function assembly(request: APIRequestContext) {
   const blocks = [];
@@ -216,7 +228,7 @@ test("author measured placement only after confirmation; edits and removal stay 
     .getByRole("button", { name: "Edit step Blue base", exact: true })
     .click();
   await page
-    .getByText("Spatial AR placement (optional)", { exact: true })
+    .getByText("Spatial AR hologram (optional)", { exact: true })
     .click();
   await page
     .getByRole("button", { name: "Author placement with a 10 cm proxy" })
@@ -226,7 +238,7 @@ test("author measured placement only after confirmation; edits and removal stay 
   await page.getByLabel("Body height Y (mm, excluding studs)").fill("9.6");
   await page.getByLabel("Depth Z (mm)").fill("16");
   await page.getByLabel("Position X (m)").fill("0.1");
-  const save = page.getByRole("button", { name: "Save AR placement" });
+  const save = page.getByRole("button", { name: "Save AR hologram" });
   await expect(save).toBeDisabled();
   await page
     .getByRole("checkbox", { name: "I confirm the dimensions" })
@@ -240,7 +252,7 @@ test("author measured placement only after confirmation; edits and removal stay 
   expect(placement.dimensions.x_mm).toBe(32);
   await page.getByLabel("Rotation Y (degrees)").fill("90");
   await expect(save).toBeDisabled();
-  await page.getByRole("button", { name: "Remove AR placement" }).click();
+  await page.getByRole("button", { name: "Remove AR hologram" }).click();
   // The click does not wait for the DELETE round-trip: poll the final state.
   await expect
     .poll(async () => (await request.get(`${a.base}/steps/${a.steps[0].id}/ar-placement`)).json())
@@ -352,6 +364,67 @@ test("phase6.1 selected step reference shown; navigation/verify are buttons only
   await expect(page.locator("img.ar-reference")).toHaveAttribute("src", new RegExp(ids[1]));
   await fire("Verify step");
   await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible(); // stays: no voice verification
-  await expect(page.getByRole("status", { name: "Schrittstatus" })).toHaveText("Bereit");
+  await expect(page.getByRole("status", { name: "Step status" })).toHaveText("Ready");
   expect((await (await request.get(`${a.base}/progress`)).json()).every((s: { status: string }) => s.status !== "verified")).toBe(true);
+});
+
+test("multi-block hologram: author, stack via explicit height help, duplicate, save; AR preview shows assembled vs current (desktop + 375 px)", async ({ page, request }) => {
+  test.setTimeout(90000);
+  const a = await assembly(request);
+  const [s1, s2] = a.steps;
+  const [blue, yellow] = a.blocks;
+  // Step 2 now places TWO yellow blocks on the blue base.
+  expect((await request.put(`${a.base}/steps/${s2.id}`, { data: {
+    title: s2.title, instruction: s2.instruction, required_blocks: [{ block_id: yellow.id, required_quantity: 2 }],
+  } })).ok()).toBe(true);
+  const base = { origin: "tabletop_session", method: "manual_authoring", evidence: "measured", confirmed: true, studs: null, rotation_deg: [0, 0, 0] };
+  expect((await request.put(`${a.base}/steps/${s1.id}/ar-placements`, { data: { version: 2, placements: [
+    { ...base, target_block_id: blue.id, instance: 1, dimensions: { x_mm: 64, y_mm: 9.6, z_mm: 32 }, position_m: [0.016, 0, 0] },
+  ] } })).ok()).toBe(true);
+
+  await noXR(page);
+  await page.goto(`/projects/${a.project.id}`);
+  await page.getByRole("button", { name: "Edit step Yellow on blue", exact: true }).click();
+  await page.getByText("Spatial AR hologram (optional)", { exact: true }).click();
+  await page.getByRole("button", { name: "Author placement with a 10 cm proxy" }).click();
+  await page.getByLabel("Dimension evidence").selectOption("measured");
+  await page.getByLabel("Length X (mm)").fill("32");
+  await page.getByLabel("Body height Y (mm, excluding studs)").fill("9.6");
+  await page.getByLabel("Depth Z (mm)").fill("16");
+  const help = page.getByRole("region", { name: "Height help" });
+  await expect(help).toContainText("Bottom face Y = 0.0 mm");
+  await expect(help).toContainText("Intersects step 1 block #1");
+  // Explicit author action only: nothing is applied automatically.
+  await expect(page.getByLabel("Position Y (m) — bottom face")).toHaveValue("0");
+  await help.getByRole("button", { name: /Set bottom Y to the top of step 1 block #1/ }).click();
+  await expect(page.getByLabel("Position Y (m) — bottom face")).toHaveValue("0.0096");
+  await expect(help).toContainText("Rests on step 1 block #1");
+  await page.getByRole("button", { name: "Duplicate block 1" }).click();
+  const list = page.getByRole("radiogroup", { name: "Hologram blocks" });
+  await expect(list.getByRole("radio")).toHaveCount(2);
+  await expect(list.getByRole("radio", { checked: true })).toContainText("2 · AR yellow · yellow #2");
+  await expect(page.getByRole("button", { name: "Add block" })).toBeDisabled();
+  await page.getByRole("checkbox", { name: /I confirm the dimensions/ }).check();
+  await page.getByRole("button", { name: "Save AR hologram" }).click();
+  await expect(page.getByText(/AR guidance saved/)).toBeVisible();
+  const saved = await (await request.get(`${a.base}/steps/${s2.id}/ar-placements`)).json();
+  expect(saved.placements.map((p: { instance: number; position_m: number[] }) => [p.instance, p.position_m[1]])).toEqual([[1, 0.0096], [2, 0.0096]]);
+  expect(saved.placements[1].position_m[0]).toBeCloseTo(0.032, 6);
+  // Guidance never verifies.
+  expect((await (await request.get(`${a.base}/progress`)).json()).every((s: { status: string }) => s.status !== "verified")).toBe(true);
+
+  await page.goto(`/ar?project=${a.project.id}`);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Step 2 — Yellow on blue" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "2D intended placement" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "2D height view (front)" })).toBeVisible();
+  await expect(page.locator(".hologram-legend li")).toHaveCount(2);
+  await expect(page.getByText(/already assembled in earlier steps \(1\)/)).toBeVisible();
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow, `no horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
+    const box = await page.getByRole("img", { name: "2D height view (front)" }).boundingBox();
+    expect(box && box.width > 100 && box.x + box.width <= width + 1).toBe(true);
+  }
 });

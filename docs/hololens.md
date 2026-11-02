@@ -844,3 +844,51 @@ der 2D-Seite. Die 2D-Seite zeigt dieselbe geführte Karte als Fallback.
 
 Demo-Projekt (2 Schritte, roter 2×4-Stein auf Grundplatte, rein additiv):
 `cd backend && uv run python scripts/create_ar_demo.py` → gibt die AR-URL aus.
+
+## Cumulative multi-block step holograms
+
+Each step stores **every block placed in that step** (any number, one entry
+per required block instance). The AR view is cumulative: blocks of earlier
+steps are drawn **dimmed and neutral grey** (no arrow, never state-coloured);
+the blocks of the current step are **highlighted** with one tabletop target
+marker each, coloured by the guided state (green ready/correct, red
+correction needed, yellow uncertain). Holograms are guidance only: they never
+verify a step — verification still requires a fresh camera image and the
+existing backend flow.
+
+**Coordinates** (metres, relative to the deliberately confirmed tabletop
+origin): X right, Y up, Z toward the user. **Position Y is the bottom face of
+the block body** (Y = 0 rests on the tabletop; Y < 0 is rejected on save). The
+body top is Y + body height (`dimensions.y_mm`, studs excluded) — that is where
+a block stacked on it has its bottom. Rotations pivot about the bottom-centre.
+
+**Editor** (Project → step → *Spatial AR hologram*): numbered block list
+(radio group, same numbers as the 2D preview), *Add block* (an explicitly
+*approximate* 10 cm proxy), *Duplicate block* (same block type keeps its
+authored measurements and height, placed beside it; another type never
+inherits measurements), *Remove block*, per-block target/instance, evidence
+(measured/approximate), X/Y/Z mm, optional confirmed studs, position, rotation.
+The **height help** explains bottom/top, what the block rests on, gaps and
+intersections against all authored blocks (this and earlier steps) and offers
+"Set bottom Y to the top of …" buttons. Nothing is applied automatically and
+no real-world height or dimension is ever guessed; suggestions derived from
+approximate blocks are labelled. The 2D preview shows a top view (click to set
+X/Z) and a front height view; both stack on narrow screens.
+
+**Storage and migration.** No schema change: the existing
+`ar_placements.configuration_json` column holds either a legacy single
+placement object (v1) or `{"version": 2, "placements": [...]}`. v1 rows are
+read as a one-block hologram and are **not rewritten** until the step is
+saved through `PUT /steps/{id}/ar-placements` (lazy migration). The legacy
+`/ar-placement` endpoint keeps working for single-block steps and answers 409
+for multi-block steps instead of editing them partially.
+`GET /steps/{id}/ar-scene` returns the cumulative blocks up to that step; an
+earlier step's block that is no longer valid (e.g. its block was removed from
+that step) is left out and listed in `excluded`, while an invalid block of the
+current step is an explicit 422. Saving guidance changes the step revision
+(progress must be re-verified) but never creates verified progress.
+
+**Tracking / Re-anchor.** The whole step hologram is a child of the confirmed
+origin: it is hidden while tracking is lost, kept through Re-anchor and drawn
+again at the newly confirmed origin. Changing steps removes the previous
+step's geometry before the next scene is drawn.

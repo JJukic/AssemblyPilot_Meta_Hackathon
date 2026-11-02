@@ -1,5 +1,17 @@
 import { test, expect, type Page } from "@playwright/test";
 
+// The AR page groups secondary controls in collapsed sections (details.ar-options).
+// These specs exercise the contents, so the sections are opened on every load;
+// the collapsed default itself is covered in ar.spec.ts.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    // Nested sections too — except the React-controlled voice command list (its state is under test).
+    const open = () => document.querySelectorAll<HTMLDetailsElement>("details.ar-options:not([open]), details.ar-options details:not([open])")
+      .forEach((d) => { if (d.querySelector("summary")?.textContent !== "Available voice commands") d.setAttribute("open", ""); });
+    new MutationObserver(open).observe(document, { childList: true, subtree: true });
+  });
+});
+
 // All application requests are mocked: these tests never write to a developer's project.
 async function workspace(page: Page, mode = "manual", api = "SpeechRecognition") {
   await page.route("**/health", r => r.fulfill({ json: { status: "ok" } }));
