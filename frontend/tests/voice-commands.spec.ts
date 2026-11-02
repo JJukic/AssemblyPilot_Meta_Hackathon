@@ -66,17 +66,23 @@ async function mockVoice(page: Page) {
     } });
     class FakeAudioContext {
       sampleRate = 48000;
+      state = "running";
+      destination = {};
+      async resume() { this.state = "running"; }
       createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
       createScriptProcessor() {
-        const proc: Record<string, unknown> = { connect() {}, disconnect() {} };
+        // Continuous mic: cycles speech-like loud chunks then silence so the
+        // persistent capture's VAD emits repeated utterances (one stream).
+        const proc: Record<string, unknown> = { connect() {} };
         let calls = 0;
+        let timer: ReturnType<typeof setInterval> | undefined;
+        proc.disconnect = () => { if (timer) clearInterval(timer); };
         Object.defineProperty(proc, "onaudioprocess", {
           set(fn: (e: unknown) => void) {
-            const timer = setInterval(() => {
+            timer = setInterval(() => {
               calls++;
-              const loud = calls <= 5;
+              const loud = calls % 15 < 5;
               fn({ inputBuffer: { getChannelData: () => new Float32Array(4096).fill(loud ? 0.5 : 0) } });
-              if (calls > 30) clearInterval(timer as unknown as number);
             }, 10);
             proc.__timer = timer;
           },
@@ -196,6 +202,22 @@ test("voice Verify Step auto-captures one fresh frame and submits one inspection
   queue.push("exit ar");
   await expect(page.getByRole("status", { name: "Local microphone state" })).toContainText("Off", { timeout: 15000 });
   expect(await page.evaluate(() => (window as unknown as { __micStops: number }).__micStops)).toBeGreaterThan(0);
+});
+
+test("continuous capture reports microphone health and keeps transcribing while processing", async ({ page, request }) => {
+  test.setTimeout(60000);
+  const a = await project3(request);
+  const { queue } = await mockVoice(page);
+  await page.goto(`/ar?project=${a.project.id}`);
+  await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
+  await enableLocal(page);
+  // In-XR diagnostic data (same fields rendered in the AR panel) must show a
+  // genuinely active microphone, not a generic "Listening" claim.
+  await expect(page.getByRole("status", { name: "Microphone capture diagnostics" }))
+    .toContainText("Mic active", { timeout: 15000 });
+  queue.push("next step", "next step");
+  await expect(page.getByRole("heading", { name: "Step 3 — Third" })).toBeVisible({ timeout: 15000 });
+  await expectDiag(page, "SUCCESS");
 });
 
 test("one-command mode uses the selected language and executes consecutive Next commands once each", async ({ page, request }) => {

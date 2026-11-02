@@ -14,6 +14,7 @@ export type Action =
   | "reference"
   | "page"
   | "help"
+  | "voice"
   | "result";
 export interface Guidance {
   placement: Placement | null;
@@ -26,6 +27,7 @@ export interface Guidance {
   verification?: VerificationStatus;
   hasReference?: boolean;
   voiceLabel?: string;
+  voiceDetail?: string;
   lastCommand?: string;
   diagnostic?: string;
   resultHeadline?: string;
@@ -77,6 +79,7 @@ export const PANEL_BUTTONS: PanelButton[] = [
       ["result", "Result"],
       ["page", "More text"],
       ["help", "Help"],
+      ["voice", "🎤 Speak"],
     ],
     544,
   ),
@@ -445,6 +448,14 @@ export class SpatialSession {
     } else if (info.lastCommand) {
       c.fillStyle = "#6dffa8";
       c.fillText(`Heard: “${info.lastCommand}”`.slice(0, 92), 520, 420);
+    }
+    // Compact capture health (mic / phase / last transcript): a failure here
+    // stays visible until the next utterance, never hidden by "Listening".
+    if (info.voiceDetail) {
+      c.fillStyle = "#ffd166";
+      c.font = "18px sans-serif";
+      c.fillText(info.voiceDetail.slice(0, 108), 20, 372);
+      c.font = "21px sans-serif";
     }
     c.fillStyle = "#bffaff";
     c.font = "19px sans-serif";

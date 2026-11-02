@@ -26,7 +26,11 @@ import {
   type VoiceAction,
   type VoiceSnapshot,
 } from "@/lib/ar/voice";
-import { LocalVoiceController, backendVoiceApi } from "@/lib/ar/voiceLocal";
+import {
+  LocalVoiceController,
+  backendVoiceApi,
+  type CaptureDiagnostic,
+} from "@/lib/ar/voiceLocal";
 import {
   readLastInspection,
   saveVoiceVerifyIntent,
@@ -98,6 +102,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     alive = useRef(true),
     generation = useRef(0);
   const [diagnostic, setDiagnostic] = useState<CommandDiagnostic | null>(null);
+  const [captureDiag, setCaptureDiag] = useState<CaptureDiagnostic | null>(null);
   const viewRef = useRef<ViewedStep>({ step_id: null, revision: 0 });
   const [localOn, setLocalOn] = useState(false),
     [localBusy, setLocalBusy] = useState(false),
@@ -331,6 +336,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       voiceLabel: localOn
         ? `🎤 Local voice listening — ${localStatus}`
         : `Voice: ${voiceLabel}${voice.errorCode ? ` (${voice.errorCode})` : ""} — ${voiceMessage}`,
+      voiceDetail: captureDiag
+        ? `🎤 Mic ${captureDiag.mic} · ${captureDiag.phase} · ${captureDiag.message}${captureDiag.transcript ? ` · “${captureDiag.transcript}”` : ""}${captureDiag.action ? ` → ${captureDiag.action}` : ""}${captureDiag.rms !== undefined ? ` · level ${captureDiag.rms.toFixed(3)}` : ""} · track ${captureDiag.trackState ?? "?"} · audio ${captureDiag.contextState ?? "?"}`
+        : undefined,
       diagnostic: diagnostic
         ? `${diagnostic.state === "completed" ? "✓" : diagnostic.state === "failed" || diagnostic.state === "rejected" ? "✗" : "…"} ${diagnostic.action ?? "no command"} · ${diagnostic.state.toUpperCase()}${diagnostic.detail ? ` · ${diagnostic.detail}` : ""}${diagnostic.reason ? ` · ${diagnostic.reason}` : ""} · “${diagnostic.transcript}”`
         : undefined,
@@ -344,7 +352,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
     runtime.current?.setViewMode(resultMode);
-  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, resultSummary, resultMode, resultErrorsOnly]);
+  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, resultSummary, resultMode, resultErrorsOnly]);
 
   useEffect(() => {
     viewRef.current = view;
@@ -557,6 +565,21 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         return { ok: true, detail: "Available commands toggled" };
       case "page":
         return { ok: true, detail: "Next text page" };
+      case "voice": {
+        // In-AR push-to-talk fallback: flush the live utterance when
+        // continuous capture runs; otherwise capture exactly one command.
+        if (localRef.current?.isListening) {
+          await localRef.current.pushToTalk();
+          return { ok: true, detail: "Speak now — one command will be transcribed" };
+        }
+        if (!localConsent)
+          return {
+            ok: false,
+            reason: "Local voice not enabled — enable it with consent before entering AR, or use Next/Previous",
+          };
+        void recordOneLocalCommand();
+        return { ok: true, detail: "Push-to-talk recording — speak one complete command" };
+      }
       case "stop-listening":
         stopAllVoice();
         return { ok: true, detail: "Microphone recognition stopped" };
@@ -634,6 +657,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       onDiagnostic: (d) => {
         if (alive.current) setDiagnostic(d);
       },
+      onCaptureDiagnostic: (d) => {
+        if (alive.current) setCaptureDiag(d);
+      },
       onStatus: (s) => {
         if (alive.current) setLocalStatus(s);
       },
@@ -666,6 +692,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       onCommand: (cmd) => dispatchRef.current(cmd.action, cmd.phrase),
       onDiagnostic: (d) => {
         if (alive.current) setDiagnostic(d);
+      },
+      onCaptureDiagnostic: (d) => {
+        if (alive.current && localRef.current === controller) setCaptureDiag(d);
       },
       onStatus: (s) => {
         if (alive.current && localRef.current === controller) setLocalStatus(s);
@@ -742,7 +771,13 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
             /* placeholder shown; DOM reference remains available */
           }
         }
-        if (alive.current) setActive(true);
+        if (alive.current) {
+          setActive(true);
+          // Keep the already-running microphone stream across XR entry; the
+          // controller resumes/repairs it in place instead of re-recording
+          // per clip. Session end (done callback) still stops voice.
+          localRef.current?.setXRActive(true);
+        }
       } catch (e) {
         await session.end().catch(() => {});
         throw e;
@@ -807,10 +842,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           private HTTPS connection to Whisper running locally on your MacBook.
           Clips are transcribed on the Mac and deleted immediately — no cloud
           speech service, no Meta inference, and no audio or transcripts are
-          stored. Listening runs in bounded windows; you can stop it at any
-          time. If microphone access during immersive AR is unreliable on your
-          headset, enable local voice before entering AR or use the one-command
-          push-to-talk button.
+          stored. Listening keeps one microphone stream alive and transcribes
+          each spoken command while capture continues; you can stop it at any
+          time. Enable local voice before entering AR so the same stream is
+          kept across XR entry. Inside AR, the panel shows microphone state
+          and the 🎤 Speak button is an explicit push-to-talk fallback; Next /
+          Previous panel buttons always work.
         </p>
         <label>
           <input type="checkbox" checked={localConsent} onChange={(e) => {
@@ -834,6 +871,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
             Record one command (push-to-talk)
           </button>
         </div>
+        {captureDiag && (
+          <p role="status" aria-label="Microphone capture diagnostics">
+            Mic {captureDiag.mic} · {captureDiag.phase} · {captureDiag.message}
+            {captureDiag.transcript ? ` · “${captureDiag.transcript}”` : ""}
+            {captureDiag.action ? ` → ${captureDiag.action}` : ""} · track{" "}
+            {captureDiag.trackState ?? "?"} · audio {captureDiag.contextState ?? "?"}
+            {captureDiag.durationMs !== undefined ? ` · ${captureDiag.durationMs} ms` : ""}
+            {captureDiag.rms !== undefined ? ` · level ${captureDiag.rms.toFixed(3)}` : ""}
+          </p>
+        )}
         {diagnostic && (
           <section aria-label="Voice command diagnostics" className="ar-diagnostics">
             <h4>Last voice command</h4>
