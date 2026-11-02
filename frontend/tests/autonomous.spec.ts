@@ -91,7 +91,7 @@ test("initial assessment: already-placed stable construction is assessed once, n
   await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
   await page.getByLabel(/Assess blocks already placed/).check();
   await page.getByRole("button", { name: "Start Autonomous Assembly" }).click();
-  await expect(autoStatus(page)).toContainText("Watching for physical assembly changes", { timeout: 20000 });
+  // The one-time assessment may run before "Watching" is ever shown (it needs only a stable view).
   await expect.poll(() => state.inspects, { timeout: 20000 }).toBe(1);
   await page.waitForTimeout(3000);
   expect(state.inspects).toBe(1);

@@ -29,7 +29,7 @@ test("Starting is not Listening; duplicate starts and pre-start results are igno
   assert.equal(controller.status.state, "starting");
   assert.equal(controller.isListening, false);
   assert.equal(controller.start(), false);
-  rec.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "next step" } }] });
+  rec.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "show result" } }] });
   assert.deepEqual(commands, []);
   rec.onstart();
   assert.equal(controller.isListening, true);
@@ -117,7 +117,7 @@ test("stop waits for end, blocks commands and never restarts; missing end is bou
     const { rec, controller, commands } = setup(undefined, { stopTimeoutMs: 100 });
     controller.start(); rec.onstart(); controller.stop();
     assert.equal(controller.status.state, "stopping");
-    rec.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "verify step" } }] });
+    rec.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "show reference" } }] });
     assert.deepEqual(commands, []);
     rec.onerror({ error: "aborted" });
     if (emitEnd) rec.onend(); else t.mock.timers.tick(100);
@@ -135,9 +135,9 @@ test("explicit retry releases old callbacks and duplicate finalized results stay
   controller.start(); oldStart(); oldEnd();
   assert.equal(controller.status.state, "starting");
   second.onstart();
-  const event = { resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "next step" } }] };
+  const event = { resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "show result" } }] };
   second.onresult(event); controller.gate.reset(); second.onresult(event);
-  assert.deepEqual(commands, ["next"]);
+  assert.deepEqual(commands, ["show-result"]);
   controller.dispose();
 });
 

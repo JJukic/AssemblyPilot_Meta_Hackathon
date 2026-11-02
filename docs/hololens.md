@@ -814,3 +814,33 @@ assessment next to the capture that produced it). Tap **Camera** to toggle.
   the HoloLens (no extra upload is made); the Result view then shows the
   expected reference instead of a capture.
 - The preview is panel-only and never touches the field, origin or anchor.
+
+## Geführter HoloLens-Ablauf (Buttons statt Sprachbefehle)
+
+Das AR-Panel zeigt pro Schritt nur: **Schritt X von Y**, einen farbigen
+Status (Bereit · Prüfe … · Korrekt · Noch einmal versuchen · Teilweise
+korrekt · Prüfung nicht möglich · Bestätigt), eine Kurzanweisung aus den
+Schrittdaten (z. B. „Lege den roten 2×4-Stein auf die grüne Markierung.“ —
+keine Kamera-Texterkennung) und höchstens zwei große Buttons:
+
+| Zustand | Hologramm | Buttons |
+|---|---|---|
+| Bereit | transparenter Geist + **grüne** Zielmarkierung | Prüfen |
+| Prüfe … | unverändert | — |
+| Noch einmal versuchen („Baustein ausrichten“) | Markierung + Geist **rot** | Erneut prüfen |
+| Teilweise korrekt / Prüfung nicht möglich | Markierung **gelb** | Erneut prüfen · Position bestätigen |
+| Korrekt („Schritt korrekt“) | **grün** | Nächster Schritt |
+| Bestätigt (manuell, nicht KI-geprüft) | grün | Nächster Schritt |
+
+„Prüfen“ nimmt ein frisches Bild auf und inspiziert es; ist es korrekt,
+verifiziert das Backend automatisch ein **separates, späteres** Bild. Erst
+dann erscheint „Nächster Schritt“ (kein automatisches Weiterschalten, außer
+im Autonomous-Modus). „Position bestätigen“ erscheint nur, wenn die Prüfung
+unsicher ist oder nicht laufen konnte; es schreibt **keine** Backend-
+Verifikation. Darunter immer: ◀ Zurück · Neu ausrichten · Kamera · Ergebnis ·
+Auto · BEENDEN. Weiter/Zurück/Prüfen/Erneut prüfen sind bewusst **keine**
+Sprachbefehle mehr; Debug-Texte stehen nur in der Kamera-Ansicht bzw. auf
+der 2D-Seite. Die 2D-Seite zeigt dieselbe geführte Karte als Fallback.
+
+Demo-Projekt (2 Schritte, roter 2×4-Stein auf Grundplatte, rein additiv):
+`cd backend && uv run python scripts/create_ar_demo.py` → gibt die AR-URL aus.

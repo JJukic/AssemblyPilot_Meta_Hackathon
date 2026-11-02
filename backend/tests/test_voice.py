@@ -23,7 +23,7 @@ def wav_bytes(seconds=1.0, rate=16000, channels=1):
 @pytest.fixture
 def voice_client(client, monkeypatch):
     client.app.dependency_overrides[voice_api.get_transcriber] = lambda: (
-        lambda data, lang: "Next step"
+        lambda data, lang: "Show result"
     )
     # Engine must report available without a real Whisper install in CI.
     monkeypatch.setattr(
@@ -66,8 +66,8 @@ def test_transcribe_requires_session_and_matches_command(voice_client):
     assert response.status_code == 200
     body = response.json()
     assert body["matched"] is True
-    assert body["action"] == "next"
-    assert body["phrase"] == "next step"
+    assert body["action"] == "show-result"
+    assert body["phrase"] == "show result"
 
 
 def test_unknown_and_ambiguous_commands_do_not_match(client, monkeypatch):
@@ -83,10 +83,11 @@ def test_unknown_and_ambiguous_commands_do_not_match(client, monkeypatch):
         assert response.json()["action"] is None
 
 
-def test_verify_again_and_german_aliases_match():
-    assert match_command("Verify again")["action"] == "verify-again"
-    assert match_command("Nächster Schritt")["action"] == "next"
-    assert match_command("Schritt erneut prüfen")["action"] == "verify-again"
+def test_navigation_and_verify_are_buttons_only_german_aliases_match():
+    # Weiter / Zurück / Bestätigen / Erneut prüfen: HoloLens panel buttons only.
+    for phrase in ["Verify again", "Nächster Schritt", "Schritt erneut prüfen", "Schritt prüfen"]:
+        assert match_command(phrase) is None, phrase
+    assert match_command("Ergebnis anzeigen")["action"] == "show-result"
     assert match_command("AssemblyPilot, exit AR!")["action"] == "exit"
     assert normalize_transcript("  AssemblyPilot NEXT Step. ") == "next step"
     assert match_command("don't verify step") is None
@@ -120,7 +121,7 @@ def test_engine_unavailable_is_honest_503(client, monkeypatch):
         voice_api.WhisperEngine, "available", lambda self: (False, "No local Whisper CLI found")
     )
     client.app.dependency_overrides[voice_api.get_transcriber] = lambda: (
-        lambda data, lang: "Next step"
+        lambda data, lang: "Show result"
     )
     response = post_clip(client, token=session(client))
     assert response.status_code == 503
@@ -152,11 +153,9 @@ def test_command_table_matches_shared_parity_fixture():
         assert match_command(phrase) is None, phrase
 
 
-def test_new_whisper_variants_match():
-    assert match_command("Previous steps")["action"] == "previous"
-    assert match_command("Go back")["action"] == "previous"
-    assert match_command("Back one step")["action"] == "previous"
-    assert match_command("Next steps")["action"] == "next"
-    assert match_command("Go forward")["action"] == "next"
-    assert match_command("Inspect step")["action"] == "verify"
-    assert match_command("Inspect again")["action"] == "verify-again"
+def test_removed_whisper_variants_never_match():
+    for phrase in [
+        "Previous steps", "Go back", "Back one step", "Next steps", "Go forward",
+        "Inspect step", "Inspect again",
+    ]:
+        assert match_command(phrase) is None, phrase

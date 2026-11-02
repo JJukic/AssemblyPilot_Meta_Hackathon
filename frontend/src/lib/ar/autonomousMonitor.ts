@@ -105,7 +105,18 @@ export class MonitorCamera implements AutoCamera {
     return this.video?.currentTime ?? Number.NEGATIVE_INFINITY;
   }
 
+  /** Read the media clock directly so liveness never depends on grab() or frame callbacks. */
+  private pollClock() {
+    const clock = this.clock();
+    if (clock > this.lastClock) {
+      this.lastClock = clock;
+      this.framesSeen++;
+      this.lastAdvanceAt = Date.now();
+    }
+  }
+
   health(now: number): CameraHealth {
+    this.pollClock();
     const source = this.vfcActive && this.presentedWindow.length ? "video-frame-callback" : this.video ? "media-time" : "none";
     const ago = this.lastAdvanceAt ? now - this.lastAdvanceAt : null;
     const fresh = this.presentedWindow.length && now - this.presentedWindow[this.presentedWindow.length - 1] < 1000;
@@ -127,12 +138,8 @@ export class MonitorCamera implements AutoCamera {
     if (!video || !canvas || video.readyState < 2 || !video.videoWidth) return null;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
-    const clock = this.clock();
-    if (clock > this.lastClock) {
-      this.lastClock = clock;
-      this.framesSeen++;
-      this.lastAdvanceAt = Date.now();
-    }
+    this.pollClock();
+    const clock = this.lastClock;
     ctx.drawImage(video, 0, 0, W, H);
     let data: Uint8ClampedArray;
     try {

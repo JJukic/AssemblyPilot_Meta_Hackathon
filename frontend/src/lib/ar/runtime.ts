@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { disposeObject, ghost } from "./geometry";
 import type { Placement } from "./data";
 import { fitRect } from "./reference";
-import { paginate, verificationLabel, wrapText, type VerificationStatus } from "./panel";
+import { paginate, wrapText, type VerificationStatus } from "./panel";
 import type { CaptureView, IndicatorTone } from "./capturePreview";
 import {
   AnchorTracker, DEFAULT_FIELD, EMPTY_FIELD_DIAGNOSTICS, fieldCorners, fieldInView, fieldViewGeometry,
@@ -29,7 +29,8 @@ export type Action =
   | "voice"
   | "result"
   | "auto"
-  | "camera";
+  | "camera"
+  | "confirm";
 export interface Guidance {
   placement: Placement | null;
   text: string;
@@ -52,6 +53,17 @@ export interface Guidance {
   resultTone?: string;
   resultLines?: string[];
   resultErrorsOnly?: boolean;
+  /** Guided flow (short German UI). */
+  guideLabel?: string;
+  guideMessage?: string;
+  guideTone?: "ready" | "info" | "ok" | "warn" | "bad";
+  /** Short visible instruction, e.g. "Lege den roten 2×4-Stein auf die grüne Markierung." */
+  shortInstruction?: string;
+  /** Contextual large buttons (≤ 2). Empty while checking. */
+  primary?: { id: Action; label: string }[];
+  /** Tabletop target marker colour and ghost tint (null = neutral transparent ghost). */
+  markerColor?: number;
+  ghostTint?: number | null;
 }
 
 export type PanelView = "guide" | "result" | "camera";
@@ -65,50 +77,78 @@ export interface PanelButton {
   w: number;
   h: number;
   danger?: boolean;
+  /** Large contextual action of the guided flow (Prüfen / Nächster Schritt / …). */
+  primary?: boolean;
 }
-function row(ids: [Action, string, number?][], y: number, dangerLast = false): PanelButton[] {
-  const gap = 8;
+/** Top of the button area: tapping the panel ABOVE this confirms the field origin. */
+export const PANEL_BUTTONS_TOP = 372;
+const PRIMARY_Y = 372, PRIMARY_H = 100, SECONDARY_Y = 486, SECONDARY_H = 82;
+function row(ids: [Action, string, number?][], y: number, h: number, dangerLast = false): PanelButton[] {
+  const gap = 10;
   const total = ids.reduce((sum, [, , weight]) => sum + (weight ?? 1), 0);
   const unit = (PANEL_W - gap * (ids.length + 1)) / total;
   let x = gap;
   return ids.map(([id, label, weight], i) => {
     const w = Math.floor(unit * (weight ?? 1));
-    const button = { id, label, x, y, w, h: 84, danger: dangerLast && i === ids.length - 1 };
+    const button = { id, label, x, y, w, h, danger: dangerLast && i === ids.length - 1 };
     x += w + gap;
     return button;
   });
 }
-export const PANEL_BUTTONS: PanelButton[] = [
-  ...row(
-    [
-      ["previous", "◀ Previous", 0.95],
-      ["next", "Next ▶", 0.85],
-      ["verify", "Verify Step", 1.05],
-      ["auto", "Auto ▶", 1.0],
-      ["exit", "EXIT AR", 1.2],
-    ],
-    452,
-    true,
-  ),
-  ...row(
-    [
-      ["reanchor", "Re-anchor"],
-      ["recenter", "Recenter"],
-      ["reference", "Reference"],
-      ["camera", "Camera"],
-      ["result", "Result"],
-      ["page", "More text"],
-      ["help", "Help"],
-      ["voice", "🎤 Speak"],
-    ],
-    544,
-  ),
+/** Always-visible secondary controls (gaze/hand-ray sized, ≥ 82 px tall). */
+const SECONDARY: [Action, string, number?][] = [
+  ["previous", "◀ Zurück"],
+  ["reanchor", "Neu ausrichten", 1.15],
+  ["camera", "Kamera"],
+  ["result", "Ergebnis"],
+  ["auto", "Auto ▶"],
+  ["exit", "BEENDEN", 1.4],
 ];
-export function panelButtonAt(x: number, y: number): PanelButton | null {
-  return (
-    PANEL_BUTTONS.find((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) ??
-    null
+/**
+ * Panel layout: at most two large contextual buttons of the guided flow,
+ * plus one fixed secondary row. No voice-only control exists.
+ */
+export function layoutButtons(primary: { id: Action; label: string }[]): PanelButton[] {
+  const top = primary.slice(0, 2);
+  return [
+    ...(top.length
+      ? row(top.map((p) => [p.id, p.label] as [Action, string]), PRIMARY_Y, PRIMARY_H).map((b) => ({ ...b, primary: true }))
+      : []),
+    ...row(SECONDARY, SECONDARY_Y, SECONDARY_H, true),
+  ];
+}
+export const DEFAULT_PRIMARY: { id: Action; label: string }[] = [{ id: "verify", label: "Prüfen" }];
+/** Layout of the initial "Bereit" state (kept for callers/tests that need static coordinates). */
+export const PANEL_BUTTONS: PanelButton[] = layoutButtons(DEFAULT_PRIMARY);
+export function panelButtonAt(x: number, y: number, buttons: PanelButton[] = PANEL_BUTTONS): PanelButton | null {
+  return buttons.find((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) ?? null;
+}
+
+const GUIDE_TONE: Record<"ready" | "info" | "ok" | "warn" | "bad", string> = {
+  ready: "#2ee66b",
+  info: "#38d9ff",
+  ok: "#2ee66b",
+  warn: "#ffd23f",
+  bad: "#ff4d4d",
+};
+
+/** Flat target outline + translucent fill on the tabletop under the ghost (field space). */
+function targetMarker(p: Placement): THREE.Group {
+  const margin = 0.012;
+  const w = p.dimensions.x_mm / 1000 + margin, d = p.dimensions.z_mm / 1000 + margin;
+  const group = new THREE.Group();
+  group.name = "target-marker";
+  const fill = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0x2ee66b, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }),
   );
+  const pts = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2], [-w / 2, -d / 2]]
+    .map(([x, z]) => new THREE.Vector3(x, 0.0005, z));
+  const outline = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x2ee66b }));
+  group.add(fill, outline);
+  group.position.set(p.position_m[0], p.position_m[1] + 0.001, p.position_m[2]);
+  group.rotation.y = THREE.MathUtils.degToRad(p.rotation_deg[1]);
+  return group;
 }
 
 const TONE_COLOR: Record<IndicatorTone, string> = {
@@ -153,6 +193,9 @@ export class SpatialSession {
   private fieldRendered = false;
   private viewGeometry: { distanceM: number; angleDeg: number } | null = null;
   private targetKey = "";
+  /** Tabletop target marker (child of origin, next to the ghost). */
+  private marker: THREE.Group | null = null;
+  private buttons: PanelButton[] = PANEL_BUTTONS;
   private epoch = 0;
   private yaw = 0;
   private distance = 0.65;
@@ -312,7 +355,7 @@ export class SpatialSession {
     this.currentTint = -1;
     this.origin.add(group);
   }
-  /** Field colour encodes trust: cyan preview, yellow anchored, orange held, red lost. */
+  /** Field colour encodes trust: cyan preview, light grey anchored, orange held, red lost. */
   private tintField(color: number) {
     if (!this.fieldTint || this.currentTint === color) return;
     this.currentTint = color;
@@ -370,12 +413,87 @@ export class SpatialSession {
         disposeObject(this.target);
         this.target = null;
       }
+      if (this.marker) {
+        this.origin.remove(this.marker);
+        disposeObject(this.marker);
+        this.marker = null;
+      }
       if (info.placement) {
         this.target = ghost(info.placement);
+        this.target.traverse((o) => {
+          const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+          if (m && "color" in m) o.userData.baseColor = m.color.getHex();
+        });
         this.origin.add(this.target);
+        this.marker = targetMarker(info.placement);
+        this.origin.add(this.marker);
       }
     }
+    this.buttons = layoutButtons(info.primary ?? DEFAULT_PRIMARY);
+    this.applyGuideColors(info);
     this.draw();
+  }
+  /** Green target / red wrong / yellow partial. Panel+hologram only; never the field pose. */
+  private applyGuideColors(info: Guidance) {
+    const markerColor = info.markerColor ?? 0x2ee66b;
+    this.marker?.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+      if (m && "color" in m) m.color.setHex(markerColor);
+    });
+    this.target?.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+      if (m && "color" in m && typeof o.userData.baseColor === "number")
+        m.color.setHex(info.ghostTint ?? o.userData.baseColor);
+    });
+  }
+  get markerColorHex(): number | null {
+    let hex: number | null = null;
+    this.marker?.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+      if (hex === null && m && "color" in m) hex = m.color.getHex();
+    });
+    return hex;
+  }
+  get currentButtons(): PanelButton[] {
+    return this.buttons;
+  }
+  /** Main guided view: state pill, short instruction, one message, reference thumbnail. */
+  private drawGuide(c: CanvasRenderingContext2D, info: Guidance) {
+    const toneColor = GUIDE_TONE[info.guideTone ?? "ready"];
+    const showRef = !!info.hasReference && this.showReference && !!this.refImage;
+    const textW = showRef ? 28 : 46;
+    c.fillStyle = toneColor;
+    c.fillRect(20, 68, showRef ? 610 : 984, 62);
+    c.fillStyle = "#04121c";
+    c.font = "bold 36px sans-serif";
+    c.fillText((info.guideLabel ?? "Bereit").toUpperCase().slice(0, 30), 36, 112);
+    c.fillStyle = "#ffffff";
+    c.font = "bold 34px sans-serif";
+    wrapText(info.shortInstruction ?? info.instruction ?? info.text, textW)
+      .slice(0, 3)
+      .forEach((line, i) => c.fillText(line, 20, 182 + i * 42));
+    if (info.guideMessage) {
+      c.fillStyle = toneColor;
+      c.font = "bold 26px sans-serif";
+      wrapText(info.guideMessage, textW + 8)
+        .slice(0, 2)
+        .forEach((line, i) => c.fillText(line, 20, 318 + i * 30));
+    }
+    if (showRef && this.refImage) {
+      const box = { x: 646, y: 68, w: 358, h: 286 };
+      c.strokeStyle = "#38d9ff";
+      c.lineWidth = 3;
+      c.strokeRect(box.x, box.y, box.w, box.h);
+      const fit = fitRect(this.refImage.width, this.refImage.height, box.w - 8, box.h - 36);
+      try {
+        c.drawImage(this.refImage as unknown as CanvasImageSource, box.x + 4 + fit.x, box.y + 4 + fit.y, fit.w, fit.h);
+      } catch {
+        /* reference unavailable: the instruction text stays */
+      }
+      c.fillStyle = "#83e8eb";
+      c.font = "bold 18px sans-serif";
+      c.fillText("SO SOLL ES AUSSEHEN", box.x + 10, box.y + box.h - 10);
+    }
   }
   /** Replace the expected-reference bitmap. Previous bitmap is closed/disposed. */
   setReferenceImage(image: RefImage | null) {
@@ -507,32 +625,23 @@ export class SpatialSession {
     c.fillRect(0, 0, PANEL_W, 56);
     c.fillStyle = "#bffaff";
     c.font = "20px sans-serif";
-    c.fillText(manipState === "dragging" ? "⠿ MOVING PANEL — release to drop" : "⠿ AssemblyPilot", PANEL_W - 260, 38);
+    c.fillText(manipState === "dragging" ? "⠿ Panel wird verschoben" : "⠿ AssemblyPilot", PANEL_W - 250, 38);
     const stepLabel = info.stepLabel ?? info.text.split("—")[0]?.trim() ?? "";
     const title = info.title ?? info.text;
     // Header
     c.fillStyle = "#7df3ff";
     c.font = "bold 30px sans-serif";
     c.fillText(stepLabel.slice(0, 42), 20, 38);
-    const vLabel = verificationLabel(info.verification ?? "not_verified");
-    c.fillStyle =
-      info.verification === "verified"
-        ? "#6dffa8"
-        : info.verification === "uncertain"
-          ? "#ffd166"
-          : "#ffb3b3";
-    c.font = "bold 24px sans-serif";
-    c.fillText(vLabel, 560, 38);
     // Persistent inspection indicator (real pipeline events only).
     if (this.indicator.label) {
       c.fillStyle = TONE_COLOR[this.indicator.tone];
       c.font = "bold 20px sans-serif";
       c.fillText(this.indicator.label.slice(0, 22), 300, 38);
     }
-    // Title (2 lines) — omitted in Camera view to give the image room.
+    // Title (2 lines) — Result view only; the guided view shows the short instruction.
     c.fillStyle = "#ffffff";
     c.font = "bold 30px sans-serif";
-    if (this.viewMode !== "camera")
+    if (this.viewMode === "result" && info.resultHeadline)
       wrapText(title, 62)
         .slice(0, 2)
         .forEach((line, i) => c.fillText(line, 20, 76 + i * 34));
@@ -629,135 +738,49 @@ export class SpatialSession {
       c.font = "23px sans-serif";
       c.fillStyle = "#bffaff";
       const help = [
-        "Voice / button commands:",
-        "Next step · Previous step · Verify step",
-        "Show/Hide reference · Camera = exact frame sent to Meta",
-        "Show instructions · Read instructions",
-        "Re-anchor · Recenter · Help · Stop listening · Exit AR",
-        "Auto ▶ starts hands-free monitoring (tap again to pause).",
-        "Exit: the large EXIT AR button or the HoloLens Start gesture.",
-        "Verify always needs a fresh real camera photo.",
+        "Bedienung: große Buttons (Hand-Strahl + Air Tap).",
+        "Prüfen · Erneut prüfen · Position bestätigen · Nächster Schritt",
+        "Sprachbefehle (optional): Show result · Show reference",
+        "Recenter · Re-anchor · Stop listening · Exit AR",
+        "Weiter/Zurück/Prüfen gibt es bewusst nur als Buttons.",
+        "Kamera = exakt das an Meta gesendete Bild.",
+        "Beenden: BEENDEN-Button oder HoloLens-Startgeste.",
       ];
       help.forEach((line, i) => c.fillText(line, 20, 138 + i * 32));
     } else {
-      // Instruction, paginated (never truncated silently)
-      const instruction = info.instruction ?? info.text;
-      const lines = wrapText(instruction, maxChars);
-      const pages = paginate(lines, 7);
-      const page = pages[Math.min(this.instructionPage, pages.length - 1)] ?? [];
-      c.font = "25px sans-serif";
-      c.fillStyle = "#eafcff";
-      page.forEach((line, i) => c.fillText(line, 20, 138 + i * 32));
-      if (pages.length > 1) {
-        c.fillStyle = "#83e8eb";
-        c.font = "20px sans-serif";
-        c.fillText(
-          `Text page ${Math.min(this.instructionPage, pages.length - 1) + 1}/${pages.length} — tap “More text”`,
-          20,
-          138 + 7 * 32,
-        );
-      }
-      // Reference image box (right side) — guidance only, not camera evidence
-      if (hasRef) {
-        const box = { x: 664, y: 116, w: 340, h: 250 };
-        c.strokeStyle = "#38d9ff";
-        c.lineWidth = 3;
-        c.strokeRect(box.x, box.y, box.w, box.h);
-        c.fillStyle = "#83e8eb";
-        c.font = "bold 19px sans-serif";
-        c.fillText("EXPECTED REFERENCE", box.x + 8, box.y - 8);
-        if (this.showReference && this.refImage) {
-          const fit = fitRect(this.refImage.width, this.refImage.height, box.w - 8, box.h - 8);
-          try {
-            c.drawImage(
-              this.refImage as unknown as CanvasImageSource,
-              box.x + 4 + fit.x,
-              box.y + 4 + fit.y,
-              fit.w,
-              fit.h,
-            );
-          } catch {
-            c.fillStyle = "#ffd166";
-            c.font = "21px sans-serif";
-            c.fillText("Reference failed to load", box.x + 14, box.y + 60);
-          }
-        } else if (this.showReference) {
-          c.fillStyle = "#ffd166";
-          c.font = "21px sans-serif";
-          c.fillText("Loading reference…", box.x + 14, box.y + 60);
-        } else {
-          c.fillStyle = "#ffffff";
-          c.font = "21px sans-serif";
-          c.fillText("Reference hidden", box.x + 14, box.y + 60);
-          c.fillText("Say “Show reference”", box.x + 14, box.y + 90);
-        }
-      } else {
-        // Image-free compact note does not occupy the text area.
-        c.fillStyle = "#ffd166";
-        c.font = "20px sans-serif";
-        c.fillText("No reference photo for this step.", 20, 386);
-      }
+      this.drawGuide(c, info);
     }
-    // Detail / block / voice rows
-    c.font = "21px sans-serif";
-    c.fillStyle = "#ffffff";
-    c.fillText((info.blockLabel ?? info.detail).slice(0, 92), 20, 392);
-    c.fillStyle = "#83e8eb";
-    if (!info.diagnostic)
-      c.fillText((info.voiceLabel ?? "Voice: off").slice(0, 92), 20, 420);
-    if (info.diagnostic) {
-      c.fillStyle = info.diagnostic.startsWith("✗") ? "#ff9d9d" : "#6dffa8";
-      c.font = "bold 20px sans-serif";
-      c.fillText(info.diagnostic.slice(0, 96), 20, 420);
-      c.font = "21px sans-serif";
-    } else if (info.lastCommand) {
-      c.fillStyle = "#6dffa8";
-      c.fillText(`Heard: “${info.lastCommand}”`.slice(0, 92), 520, 420);
-    }
-    // Compact capture health (mic / phase / last transcript): a failure here
-    // stays visible until the next utterance, never hidden by "Listening".
-    if (info.voiceDetail) {
-      c.fillStyle = "#ffd166";
-      c.font = "18px sans-serif";
-      c.fillText(info.voiceDetail.slice(0, 108), 20, 372);
-      c.font = "21px sans-serif";
-    }
-    if (info.anchorLabel) {
-      c.fillStyle = "#ffd166";
-      c.font = "bold 18px sans-serif";
-      c.fillText(info.anchorLabel.slice(0, 108), 20, 444);
-    }
-    if (info.autoLabel) {
+    // No debug rows in the main view. Autonomous detail (incl. live metrics)
+    // is shown in the Camera view; full diagnostics stay on the 2D page.
+    if (this.viewMode === "camera" && info.autoLabel) {
       c.fillStyle = "#7df3ff";
-      c.font = "bold 16px sans-serif";
-      c.fillText(info.autoLabel.slice(0, 58), 560, 372);
+      c.font = "bold 17px sans-serif";
+      c.fillText(info.autoLabel.slice(0, 96), 14, 362);
     }
-    c.fillStyle = "#bffaff";
-    c.font = "19px sans-serif";
-    if (!info.anchorLabel) c.fillText(this.message.slice(0, 96), 20, 444);
     // Buttons (hover = exact button under the hand-ray cursor)
-    for (const b of PANEL_BUTTONS) {
+    for (const b of this.buttons) {
       const isRef = b.id === "reference";
       const hovered = this.hoveredButton?.id === b.id;
       const pressed = this.pressedButton === b.id;
-      c.fillStyle = pressed ? "#ffffff" : hovered ? "#2f9ec7" : b.danger ? "#8b1e2d" : isRef && !this.showReference ? "#33505f" : "#1b4a66";
+      const primaryFill = b.id === "next" ? "#1d7a3e" : b.id === "confirm" ? "#7a5a12" : "#1d5f8a";
+      c.fillStyle = pressed ? "#ffffff" : hovered ? "#2f9ec7" : b.danger ? "#8b1e2d" : b.primary ? primaryFill : isRef && !this.showReference ? "#33505f" : "#1b4a66";
       c.fillRect(b.x, b.y, b.w, b.h);
       c.strokeStyle = pressed ? "#ffffff" : hovered ? "#ffffff" : b.danger ? "#ff8fa3" : "#7df3ff";
       c.lineWidth = hovered || pressed ? 6 : 3;
       c.strokeRect(b.x, b.y, b.w, b.h);
       c.fillStyle = pressed ? "#04202f" : "#ffffff";
-      c.font = b.danger ? "bold 27px sans-serif" : "bold 23px sans-serif";
+      c.font = b.primary ? "bold 38px sans-serif" : b.danger ? "bold 27px sans-serif" : "bold 23px sans-serif";
       const rawLabel =
         b.id === "auto"
           ? (info.autoButton ?? b.label)
           : b.id === "camera"
           ? this.viewMode === "camera"
-            ? "Guide"
-            : "Camera"
+            ? "Anleitung"
+            : "Kamera"
           : b.id === "result"
           ? this.viewMode === "result"
-            ? "Guide"
-            : "Result"
+            ? "Anleitung"
+            : "Ergebnis"
           : isRef
             ? this.showReference
               ? "Hide ref."
@@ -766,10 +789,10 @@ export class SpatialSession {
       const label = this.hoveredButton?.id === b.id ? rawLabel.toUpperCase() : rawLabel;
       let w = c.measureText(label).width;
       if (w > b.w - 12) {
-        c.font = b.danger ? "bold 22px sans-serif" : "bold 18px sans-serif";
+        c.font = b.primary ? "bold 30px sans-serif" : b.danger ? "bold 22px sans-serif" : "bold 19px sans-serif";
         w = c.measureText(label).width;
       }
-      c.fillText(label, b.x + Math.max(8, (b.w - w) / 2), b.y + 52);
+      c.fillText(label, b.x + Math.max(8, (b.w - w) / 2), b.y + b.h / 2 + 11);
     }
     // Targeting cursor drawn in panel space at the exact ray hit.
     if (this.hoverPoint) {
@@ -793,11 +816,6 @@ export class SpatialSession {
     c.fillStyle = "#ffffff";
     c.font = "bold 26px sans-serif";
     c.fillText("◢", PANEL_W - 44, PANEL_H - 20);
-    if (this.hoveredButton && !info.anchorLabel) {
-      c.fillStyle = "#7df3ff";
-      c.font = "bold 19px sans-serif";
-      c.fillText(`Targeting: ${this.hoveredButton.label}`, 20, 444);
-    }
     this.texture.needsUpdate = true;
     const status = this.message;
     if (this.lastStatus !== status) {
@@ -954,7 +972,7 @@ export class SpatialSession {
     const hit = ray.intersectObject(this.panel)[0] ?? null;
     if (!hit?.uv) return { origin, direction, hit: null, point: null, button: null };
     const point = uvToPanel(hit.uv, PANEL_W, PANEL_H);
-    return { origin, direction, hit, point, button: panelButtonAt(point.x, point.y) };
+    return { origin, direction, hit, point, button: panelButtonAt(point.x, point.y, this.buttons) };
   }
 
   private panelPlaneHit(source: XRInputSource, xrFrame: XRFrame): THREE.Vector3 | null {
@@ -1073,7 +1091,7 @@ export class SpatialSession {
       this.interaction.manipulation = this.manipulation.state;
     }
     const hoverId = effectiveHover(this.hoverBySource.values());
-    const hoverButton = hoverId ? PANEL_BUTTONS.find((b) => b.id === hoverId) ?? null : null;
+    const hoverButton = hoverId ? this.buttons.find((b) => b.id === hoverId) ?? null : null;
     const moved = this.hoverPoint
       ? Math.abs(this.hoverPoint.x - (this.lastHoverDrawn?.x ?? -99)) > 3 ||
         Math.abs(this.hoverPoint.y - (this.lastHoverDrawn?.y ?? -99)) > 3
@@ -1164,7 +1182,7 @@ export class SpatialSession {
       return;
     }
     // Non-button panel tap above the button rows: confirm origin when pending.
-    if (y < 452 && this.candidateValid && !this.selected) {
+    if (y < PANEL_BUTTONS_TOP && this.candidateValid && !this.selected) {
       this.confirming = true;
       this.interaction.lastAction = "confirm-origin";
       return;
@@ -1323,7 +1341,7 @@ export class SpatialSession {
       !this.selected ? 0x38d9ff
         : state === "tracking_lost" ? 0xff4d4d
           : state === "tracking_degraded" ? 0xffa64d
-            : 0xffd166,
+            : 0xd8e4ea, // neutral: yellow/red/green are reserved for the step result
     );
     if (this.target) this.target.visible = this.selected ? state !== "tracking_lost" : true;
     this.reticle.visible = !this.selected && this.candidateValid && this.placementMode === "surface";

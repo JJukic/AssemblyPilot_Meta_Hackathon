@@ -56,11 +56,13 @@ test("bridge summary strips local-only fields and pairing codes are well-formed"
 
 test("Verify Step contract: XR verify never ends the session or routes to the camera workspace", () => {
   const source = fs.readFileSync(__dirname + "/../src/components/ar/ARWorkspace.tsx", "utf8");
-  const handleVerify = source.slice(source.indexOf('case "verify":'), source.indexOf('case "verify-again":'));
-  assert.match(handleVerify, /verifyInAR\("inspect"\)/);
+  const handleVerify = source.slice(source.indexOf('case "verify":'), source.indexOf('case "confirm":'));
+  // Buttons "Prüfen" / "Erneut prüfen" run the guided in-page check.
+  assert.match(handleVerify, /checkStep\(\)/);
   assert.doesNotMatch(handleVerify, /verify\(\)/);
-  const inAR = source.slice(source.indexOf("async function verifyInAR"), source.indexOf("async function requestExternalFallback"));
-  assert.match(inAR, /if \(!active\) return verify\(mode\)/);
+  const inAR = source.slice(source.indexOf("async function captureCheck"), source.indexOf("async function requestExternalFallback"));
+  assert.match(inAR, /if \(!active && !opts\.inPage\) return done\(await verify\(mode\)\)/);
+  assert.match(inAR, /captureCheck\("inspect", \{ inPage: true/, "guided check never routes to the camera workspace");
   assert.doesNotMatch(inAR, /runtime\.current\?\.end\(\)|router\.push/);
   assert.match(inAR, /performInARInspection/);
   assert.match(inAR, /requestExternalFallback/);

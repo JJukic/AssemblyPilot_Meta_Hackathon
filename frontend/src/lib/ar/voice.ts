@@ -48,28 +48,16 @@ export interface ExecutionOutcome {
   detail?: string;
 }
 
+/*
+ * Next / Previous / Verify / Verify again are deliberately NOT voice
+ * commands: on HoloLens they are large panel buttons (Nächster Schritt,
+ * Zurück, Prüfen, Erneut prüfen). Their keywords stay in ACTION_KEYWORDS
+ * only so that mixed utterances are still rejected as ambiguous.
+ */
 const PHRASES: Record<string, { action: VoiceAction; language: "en" | "de" }> = {};
 function add(action: VoiceAction, language: "en" | "de", phrases: string[]) {
   for (const p of phrases) PHRASES[p] = { action, language };
 }
-add("next", "en", [
-  "next step",
-  "next steps",
-  "go to next step",
-  "go to the next step",
-  "go forward",
-]);
-add("previous", "en", [
-  "previous step",
-  "previous steps",
-  "go to previous step",
-  "go to the previous step",
-  "prev step",
-  "go back",
-  "back one step",
-]);
-add("verify", "en", ["verify step", "verify this step", "verify the step", "inspect step"]);
-add("verify-again", "en", ["verify again", "verify it again", "verify step again", "inspect again"]);
 add("show-result", "en", ["show result", "show inspection result", "display result", "show the result"]);
 add("show-errors", "en", ["show errors", "show issues", "what is wrong", "show the errors"]);
 add("read-result", "en", ["read result", "read the result"]);
@@ -125,10 +113,6 @@ add("stop-listening", "en", [
 ]);
 add("exit", "en", ["exit ar", "leave ar", "close ar", "quit ar", "exit"]);
 // German aliases (after umlaut folding these are the normalized forms).
-add("next", "de", ["naechster schritt", "nachster schritt"]);
-add("previous", "de", ["vorheriger schritt"]);
-add("verify", "de", ["schritt pruefen", "schritt prufen"]);
-add("verify-again", "de", ["erneut pruefen", "nochmal pruefen", "schritt erneut pruefen"]);
 add("show-reference", "de", ["referenz anzeigen", "referenz zeigen"]);
 add("read-instructions", "de", ["anleitung vorlesen", "anleitung lesen"]);
 add("show-result", "de", ["ergebnis anzeigen", "ergebnis zeigen"]);
@@ -193,10 +177,6 @@ export function matchCommand(raw: string): MatchedCommand | null {
 }
 
 export const VOICE_COMMANDS: { spoken: string; action: VoiceAction; description: string }[] = [
-  { spoken: "Next step", action: "next", description: "Show next assembly step" },
-  { spoken: "Previous step", action: "previous", description: "Show previous step" },
-  { spoken: "Verify step", action: "verify", description: "Open camera verification (fresh photo required)" },
-  { spoken: "Verify again", action: "verify-again", description: "Fresh-image verification against the previous inspection" },
   { spoken: "Show result", action: "show-result", description: "Show the latest Meta inspection result" },
   { spoken: "Show errors", action: "show-errors", description: "Show reported issues for this step" },
   { spoken: "Read result", action: "read-result", description: "Read the latest result aloud (if enabled)" },
@@ -214,9 +194,6 @@ export const VOICE_COMMANDS: { spoken: string; action: VoiceAction; description:
 ];
 
 export const GERMAN_ALIASES: { spoken: string; action: VoiceAction }[] = [
-  { spoken: "Nächster Schritt", action: "next" },
-  { spoken: "Vorheriger Schritt", action: "previous" },
-  { spoken: "Schritt prüfen", action: "verify" },
   { spoken: "Referenz anzeigen", action: "show-reference" },
   { spoken: "Anleitung vorlesen", action: "read-instructions" },
   { spoken: "AR beenden", action: "exit" },

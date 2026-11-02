@@ -94,20 +94,25 @@ test("6 long instruction is fully preserved across pages", () => {
 });
 // 7. English and German aliases
 test("7 English and German command aliases map to same actions", () => {
-  assert.equal(matchCommand("Next step").action, "next");
-  assert.equal(matchCommand("Nächster Schritt").action, "next");
-  assert.equal(matchCommand("Vorheriger Schritt").action, "previous");
-  assert.equal(matchCommand("Schritt prüfen").action, "verify");
+  assert.equal(matchCommand("Show reference").action, "show-reference");
   assert.equal(matchCommand("Referenz anzeigen").action, "show-reference");
   assert.equal(matchCommand("Anleitung vorlesen").action, "read-instructions");
   assert.equal(matchCommand("AR beenden").action, "exit");
-  assert.equal(GERMAN_ALIASES.length, 6);
-  assert.equal(VOICE_COMMANDS.length, 18);
+  assert.equal(GERMAN_ALIASES.length, 3);
+  assert.equal(VOICE_COMMANDS.length, 14);
+});
+// 7b. Weiter / Zurück / Bestätigen / Erneut prüfen are buttons only (HoloLens UX).
+test("7b navigation, verify and verify-again are NOT voice commands (EN and DE)", () => {
+  for (const phrase of ["Next step", "Go forward", "Nächster Schritt", "Previous step", "Go back", "Vorheriger Schritt",
+    "Verify step", "Schritt prüfen", "Verify again", "Erneut prüfen", "Nochmal prüfen"])
+    assert.equal(matchCommand(phrase), null, phrase);
+  const actions = new Set(VOICE_COMMANDS.map((c) => c.action).concat(GERMAN_ALIASES.map((c) => c.action)));
+  for (const removed of ["next", "previous", "verify", "verify-again"]) assert.ok(!actions.has(removed), removed);
 });
 // 8. Normalization + ambiguous rejection
 test("8 normalization, optional prefix, ambiguous/negated/unrelated rejection", () => {
   assert.equal(normalizeTranscript("  AssemblyPilot,  NEXT Step! "), "next step");
-  assert.equal(matchCommand("AssemblyPilot next step").action, "next");
+  assert.equal(matchCommand("AssemblyPilot show result").action, "show-result");
   assert.equal(matchCommand("please do something random"), null);
   assert.equal(matchCommand("next step and previous step"), null);
   assert.equal(matchCommand("don't go to next step"), null);
@@ -179,34 +184,30 @@ test("11 microphone permission denial stops without restart loop", () => {
   c.dispose();
 });
 // 13/14/15/16 voice actions via finalized results only
-test("13-16 voice Next/Previous/Re-anchor/Exit/Verify dispatch; interim ignored", () => {
+test("13-16 voice Show result/Recenter/Re-anchor/Exit dispatch; removed navigation phrases and interim ignored", () => {
   const got = [];
   const c = controller((cmd) => got.push(cmd.action));
   c.start();
   const rec = FakeRec.last;
   rec.onstart();
-  rec.emitInterim("next step");
+  rec.emitInterim("show result");
   assert.deepEqual(got, []);
-  rec.emitFinal("Next step.");
-  rec.emitFinal("Previous step");
+  rec.emitFinal("Show result.");
+  rec.emitFinal("Next step"); // button-only now: ignored
+  rec.emitFinal("Recenter");
   // advance past duplicate cooldown by using distinct actions
   rec.emitFinal("Re-anchor");
-  rec.emitFinal("Verify step");
+  rec.emitFinal("Verify step"); // button-only now: ignored
   rec.emitFinal("Exit AR");
-  assert.deepEqual(got, ["next", "previous", "re-anchor", "verify", "exit"]);
+  assert.deepEqual(got, ["show-result", "recenter", "re-anchor", "exit"]);
   c.dispose();
   assert.equal(c.isListening, false);
 });
 // 16 (contd) Verify uses correct project/step and never fabricates verification
-test("16 voice Verify maps to existing camera workflow URL for current project+step, no auto-verify", () => {
-  const projectId = "proj-1";
-  const stepId = "step-2";
-  const url = `/?project=${encodeURIComponent(projectId)}&step=${encodeURIComponent(stepId)}`;
-  assert.equal(url, "/?project=proj-1&step=step-2");
-  // The verify action itself carries no verified flag; verification only comes
-  // from server progress after a fresh camera inspection.
-  const cmd = matchCommand("verify step");
-  assert.equal(cmd.action, "verify");
+test("16 verification cannot be started by voice at all (button only); no command carries a verified flag", () => {
+  assert.equal(matchCommand("verify step"), null);
+  assert.equal(matchCommand("Schritt prüfen"), null);
+  const cmd = matchCommand("show result");
   assert.ok(!("verified" in cmd));
 });
 // 12+5 runtime cleanup is covered in ar.test.cjs (session end disposes renderer);
@@ -234,6 +235,6 @@ test("17 unrelated speech never triggers verify or any action", () => {
 test("18 every voice action has a manual fallback label in the command table", () => {
   for (const c of VOICE_COMMANDS) assert.ok(c.spoken && c.description);
   const actions = new Set(VOICE_COMMANDS.map((c) => c.action));
-  for (const a of ["next", "previous", "verify", "show-reference", "hide-reference", "show-instructions", "read-instructions", "re-anchor", "recenter", "help", "stop-listening", "exit"])
+  for (const a of ["show-reference", "hide-reference", "show-instructions", "read-instructions", "re-anchor", "recenter", "help", "stop-listening", "exit"])
     assert.ok(actions.has(a), a);
 });

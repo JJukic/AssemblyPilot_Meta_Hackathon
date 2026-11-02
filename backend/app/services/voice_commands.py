@@ -6,6 +6,8 @@ import re
 import unicodedata
 
 _PHRASES: dict[str, tuple[str, str]] = {}
+# next / previous / verify / verify-again are intentionally not voice commands
+# (HoloLens uses large panel buttons); keywords remain only for ambiguity rejection.
 
 
 def _add(action: str, language: str, phrases: list[str]) -> None:
@@ -13,30 +15,6 @@ def _add(action: str, language: str, phrases: list[str]) -> None:
         _PHRASES[phrase] = (action, language)
 
 
-_add(
-    "next",
-    "en",
-    ["next step", "next steps", "go to next step", "go to the next step", "go forward"],
-)
-_add(
-    "previous",
-    "en",
-    [
-        "previous step",
-        "previous steps",
-        "go to previous step",
-        "go to the previous step",
-        "prev step",
-        "go back",
-        "back one step",
-    ],
-)
-_add("verify", "en", ["verify step", "verify this step", "verify the step", "inspect step"])
-_add(
-    "verify-again",
-    "en",
-    ["verify again", "verify it again", "verify step again", "inspect again"],
-)
 _add(
     "show-reference",
     "en",
@@ -83,10 +61,6 @@ _add(
 )
 _add("exit", "en", ["exit ar", "leave ar", "close ar", "quit ar", "exit"])
 # German aliases (normalized forms after umlaut folding).
-_add("next", "de", ["naechster schritt", "nachster schritt"])
-_add("previous", "de", ["vorheriger schritt"])
-_add("verify", "de", ["schritt pruefen", "schritt prufen"])
-_add("verify-again", "de", ["erneut pruefen", "nochmal pruefen", "schritt erneut pruefen"])
 _add("show-reference", "de", ["referenz anzeigen", "referenz zeigen"])
 _add("read-instructions", "de", ["anleitung vorlesen", "anleitung lesen"])
 _add(

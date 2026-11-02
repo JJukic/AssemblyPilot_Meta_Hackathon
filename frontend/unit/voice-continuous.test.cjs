@@ -81,7 +81,7 @@ test("continuous: speech during transcription is buffered and both consecutive c
   const api = fakeApi([], async () => {
     transcribeCalls++;
     if (transcribeCalls === 1) await gate.promise;
-    return { matched: true, action: "next", phrase: "next step", language: "en", transcript: "Next step", duration_seconds: 1 };
+    return { matched: true, action: "show-result", phrase: "show result", language: "en", transcript: "Show result", duration_seconds: 1 };
   });
   const got = [];
   const controller = new LocalVoiceController({
@@ -97,7 +97,7 @@ test("continuous: speech during transcription is buffered and both consecutive c
   capture.push(); // spoken while Whisper is busy — must not be lost
   gate.resolve();
   await sleep(30);
-  assert.deepEqual(got, ["next", "next"]);
+  assert.deepEqual(got, ["show-result", "show-result"]);
   assert.equal(transcribeCalls, 2);
   assert.equal(capture.starts, 1, "one persistent stream for the whole session");
   controller.stop();
@@ -110,7 +110,7 @@ test("continuous: unknown phrase is reported and the next command still executes
   const diagnostics = [];
   const got = [];
   const controller = new LocalVoiceController({
-    api: fakeApi(["the weather is nice", "Next step"]),
+    api: fakeApi(["the weather is nice", "Show result"]),
     captureFactory: () => capture,
     onCommand: async (c) => { got.push(c.action); return { ok: true }; },
     onDiagnostic: (d) => diagnostics.push(d),
@@ -119,7 +119,7 @@ test("continuous: unknown phrase is reported and the next command still executes
   capture.push();
   capture.push();
   await sleep(40);
-  assert.deepEqual(got, ["next"]);
+  assert.deepEqual(got, ["show-result"]);
   assert.equal(diagnostics[0].state, "rejected");
   assert.equal(diagnostics.at(-1).state, "completed");
   controller.dispose();
@@ -130,7 +130,7 @@ test("XR entry keeps the same stream, suspended audio is reported honestly, exit
   const statuses = [];
   const captureDiags = [];
   const controller = new LocalVoiceController({
-    api: fakeApi(["Next step"]),
+    api: fakeApi(["Show result"]),
     captureFactory: () => capture,
     onCommand: async () => ({ ok: true }),
     onStatus: (s) => statuses.push(s),
@@ -158,7 +158,7 @@ test("continuous: stop during transcription discards the late result", async () 
   const got = [];
   const api = fakeApi([], async () => {
     await gate.promise;
-    return { matched: true, action: "next", phrase: "next step", language: "en", transcript: "Next step", duration_seconds: 1 };
+    return { matched: true, action: "show-result", phrase: "show result", language: "en", transcript: "Show result", duration_seconds: 1 };
   });
   const controller = new LocalVoiceController({
     api,
@@ -179,19 +179,19 @@ test("push-to-talk: one-shot outside continuous mode executes once and releases 
   const capture = new FakeCapture();
   const got = [];
   const controller = new LocalVoiceController({
-    api: fakeApi(["Previous step"]),
+    api: fakeApi(["Recenter"]),
     captureFactory: () => capture,
     onCommand: async (c) => { got.push(c.action); return { ok: true }; },
   });
   capture.push();
   await controller.recordOnce();
-  assert.deepEqual(got, ["previous"]);
+  assert.deepEqual(got, ["recenter"]);
   assert.equal(capture.releases, 1, "one-shot capture is released after the command");
   controller.dispose();
 
   const live = new FakeCapture();
   const liveController = new LocalVoiceController({
-    api: fakeApi(["Next step"]),
+    api: fakeApi(["Show result"]),
     captureFactory: () => live,
     onCommand: async () => ({ ok: true }),
   });

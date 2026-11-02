@@ -33,9 +33,9 @@ test("WAV encoder emits a valid 16 kHz mono header and PCM payload", () => {
   assert.equal(downsample(new Float32Array(32000), 32000, 16000).length, 16000);
 });
 
-test("verify-again is an allowlisted command in English and German", () => {
-  assert.equal(matchCommand("Verify again").action, "verify-again");
-  assert.equal(matchCommand("Erneut prüfen").action, "verify-again");
+test("verify-again is intentionally NOT a voice command (button 'Erneut prüfen' instead)", () => {
+  assert.equal(matchCommand("Verify again"), null);
+  assert.equal(matchCommand("Erneut prüfen"), null);
   assert.equal(matchCommand("verify"), null);
 });
 
@@ -71,10 +71,10 @@ function fakeController(transcripts, onCommand) {
 
 test("one action per clip: consecutive legitimate repeats execute; pending blocks overlap", async () => {
   const got = [];
-  const { controller, cleaned } = fakeController(["Next step", "Next step"], async (c) => got.push(c.action));
+  const { controller, cleaned } = fakeController(["Show result", "Show result"], async (c) => got.push(c.action));
   await controller.recordOnce();
   await controller.recordOnce(); // a new clip is a new utterance: executes again
-  assert.deepEqual(got, ["next", "next"]);
+  assert.deepEqual(got, ["show-result", "show-result"]);
   controller.stop();
   assert.ok(cleaned.includes("revoked"));
   assert.equal(controller.isListening, false);
@@ -82,7 +82,7 @@ test("one action per clip: consecutive legitimate repeats execute; pending block
   // While an action is pending, a further clip is rejected explicitly.
   let release;
   const statuses = [];
-  const slow = fakeController(["Next step", "Next step"], () => new Promise((r) => { release = r; }));
+  const slow = fakeController(["Show result", "Show result"], () => new Promise((r) => { release = r; }));
   slow.controller.deps.onStatus = (s) => statuses.push(s);
   const first = slow.controller.recordOnce();
   await new Promise((r) => setTimeout(r, 20));
@@ -151,7 +151,7 @@ test("diagnostics: unmatched, duplicate and failed outcomes are explicit", async
   assert.equal(diagnostics.at(-1).state, "rejected");
   assert.equal(diagnostics.at(-1).reason, "Phrase not recognized");
 
-  const failing = fakeController(["Next step"], async () => ({ ok: false, reason: "Already at last step" }));
+  const failing = fakeController(["Show result"], async () => ({ ok: false, reason: "Already at last step" }));
   failing.controller.deps.onDiagnostic = (d) => diagnostics.push(d);
   await failing.controller.recordOnce();
   assert.equal(diagnostics.at(-1).state, "failed");
@@ -215,7 +215,7 @@ test("recording keeps the full working window after a click/pause before quiet s
 test("overlapping record requests share one clip; a subsequent intentional repeat executes", async () => {
   const ready = deferred(); let recordings = 0;
   const got = [];
-  const { controller } = fakeController(["Next step"], async c => got.push(c.action));
+  const { controller } = fakeController(["Show result"], async c => got.push(c.action));
   controller.deps.recordClip = async () => {
     recordings++; await ready.promise;
     return { samples: new Float32Array(16000).fill(0.1), sampleRate: 16000, cleanup() {} };
@@ -224,26 +224,26 @@ test("overlapping record requests share one clip; a subsequent intentional repea
   await flush();
   assert.equal(recordings, 1, "lock must cover session creation and audio capture, not just dispatch");
   ready.resolve(); await Promise.all([first, duplicate]);
-  assert.deepEqual(got, ["next"]);
+  assert.deepEqual(got, ["show-result"]);
   await controller.recordOnce();
-  assert.deepEqual(got, ["next", "next"]);
+  assert.deepEqual(got, ["show-result", "show-result"]);
   controller.dispose();
 });
 
 test("stop discards an in-flight Whisper result before it can dispatch", async () => {
   const result = deferred(), got = [];
-  const { controller } = fakeController(["Next step"], async c => got.push(c.action));
+  const { controller } = fakeController(["Show result"], async c => got.push(c.action));
   controller.api.transcribe = () => result.promise;
   const pending = controller.recordOnce(); await flush();
   controller.stop();
-  result.resolve({ matched: true, action: "next", phrase: "next step", transcript: "Next step", language: "en" });
+  result.resolve({ matched: true, action: "show-result", phrase: "show result", transcript: "Show result", language: "en" });
   await pending;
   assert.deepEqual(got, [], "a stopped session must never execute a late response");
 });
 
 test("stop during session creation revokes late tokens and never opens the microphone", async () => {
   const session = deferred(), revoked = [];
-  const { controller, clips } = fakeController(["next step"], async () => {});
+  const { controller, clips } = fakeController(["show result"], async () => {});
   controller.api.createSession = () => session.promise;
   controller.api.revokeSession = async token => revoked.push(token);
   const starting = controller.start();
@@ -278,7 +278,7 @@ test("late microphone permission is released after cancellation", async t => {
 test("a normalized backend phrase cannot override rejected raw speech", async () => {
   const got = [], diagnostics = [];
   const { controller } = fakeController([], async c => got.push(c.action));
-  controller.api.transcribe = async () => ({ matched: true, action: "next", phrase: "next step", transcript: "do not go to next step", language: "en" });
+  controller.api.transcribe = async () => ({ matched: true, action: "show-result", phrase: "show result", transcript: "do not show result", language: "en" });
   controller.deps.onDiagnostic = d => diagnostics.push(d);
   await controller.recordOnce();
   assert.deepEqual(got, []);
@@ -293,11 +293,11 @@ test("the selected Whisper language and raw transcript survive through dispatch 
   controller.deps.onDiagnostic = d => diagnostics.push(d);
   controller.api.transcribe = async (_blob, _token, language) => {
     assert.equal(language, "de");
-    return { matched: true, action: "next", phrase: "naechster schritt", transcript: "Nächster Schritt!", language: "de" };
+    return { matched: true, action: "show-result", phrase: "ergebnis anzeigen", transcript: "Ergebnis anzeigen!", language: "de" };
   };
   await controller.recordOnce();
-  assert.deepEqual(got, ["next"]);
-  assert.equal(diagnostics.at(-1).transcript, "Nächster Schritt!");
+  assert.deepEqual(got, ["show-result"]);
+  assert.equal(diagnostics.at(-1).transcript, "Ergebnis anzeigen!");
   assert.equal(diagnostics.at(-1).state, "completed");
   controller.stop();
 });

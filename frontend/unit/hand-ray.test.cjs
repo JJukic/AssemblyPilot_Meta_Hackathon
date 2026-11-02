@@ -104,10 +104,10 @@ test("hand ray: cursor + hover track the exact button; select activates once; fi
   const right = { handedness: "right", targetRayMode: "tracked-pointer", targetRaySpace: {} };
   const { runtime, actions } = await setup([right]);
   runtime.frame(0, headFrame(runtime, null)); // place panel
-  const pose = aimPose(runtime, "next");
+  const pose = aimPose(runtime, "verify");
   const frame = headFrame(runtime, pose);
   runtime.frame(1, frame);
-  assert.equal(runtime.interaction.hoveredButton, "next");
+  assert.equal(runtime.interaction.hoveredButton, "verify");
   assert.equal(runtime.interaction.hasTrackedRay, true);
   assert.equal(runtime.interaction.rayIntersectsPanel, true);
   const visual = runtime.inputVisuals.get(right);
@@ -124,8 +124,8 @@ test("hand ray: cursor + hover track the exact button; select activates once; fi
   const originBefore = runtime.origin.matrix.elements.slice();
   runtime.onSelect({ inputSource: right, frame });
   runtime.onSelect({ inputSource: right, frame }); // duplicate gesture
-  assert.deepEqual(actions, ["next"]);
-  assert.equal(runtime.interaction.lastAction, "next");
+  assert.deepEqual(actions, ["verify"]);
+  assert.equal(runtime.interaction.lastAction, "verify");
   runtime.frame(3, headFrame(runtime, aimPose(runtime, "previous")));
   assert.deepEqual(runtime.origin.matrix.elements, originBefore, "hand interaction must not move the anchored field");
   assert.equal(runtime.interaction.hoveredButton, "previous");
@@ -142,7 +142,7 @@ test("hand ray: cursor + hover track the exact button; select activates once; fi
   assert.equal(runtime.interaction.hoveredButton, null);
   assert.equal(runtime.inputVisuals.get(left).cursor.visible, false);
   runtime.onSelect({ inputSource: left, frame: headFrame(runtime, away) });
-  assert.deepEqual(actions, ["next"]);
+  assert.deepEqual(actions, ["verify"]);
   assert.match(runtime.interaction.lastFailure, /did not intersect|outside any button/);
 
   // Tracking loss hides the ray instead of showing a stale position.

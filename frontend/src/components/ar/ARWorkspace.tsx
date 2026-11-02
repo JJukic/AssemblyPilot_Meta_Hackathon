@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { registry } from "@/lib/registry";
 import { errorMessage, mediaUrl } from "@/lib/api";
 import {
@@ -76,6 +76,7 @@ import type { ProjectDetail } from "@/types/projects";
 import type { SpatialSession, Action, Guidance, PanelView } from "@/lib/ar/runtime";
 import { CapturePreviewStore, captureView, indicatorFor, type CaptureRecord } from "@/lib/ar/capturePreview";
 import { snapshotFile } from "@/lib/camera-image";
+import { deriveGuide, shortInstruction, type GuideView } from "@/lib/ar/guidedFlow";
 import type { Snapshot } from "@/types/assembly";
 
 type SpeechCtor = new () => RecognitionLike;
@@ -153,6 +154,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [anchorUi, setAnchorUi] = useState("unplaced");
   const [fieldDiag, setFieldDiag] = useState<FieldDiagnostics>(EMPTY_FIELD_DIAGNOSTICS);
   const [autoDiag, setAutoDiag] = useState<AutoStatus | null>(null);
+  // Guided flow: a running "Prüfen" and an explicit USER confirmation (never backend verification).
+  const [checkingStep, setCheckingStep] = useState(false);
+  const checkingRef = useRef(false);
+  const [manualConfirm, setManualConfirm] = useState<{ stepId: string; at: string } | null>(null);
+  const [lastGuideOutcome, setLastGuideOutcome] = useState("");
+  const [checkError, setCheckError] = useState<{ stepId: string; message: string } | null>(null);
   // Inspection-capture preview: the EXACT snapshot handed to the pipeline (≤2 kept, memory only).
   const [previewVersion, setPreviewVersion] = useState(0);
   const [previews] = useState(() => new CapturePreviewStore(() => setPreviewVersion((v) => v + 1)));
@@ -205,6 +212,27 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const target = step?.required_blocks.find((b) => b.block_id === placement?.target_block_id);
   const verificationUrl = `/?project=${encodeURIComponent(projectId)}&step=${encodeURIComponent(view.step_id ?? "")}`;
   const verificationStatus = !online ? "uncertain" : verified ? "verified" : "not_verified";
+  const isLastStep = !!step && step.position === totalSteps;
+  const stepSummary = resultSummary && resultSummary.stepId === view.step_id ? resultSummary : null;
+  const manuallyConfirmed = !!manualConfirm && manualConfirm.stepId === view.step_id;
+  const stepCheckError = checkError && checkError.stepId === view.step_id ? checkError.message : null;
+  const guide: GuideView = useMemo(() => {
+    const base = deriveGuide({
+      anchored: active ? anchorUi === "anchored" || anchorUi === "tracking_degraded" : null,
+      checking: checkingStep,
+      serverVerified: verified && online,
+      manuallyConfirmed,
+      isLastStep,
+      checkError: stepCheckError,
+      summary: stepSummary,
+    });
+    return active && anchorUi === "tracking_lost"
+      ? { ...base, label: "Tracking verloren", message: "Feld nicht sicher erkannt — „Neu ausrichten“ antippen.", tone: "warn" }
+      : base;
+  }, [active, anchorUi, checkingStep, verified, online, manuallyConfirmed, isLastStep, stepCheckError, stepSummary]);
+  const shortText = step
+    ? shortInstruction(step.required_blocks.map((b) => ({ color: b.block.color, name: b.block.name, quantity: b.required_quantity })), !!placement)
+    : "Projekt wird geladen …";
 
   const stopVoice = useCallback((release = false) => {
     if (release) {
@@ -401,7 +429,6 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       placement: online ? placement : null,
       text: step ? `Step ${step.position} — ${step.instruction}` : "Choose a project step",
       detail: `${placement?.evidence.toUpperCase() ?? "NO MODEL"} · ${verified && online ? "Inspection verified" : "Not verified"} · ${target?.block.color ?? ""} ${target?.block.name ?? ""} · ${placement?.instance ?? "?"}/${target?.required_quantity ?? "?"}`,
-      stepLabel: step ? `Step ${step.position} of ${totalSteps}` : "No step",
       title: step ? step.title : "Choose a step",
       instruction: step?.instruction ?? "",
       blockLabel: `${blockLabel} · ${placement?.evidence.toUpperCase() ?? "NO MODEL"}${placement ? ` · #${placement.instance}/${target?.required_quantity ?? "?"}` : ""}`,
@@ -413,6 +440,14 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       anchorLabel: active ? fieldLine : undefined,
       autoLabel: autoOn || extPending ? (autoDiag ? `${autoDiag.headline}${autoDiag.metrics ? ` [${autoDiag.metrics}]` : ""}` : autoStatus) : undefined,
       autoButton,
+      stepLabel: step ? `Schritt ${step.position} von ${totalSteps}` : "Kein Schritt",
+      guideLabel: guide.label,
+      guideMessage: guide.message,
+      guideTone: guide.tone,
+      shortInstruction: shortText,
+      primary: guide.buttons,
+      markerColor: guide.marker,
+      ghostTint: guide.ghostTint,
       voiceDetail: captureDiag
         ? `🎤 Mic ${captureDiag.mic} · ${captureDiag.phase} · ${captureDiag.message}${captureDiag.transcript ? ` · “${captureDiag.transcript}”` : ""}${captureDiag.action ? ` → ${captureDiag.action}` : ""}${captureDiag.rms !== undefined ? ` · level ${captureDiag.rms.toFixed(3)}` : ""} · track ${captureDiag.trackState ?? "?"} · audio ${captureDiag.contextState ?? "?"}`
         : undefined,
@@ -429,7 +464,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
     runtime.current?.setViewMode(resultMode);
-  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag]);
+  }, [placement, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag, guide, shortText]);
 
   useEffect(() => {
     viewRef.current = view;
@@ -609,6 +644,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       ? outcome
       : { ...outcome, detail: `${outcome.detail ?? ""} (first inspection — no previous inspection yet)` };
   }
+  /** 2D guided card: same actions as the AR panel buttons (no voice). */
+  async function runGuideAction(id: "verify" | "next" | "confirm" | "previous") {
+    const outcome = await handleAction(id);
+    // Check results are shown by the status itself; only other failed actions get an extra line.
+    if (alive.current) setLastGuideOutcome(id === "verify" || outcome.ok ? "" : outcome.reason ?? "Aktion fehlgeschlagen");
+  }
   async function exitAR() {
     stopAllVoice(true);
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
@@ -623,9 +664,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       case "previous":
         return navigate(-1);
       case "verify":
-        return verifyInAR("inspect");
       case "verify-again":
-        return verifyAgain();
+        // Button "Prüfen" / "Erneut prüfen" (no voice path exists for these).
+        return checkStep();
+      case "confirm":
+        return confirmPosition();
       case "exit":
         await exitAR();
         return { ok: true, detail: "XR session ended; microphone stopped" };
@@ -1184,10 +1227,22 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
 
   /* -------- Verify Step inside immersive AR (never exits XR) -------- */
   async function verifyInAR(mode: "inspect" | "verify" = "inspect"): Promise<ExecutionOutcome> {
-    if (!active) return verify(mode); // explicit camera-workspace flow only outside XR
+    return (await captureCheck(mode)).outcome;
+  }
+  /**
+   * One real capture + existing Meta inspection/verification. In AR (or with
+   * `inPage` on the 2D page) it uses this device's camera and never leaves
+   * the page; `advance` controls automatic navigation after verification.
+   */
+  async function captureCheck(
+    mode: "inspect" | "verify",
+    opts: { inPage?: boolean; advance?: boolean } = {},
+  ): Promise<{ outcome: ExecutionOutcome; result: InARResult | null }> {
+    const done = (outcome: ExecutionOutcome, result: InARResult | null = null) => ({ outcome, result });
+    if (!active && !opts.inPage) return done(await verify(mode)); // explicit camera-workspace flow only outside XR
     if (coordinatorRef.current.busy)
-      return { ok: false, reason: "An inspection is already running for this step — wait for its result in the panel" };
-    if (!view.step_id || !project) return { ok: false, reason: "Current step is unknown" };
+      return done({ ok: false, reason: "An inspection is already running for this step — wait for its result in the panel" });
+    if (!view.step_id || !project) return done({ ok: false, reason: "Current step is unknown" });
     const stepId = view.step_id;
     setStatus("Verify Step: capturing a fresh camera frame inside AR…");
     // 1) Try a real camera while XR stays active (live monitor or new probe).
@@ -1198,14 +1253,14 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       created = true;
       try {
         await monitor.start(cameraSource === "external" && camDeviceId ? camDeviceId : undefined);
-        const verdict = await monitor.probe(true, 900);
+        const verdict = await monitor.probe(active, 900);
         if (verdict.status === "unavailable" || verdict.status === "stalled") {
           monitor.stop();
-          return requestExternalFallback(mode, verdict.reasons.join(" "));
+          return done(active ? await requestExternalFallback(mode, verdict.reasons.join(" ")) : { ok: false, reason: `Kamera nicht verfügbar: ${verdict.reasons.join(" ")}` });
         }
         monitorRef.current = monitor;
       } catch (cause) {
-        return requestExternalFallback(mode, errorMessage(cause));
+        return done(active ? await requestExternalFallback(mode, errorMessage(cause)) : { ok: false, reason: `Kamera nicht verfügbar: ${errorMessage(cause)}` });
       }
     }
     // 2) Freshness: the frame clock must advance between two samples.
@@ -1214,34 +1269,84 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     const second = monitor.sample();
     if (!first || !second || second.frameTime <= first.frameTime) {
       if (created) { monitor.stop(); if (monitorRef.current === monitor) monitorRef.current = null; }
-      return requestExternalFallback(mode, "Camera frames are not advancing inside immersive AR.");
+      return done(active ? await requestExternalFallback(mode, "Camera frames are not advancing inside immersive AR.") : { ok: false, reason: "Kamerabilder kommen nicht an." });
     }
     const validated = monitor.captureValidated();
     const frame = validated?.snapshot ?? null;
     if (created && !autoOn) { monitor.stop(); if (monitorRef.current === monitor) monitorRef.current = null; }
     if (!frame || frame.width < 160 || frame.height < 120)
-      return { ok: false, reason: "Camera unavailable in immersive AR. Connect an external camera or select a supported camera source." };
+      return done({ ok: false, reason: "Camera unavailable in immersive AR. Connect an external camera or select a supported camera source." });
     setStatus("Inspecting with Meta AI inside AR — the session and anchored field stay active…");
     const intent = mode === "verify" && autoWorkflow.current ? "verify" : "inspect";
     const d = await performInARInspection(intent, frame, stepId, { quality: validated?.quality, frameFresh: true });
-    if (d.stale) return { ok: false, reason: "The step changed while Meta was running; that result was discarded" };
+    if (d.stale) return done({ ok: false, reason: "The step changed while Meta was running; that result was discarded" }, d);
     if (d.failure === "camera")
-      return { ok: false, reason: `Captured frame rejected before upload: ${d.message ?? "unusable frame"}. Nothing was sent to Meta — see the Camera view.` };
+      return done({ ok: false, reason: `Captured frame rejected before upload: ${d.message ?? "unusable frame"}. Nothing was sent to Meta — see the Camera view.` }, d);
     if (d.overallStatus === "error")
-      return { ok: false, reason: `${failureHeadline(d.failure ?? "backend")} — see the result panel; AR and the anchored field are unchanged` };
+      return done({ ok: false, reason: `${failureHeadline(d.failure ?? "backend")} — see the result panel; AR and the anchored field are unchanged` }, d);
     // Keep autonomous mode consistent with a manual result (no duplicate paid call).
     if (!d.verificationStatus) controllerRef.current?.adoptManual(d.overallStatus, stepId);
     if (d.verificationStatus === "verified") {
-      await advanceIfVerified();
-      return { ok: true, detail: "Step verified by the backend — advancing inside AR" };
+      setVerification({ step: stepId, verified: true }); // backend response is authoritative; the poll confirms
+      if (opts.advance ?? true) {
+        await advanceIfVerified();
+        return done({ ok: true, detail: "Step verified by the backend — advancing inside AR" }, d);
+      }
+      return done({ ok: true, detail: "Schritt korrekt (vom Backend verifiziert)" }, d);
     }
-    return {
+    return done({
       ok: d.overallStatus !== "incorrect",
       reason: d.overallStatus === "incorrect" ? "Correction required — see the AR result panel" : undefined,
       detail: d.overallStatus === "correct"
         ? "Looks correct — a separate fresh verification is still required (Verify Again)"
         : d.overallStatus === "incorrect" ? "Incorrect — correction shown in the AR panel; remain on this step"
         : "Uncertain — another view needed; AR session unchanged",
+    }, d);
+  }
+
+  /**
+   * Guided "Prüfen" / "Erneut prüfen": a fresh inspection; if it is correct,
+   * a SEPARATE later frame is verified by the backend. Never auto-advances
+   * (the user taps "Nächster Schritt") unless Autonomous Assembly is on.
+   */
+  async function checkStep(): Promise<ExecutionOutcome> {
+    if (checkingRef.current) return { ok: false, reason: "Prüfung läuft bereits" };
+    const stepId = viewRef.current.step_id;
+    if (!stepId) return { ok: false, reason: "Current step is unknown" };
+    checkingRef.current = true;
+    setCheckingStep(true);
+    setCheckError(null);
+    // A check that cannot even capture (camera/busy) must be visible as such, with the fallback.
+    const failedBeforeInspection = (run: { outcome: ExecutionOutcome; result: InARResult | null }) => {
+      if (!run.outcome.ok && !run.result && alive.current)
+        setCheckError({ stepId, message: `Keine Prüfung möglich: ${run.outcome.reason ?? "unbekannter Fehler"}` });
+      return run.outcome;
+    };
+    try {
+      const first = await captureCheck("inspect", { inPage: true, advance: autoOn });
+      const r = first.result;
+      if (!r || r.overallStatus !== "correct" || r.verificationStatus || viewRef.current.step_id !== stepId)
+        return failedBeforeInspection(first);
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // a genuinely later, separate frame
+      if (viewRef.current.step_id !== stepId) return { ok: false, reason: "Schritt wurde gewechselt" };
+      return failedBeforeInspection(await captureCheck("verify", { inPage: true, advance: autoOn }));
+    } finally {
+      checkingRef.current = false;
+      if (alive.current) setCheckingStep(false);
+    }
+  }
+  /** Visible manual fallback ("Position bestätigen"): user-confirmed, never AI/backend-verified. */
+  function confirmPosition(): ExecutionOutcome {
+    const stepId = viewRef.current.step_id;
+    if (!stepId) return { ok: false, reason: "Current step is unknown" };
+    if (!["partial", "error"].includes(guide.state))
+      return { ok: false, reason: "Position bestätigen ist nur verfügbar, wenn die automatische Prüfung unsicher ist" };
+    setManualConfirm({ stepId, at: new Date().toISOString() });
+    return {
+      ok: true,
+      detail: isLastStep
+        ? "Position von dir bestätigt (nicht KI-geprüft). Das war der letzte Schritt."
+        : "Position von dir bestätigt (nicht KI-geprüft). „Nächster Schritt“ ist jetzt verfügbar.",
     };
   }
 
@@ -1518,6 +1623,26 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   return (
     <section className="panel ar-workspace" aria-label="Spatial assembly guidance">
       <h2>{project?.name ?? "Spatial guidance"}</h2>
+      <section className={`guided-step guided-${guide.tone}`} aria-label="Geführter Montageschritt">
+        <p className="guided-progress">{step ? `Schritt ${step.position} von ${totalSteps}` : "Kein Schritt"}</p>
+        <p className="guided-state" role="status" aria-label="Schrittstatus">{guide.label}</p>
+        <p className="guided-instruction">{shortText}</p>
+        <p className="guided-message" role="status" aria-label="Schritthinweis">{guide.message}</p>
+        {lastGuideOutcome && <p className="guided-outcome" role="status" aria-label="Letzte Aktion">{lastGuideOutcome}</p>}
+        <div className="guided-actions">
+          {guide.buttons.map((b) => (
+            <button
+              key={b.id}
+              className={`button guided-button guided-${b.id}`}
+              aria-label={b.label.replace(/[▶◀]/g, "").trim()}
+              onClick={() => void runGuideAction(b.id)}
+            >
+              {b.label}
+            </button>
+          ))}
+          <button className="button secondary guided-button" aria-label="Zurück" disabled={!online || step?.position === 1 || checkingStep} onClick={() => void runGuideAction("previous")}>◀ Zurück</button>
+        </div>
+      </section>
       <p role="status">{cap.message}</p>
       <p>Device: {device}. Connection and physical alignment must be tested on your HoloLens.</p>
       <div className="form-actions">

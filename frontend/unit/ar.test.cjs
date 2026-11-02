@@ -663,3 +663,90 @@ test("capture preview never touches the anchored field; panel resize, Camera but
   assert.ok(PANEL_BUTTONS.every((b) => b.x + b.w <= 1024));
   await runtime.end();
 });
+
+/* ---------- Guided HoloLens panel ---------- */
+const { layoutButtons, PANEL_BUTTONS_TOP } = require("../src/lib/ar/runtime.ts");
+const { deriveGuide, MARKER } = require("../src/lib/ar/guidedFlow.ts");
+const guided = (state) => {
+  const g = deriveGuide({ anchored: true, checking: false, serverVerified: state === "ok", manuallyConfirmed: false, isLastStep: false,
+    summary: state === "wrong" ? { kind: "inspection", overall: { kind: "incorrect" } } : state === "partial" ? { kind: "inspection", overall: { kind: "uncertain" } } : null });
+  return { placement: placement(), text: "Step 1", detail: "", guideLabel: g.label, guideMessage: g.message, guideTone: g.tone,
+    shortInstruction: "Lege den roten 2×4-Stein auf die grüne Markierung.", primary: g.buttons, markerColor: g.marker, ghostTint: g.ghostTint,
+    voiceLabel: "Voice: listening — DEBUG", anchorLabel: "AR FIELD ANCHORED · rendered DEBUG", stepLabel: "Schritt 1 von 3" };
+};
+
+test("guided panel: few large buttons, contextual primary actions, no voice-only or debug controls", () => {
+  const ready = layoutButtons([{ id: "verify", label: "Prüfen" }]);
+  const ids = ready.map((b) => b.id);
+  for (const removed of ["recenter", "reference", "page", "help", "voice", "next"]) assert.ok(!ids.includes(removed), removed);
+  assert.ok(ready.length <= 8);
+  assert.ok(ready.filter((b) => b.primary).every((b) => b.h >= 100 && b.w >= 400), "primary buttons are large");
+  assert.ok(ready.every((b) => b.h >= 80 && b.w >= 140), "gaze/hand-ray sized");
+  assert.ok(ready.every((b) => b.y >= PANEL_BUTTONS_TOP && b.x + b.w <= 1024 && b.y + b.h <= 576), "clear of the resize corner");
+  const partial = layoutButtons([{ id: "verify", label: "Erneut prüfen" }, { id: "confirm", label: "Position bestätigen" }]);
+  assert.deepEqual(partial.filter((b) => b.primary).map((b) => b.id), ["verify", "confirm"]);
+});
+
+test("guided panel: main view shows state, short instruction and message — and no debug text", async () => {
+  const { runtime } = await setup();
+  globalThis.__canvasTexts = [];
+  runtime.update(guided("wrong"));
+  const texts = globalThis.__canvasTexts.join("\n");
+  assert.match(texts, /Schritt 1 von 3/);
+  assert.match(texts, /NOCH EINMAL VERSUCHEN/);
+  assert.match(texts, /2×4-Stein/);
+  assert.match(texts, /Baustein ausrichten/);
+  assert.match(texts, /Erneut prüfen/);
+  assert.ok(!/DEBUG/.test(texts), "voice/anchor debug rows are not drawn in the main view");
+  await runtime.end();
+});
+
+test("guided hologram: transparent ghost + green target; red when wrong, yellow when partial; field pose untouched", async () => {
+  const { runtime, tracked, anchor } = await anchoredSetup();
+  runtime.frame(2, tracked());
+  const pose = runtime.origin.matrix.clone();
+  runtime.update(guided("ready"));
+  assert.ok(sceneHas(runtime, "target-marker"));
+  assert.equal(runtime.markerColorHex, MARKER.target);
+  const body = runtime.target.children[0].material;
+  assert.equal(body.transparent, true);
+  assert.equal(body.color.getHex(), 0x3ce6ff, "neutral transparent ghost while ready");
+  runtime.update(guided("wrong"));
+  assert.equal(runtime.markerColorHex, MARKER.wrong);
+  assert.equal(body.color.getHex(), MARKER.wrong);
+  runtime.update(guided("partial"));
+  assert.equal(runtime.markerColorHex, MARKER.partial);
+  runtime.update(guided("ok"));
+  assert.equal(runtime.markerColorHex, MARKER.correct);
+  assert.deepEqual(runtime.currentButtons.filter((b) => b.primary).map((b) => b.id), ["next"]);
+  runtime.frame(3, tracked(0.2));
+  assert.deepEqual(runtime.origin.matrix.elements, pose.elements);
+  assert.equal(anchor.deleted ?? 0, 0);
+  runtime.update({ ...guided("ready"), placement: null });
+  assert.ok(!sceneHas(runtime, "target-marker"), "marker leaves with the step content");
+  await runtime.end();
+});
+
+test("guided panel: 'Position bestätigen' and 'Nächster Schritt' are real hand-ray buttons dispatching actions", async () => {
+  const { runtime, actions } = await setup();
+  runtime.update(guided("partial"));
+  runtime.frame(0, frame());
+  runtime.scene.updateMatrixWorld(true);
+  const { PANEL_W, PANEL_H } = require("../src/lib/ar/runtime.ts");
+  const press = (id) => {
+    const b = runtime.currentButtons.find((x) => x.id === id);
+    const localX = ((b.x + b.w / 2) / PANEL_W - 0.5) * 0.72;
+    const localY = (0.5 - (b.y + b.h / 2) / PANEL_H) * 0.45;
+    const aim = new THREE.Vector3(localX, localY, 0).applyMatrix4(runtime.panel.matrixWorld);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), aim.sub(new THREE.Vector3(0, 1.6, 0)).normalize());
+    runtime.onSelect({
+      inputSource: { handedness: id, targetRaySpace: {} },
+      frame: { getPose: () => ({ transform: { matrix: new THREE.Matrix4().compose(new THREE.Vector3(0, 1.6, 0), q, new THREE.Vector3(1, 1, 1)).toArray() } }) },
+    });
+  };
+  press("confirm");
+  runtime.update(guided("ok"));
+  press("next");
+  assert.deepEqual(actions, ["confirm", "next"]);
+  await runtime.end();
+});

@@ -175,12 +175,12 @@ test("resize: aspect preserved, clamped, hit-testing still exact afterwards", as
   const left = { handedness: "left", targetRayMode: "tracked-pointer", targetRaySpace: {} };
   runtime.session.inputSources = [left];
   const { PANEL_BUTTONS } = require("../src/lib/ar/runtime.ts");
-  const next = PANEL_BUTTONS.find((b) => b.id === "next");
-  const pose = poseAimingAt(panelPoint(runtime, next.x + next.w / 2, next.y + next.h / 2));
+  const check = PANEL_BUTTONS.find((b) => b.id === "verify");
+  const pose = poseAimingAt(panelPoint(runtime, check.x + check.w / 2, check.y + check.h / 2));
   runtime.frame(3, frameWith(pose));
-  assert.equal(runtime.interaction.hoveredButton, "next");
+  assert.equal(runtime.interaction.hoveredButton, "verify");
   runtime.onSelect({ inputSource: left, frame: frameWith(pose) });
-  assert.deepEqual(actions, ["next"]);
+  assert.deepEqual(actions, ["verify"]);
 
   // Recenter keeps the scale and only moves the panel.
   runtime.recenterPanel();

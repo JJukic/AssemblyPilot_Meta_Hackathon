@@ -241,11 +241,10 @@ test("author measured placement only after confirmation; edits and removal stay 
   await page.getByLabel("Rotation Y (degrees)").fill("90");
   await expect(save).toBeDisabled();
   await page.getByRole("button", { name: "Remove AR placement" }).click();
-  expect(
-    await (
-      await request.get(`${a.base}/steps/${a.steps[0].id}/ar-placement`)
-    ).json(),
-  ).toBeNull();
+  // The click does not wait for the DELETE round-trip: poll the final state.
+  await expect
+    .poll(async () => (await request.get(`${a.base}/steps/${a.steps[0].id}/ar-placement`)).json())
+    .toBeNull();
 });
 
 test("old placement is hidden on navigation and disconnection; reconnect restores current data", async ({
@@ -277,8 +276,9 @@ test("old placement is hidden on navigation and disconnection; reconnect restore
     page.getByRole("img", { name: "2D intended placement" }),
   ).toHaveCount(0);
   await page.route(`**/api/projects/${a.project.id}/ar-view`, (r) => r.abort());
+  // Two consecutive failed 3-s polls mark the state unavailable (one Wi-Fi blip must not blank the hologram).
   await expect(page.getByText(/Project state unavailable/)).toBeVisible({
-    timeout: 6000,
+    timeout: 10000,
   });
   await expect(
     page.getByRole("button", { name: "Verify Step — camera workspace" }),
@@ -294,7 +294,7 @@ const TINY_JPEG = Buffer.from(
   "base64",
 );
 
-test("phase6.1 selected step reference shown; voice next/previous/verify work without verifying", async ({ page, request }) => {
+test("phase6.1 selected step reference shown; navigation/verify are buttons only — voice cannot navigate or verify", async ({ page, request }) => {
   const a = await assembly(request);
   // Upload two step references and explicitly select the second one.
   const ids: string[] = [];
@@ -337,17 +337,21 @@ test("phase6.1 selected step reference shown; voice next/previous/verify work wi
       if (fin) results.push(result);
       rec.onresult({ resultIndex: index, results: fin ? results : [...results, result] });
     }, [transcript, isFinal] as const);
-  await fire("next step", false); // interim: must be ignored
-  await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
+  // Weiter / Zurück / Prüfen are deliberately not voice commands any more.
   await fire("Next step");
+  await fire("Nächster Schritt");
+  await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Step 2 — Yellow on blue" })).toBeVisible();
   await expect(page.locator("img.ar-reference")).toHaveCount(0); // step 2 has no reference: placeholder, no stale image
   await expect(page.getByText("No reference photograph for this step")).toBeVisible();
   await fire("Previous step");
+  await expect(page.getByRole("heading", { name: "Step 2 — Yellow on blue" })).toBeVisible();
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible();
   await expect(page.locator("img.ar-reference")).toHaveAttribute("src", new RegExp(ids[1]));
-  expect((await (await request.get(`${a.base}/progress`)).json()).every((s: { status: string }) => s.status !== "verified")).toBe(true);
   await fire("Verify step");
-  await expect(page.getByRole("heading", { name: "Blue base", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Step 1 — Blue base" })).toBeVisible(); // stays: no voice verification
+  await expect(page.getByRole("status", { name: "Schrittstatus" })).toHaveText("Bereit");
   expect((await (await request.get(`${a.base}/progress`)).json()).every((s: { status: string }) => s.status !== "verified")).toBe(true);
 });
