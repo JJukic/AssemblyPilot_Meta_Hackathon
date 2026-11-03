@@ -24,7 +24,7 @@ export type GuideState =
   | "confirmed"
   | "complete";
 
-export type GuideAction = "verify" | "next" | "confirm" | "finish";
+export type GuideAction = "verify" | "next" | "confirm" | "finish" | "restart";
 export type GuideTone = "ready" | "info" | "ok" | "warn" | "bad";
 
 export interface GuideButton {
@@ -55,6 +55,11 @@ export interface GuideInput {
   isLastStep: boolean;
   /** Finish was selected and the backend confirmed the last step (assembly complete). */
   finished?: boolean;
+  /**
+   * After Restart Assembly: this step is verified on the server from an EARLIER
+   * run (not re-checked in the current one). Shown truthfully, never cleared.
+   */
+  verifiedEarlier?: boolean;
   /** The last check could not even run (e.g. camera unavailable); shown instead of an older result. */
   checkError?: string | null;
   /** Latest inspection summary for THIS step (null when none). */
@@ -77,16 +82,26 @@ const RECHECK: GuideButton = { id: "verify", label: "Check Again" };
 const CONFIRM: GuideButton = { id: "confirm", label: "Confirm Position" };
 /** Only on the LAST step, only once the backend verified it (server progress). */
 const FINISH: GuideButton = { id: "finish", label: "Finish" };
+/** After Finish: start the assembly again from Step 1 (new local run). */
+const RESTART: GuideButton = { id: "restart", label: "Restart Assembly" };
 
 export function deriveGuide(input: GuideInput): GuideView {
   const done = (state: GuideState, label: string, message: string): GuideView => ({
     state, label, message, tone: "ok", marker: MARKER.correct, ghostTint: MARKER.correct,
     buttons: input.isLastStep ? [] : [NEXT],
   });
+  if (input.serverVerified && input.verifiedEarlier && !input.finished)
+    // Restarted run: the server still says verified (kept, not erased); a new check is optional.
+    return {
+      ...done("correct", "Verified earlier", input.isLastStep
+        ? "Verified in an earlier run. Select Check Again for a new check, or Finish."
+        : "Verified in an earlier run. Select Check Again for a new check, or Next Step."),
+      buttons: [input.isLastStep ? FINISH : NEXT, RECHECK],
+    };
   if (input.serverVerified)
     return input.isLastStep
       ? input.finished
-        ? done("complete", "Assembly complete", "Build finished — the final step was verified by Meta.")
+        ? { ...done("complete", "Assembly complete", "Build finished — the final step was verified by Meta."), buttons: [RESTART] }
         : { ...done("complete", "Final step correct", "Last step verified. Select Finish to complete the assembly."), buttons: [FINISH] }
       : done("correct", "Correct", "Step correct.");
   if (input.manuallyConfirmed)

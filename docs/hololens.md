@@ -582,7 +582,20 @@ workspace:
   Position or any other state never shows it). Finish re-reads server
   progress, requires the last step to be verified, never moves the cursor,
   writes nothing and makes no Meta call; it completes a running Autonomous
-  run as before and shows **Assembly complete** with no further actions.
+  run as before and shows **Assembly complete** with **Restart Assembly** as
+  the primary follow-up.
+- **Restart Assembly.** Ends the finished run and starts a new local run at
+  Step 1: stops Autonomous (also a completed runner, which previously stayed
+  frozen in "Assembly Complete ✓"), voice, the external-camera poll and any
+  in-flight request; invalidates late answers (inspection lease + run epoch);
+  clears the shown result, captured frame and stored summary; moves the shared
+  cursor back to Step 1 (bound origin, absolute target — nothing skipped). It
+  starts no camera or Meta request. Project, blocks, instructions, placements
+  and server progress are untouched; a step the server still reports verified
+  is shown as **Verified earlier** (Next Step / Finish, plus an optional Check
+  Again). An active XR session keeps its confirmed field; after an ended
+  session, Enter immersive AR is required as usual. A failed restart (offline,
+  cursor conflict) is reported in the panel message.
 - **Voice.** New deterministic commands (frontend/backend parity-tested):
   "Show result", "Show errors", "Read result", "Read correction",
   "Back to instructions" (German: Ergebnis anzeigen, Fehler anzeigen,

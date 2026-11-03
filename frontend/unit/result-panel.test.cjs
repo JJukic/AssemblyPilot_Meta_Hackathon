@@ -274,7 +274,7 @@ test("Finish: drawn as the main green action on the verified last step; Assembly
 
 test("Finish handler contract: last step only, re-reads server progress, never moves the cursor or writes progress", () => {
   const src = fs.readFileSync(require.resolve("../src/components/ar/ARWorkspace.tsx"), "utf8");
-  const fn = src.slice(src.indexOf("async function finishAssembly"), src.indexOf("/** Visible manual fallback (Confirm Position)"));
+  const fn = src.slice(src.indexOf("async function finishAssembly"), src.indexOf("async function restartAssembly"));
   assert.ok(fn.length > 100, "finishAssembly exists");
   assert.match(fn, /index !== project\.steps\.length - 1/, "rejected unless on the last step");
   assert.match(fn, /await getProgress\(projectId\)/, "server progress is re-read");
@@ -283,4 +283,67 @@ test("Finish handler contract: last step only, re-reads server progress, never m
   assert.match(fn, /coordinatorRef\.current\.busy/, "not while an inspection runs");
   assert.doesNotMatch(fn, /navigate\(|setView\(|moveCursor\(|verifySnapshot\(|inspectSnapshot\(/, "no step move, no new Meta call");
   assert.match(src, /case "finish":\s*return finishAssembly\(\);/, "the panel/2D Finish button dispatches it");
+});
+
+test("Restart handler contract: new run, everything in flight stopped, Step 1 via the cursor, no request, data and XR untouched", () => {
+  const src = fs.readFileSync(require.resolve("../src/components/ar/ARWorkspace.tsx"), "utf8");
+  const fn = src.slice(src.indexOf("async function restartAssembly"), src.indexOf("/** Visible manual fallback (Confirm Position)"));
+  assert.ok(fn.length > 200, "restartAssembly exists");
+  // Ends the finished run before anything else.
+  const epochAt = fn.indexOf("runEpochRef.current += 1");
+  assert.ok(epochAt > 0 && epochAt < fn.indexOf("await "), "new run epoch before the first await");
+  for (const [re, why] of [
+    [/stopAutonomous\(/, "Autonomous stopped (also a 'completed' runner)"],
+    [/runner\.phase === "completed"/, "a completed runner is reset, not left frozen"],
+    [/autoAbort\.current\?\.abort\(\)/, "in-flight manual request aborted"],
+    [/autoOwnedAbort\.current\?\.abort\(\)/, "in-flight autonomous request aborted"],
+    [/coordinatorRef\.current\.invalidateStep\(\)/, "late answers lose their lease"],
+    [/extTracker\.invalidate\(\)/, "external camera poll invalidated"],
+    [/stopAllVoice\(true\)/, "voice stopped"],
+    [/previews\.invalidate\(\)/, "captured frame removed"],
+    [/clearInspectionSummary\(\)/, "stored result cleared"],
+    [/setResultSummary\(null\)/, "shown result cleared"],
+    [/setFinishedFor\(null\)/, "completion state reset"],
+    [/setRunVerified\(\[\]\)/, "new local run"],
+    [/navigate\(-index, current\.step_id/, "back to Step 1 through the bound shared cursor"],
+  ]) assert.match(fn, re, why);
+  assert.doesNotMatch(fn, /checkStep\(|captureCheck\(|inspectSnapshot\(|verifySnapshot\(|startAutonomous\(|getUserMedia|\.start\(/,
+    "no automatic camera or Meta request");
+  assert.doesNotMatch(fn, /runtime\.current\?\.(end|reset)\(|reanchorField\(|setReferenceImage\(null\)|delete|DELETE|setPlacement|putPlacement/,
+    "XR session, field placement and stored data are left as they are");
+  assert.match(fn, /Enter immersive AR/, "after an ended XR session an explicit Enter immersive AR is asked for");
+  assert.match(fn, /confirmed AR field is kept/, "an active XR session keeps its placement");
+  // A check that was waiting for its separate verification frame is discarded by the new run.
+  const check = src.slice(src.indexOf("async function checkStep"), src.indexOf("async function finishAssembly"));
+  assert.ok(check.length > 200, "checkStep precedes finishAssembly");
+  assert.equal((check.match(/runEpochRef\.current !== epoch/g) ?? []).length, 2, "checked after the inspection and after the 2 s wait");
+  // Panel buttons report a failed Restart/Finish in the panel (no silent freeze in AR).
+  assert.match(src, /a === "finish" \|\| a === "restart" \? void runGuideAction\(a\)/);
+  assert.match(src, /guideMessage: lastGuideOutcome \|\| guide\.message/);
+});
+
+test("coordinator: invalidation (Restart / step change) rejects a late answer of the previous run", () => {
+  const { InspectionCoordinator } = require("../src/lib/ar/coordinator.ts");
+  const c = new InspectionCoordinator();
+  const lease = c.acquire("p", "s4", "verify");
+  c.invalidateStep(); // Restart Assembly
+  assert.equal(c.accepts(lease, "p", "s4"), false, "the old run's result is not applied");
+  assert.equal(c.busy, false, "the new run can start a check");
+  const fresh = c.acquire("p", "s1", "inspect");
+  c.release(lease); // late release of the old lease never frees the new one
+  assert.equal(c.accepts(fresh, "p", "s1"), true);
+});
+
+test("Restart Assembly is drawn as the main action of the completion view", async () => {
+  const runtime = await setup();
+  const g = deriveGuide({ anchored: true, checking: false, serverVerified: true, manuallyConfirmed: false, isLastStep: true, finished: true, summary: null });
+  ops.texts = [];
+  runtime.update({ placement: placement(), text: "Step 4", stepLabel: "Step 4 of 4", detail: "", guideLabel: g.label, guideMessage: g.message,
+    guideTone: g.tone, primary: g.buttons, progress: { position: 4, total: 4, currentVerified: true } });
+  runtime.setViewMode("guide");
+  assert.match(drawn(), /ASSEMBLY COMPLETE/);
+  assert.match(drawn(), /Restart Assembly/);
+  const b = layoutButtons(g.buttons).find((x) => x.id === "restart");
+  assert.ok(b && b.main && b.primary && b.w >= 400 && b.h >= 96, "large primary action");
+  await runtime.end();
 });

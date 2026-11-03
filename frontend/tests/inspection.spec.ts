@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { detectEdges } from "./edge-busy";
 
 // Synthetic fixtures are confined to tests; no model endpoint is reachable from this suite.
 const project = {
@@ -344,9 +345,9 @@ test("Canny edges render directly on the analyzed JPEG without another AI reques
   let aiCalls = 0;
   page.on("request", (request) => { if (/\/api\/(inspect|verify|segment)$/.test(request.url())) aiCalls++; });
   await expect(overlay.getByLabel("Canny Edges", { exact: true })).toBeDisabled();
-  const response = page.waitForResponse("**/api/vision/edges");
-  await overlay.getByRole("button", { name: "Detect Canny edges", exact: true }).click();
-  const edges = await (await response).json();
+  const response = await detectEdges(page, overlay.getByRole("button", { name: "Detect Canny edges", exact: true }));
+  expect(response.status()).toBe(200);
+  const edges = await response.json();
   expect(edges.analyzed_snapshot).toEqual(analyzedSnapshot);
   expect(edges.edge_pixel_count).toBeGreaterThan(0);
   const toggle = overlay.getByLabel("Canny Edges", { exact: true });

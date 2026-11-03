@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { detectEdges } from "./edge-busy";
 
 async function capture(page: Page) {
   await page.goto("/settings");
@@ -27,9 +28,9 @@ test("independent Canny supports ROI, thresholds, exact JPEG and responsive opti
   await panel.getByLabel("Low Canny threshold").fill("20");
   await panel.getByLabel("High Canny threshold").fill("80");
   await panel.getByLabel("Gaussian blur").selectOption("5");
-  const response = page.waitForResponse("**/api/vision/edges");
-  await panel.getByRole("button", { name: "Detect edges", exact: true }).click();
-  const evidence = await (await response).json();
+  const response = await detectEdges(page, panel.getByRole("button", { name: "Detect edges", exact: true }));
+  expect(response.status()).toBe(200);
+  const evidence = await response.json();
   expect(evidence.options.blur_kernel).toBe(5);
   expect(evidence.options.low_threshold).toBe(20);
   expect(evidence.options.high_threshold).toBe(80);

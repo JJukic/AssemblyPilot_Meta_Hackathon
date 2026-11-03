@@ -42,7 +42,8 @@ export type Action =
   | "field-right-1"
   | "field-right-5"
   | "field-rotate-reset"
-  | "finish";
+  | "finish"
+  | "restart";
 export interface Guidance {
   /** Legacy single target (used when `hologram` is absent). */
   placement: Placement | null;
@@ -1064,7 +1065,7 @@ export class SpatialSession {
       c.fillStyle = "#bffaff";
       [
         "Use the large buttons: point with your hand ray and air tap.",
-        "Check Step · Check Again · Confirm Position · Next Step · Finish",
+        "Check Step · Check Again · Confirm Position · Next Step · Finish · Restart",
         "More Text / Previous Text page through long text.",
         "Move Panel: pinch the top bar and drag; push or pull your hand",
         "to move it farther or closer. Rotate Panel: pinch the rotate",

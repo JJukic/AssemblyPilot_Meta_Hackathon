@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { detectEdges } from "./edge-busy";
 import type { WorkflowInspection, VerificationResponse, StepProgress } from "../src/types/workflow";
 
 // Synthetic API fixtures only. Production code never substitutes model answers.
@@ -420,7 +421,7 @@ test("independent edge debugging preserves the current correction workflow", asy
   await page.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
   const debug = page.getByRole("region", { name: "Edge Detection Debug Mode" });
   await debug.getByRole("checkbox", { name: "Enable edge debug mode" }).check();
-  await debug.getByRole("button", { name: "Detect edges", exact: true }).click();
+  expect((await detectEdges(page, debug.getByRole("button", { name: "Detect edges", exact: true }))).status()).toBe(200);
   await expect(debug.getByAltText("Detected Canny edge image")).toBeVisible();
   await page.getByRole("navigation").getByRole("link", { name: "Workspace", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Ready to Verify", exact: true })).toBeVisible();

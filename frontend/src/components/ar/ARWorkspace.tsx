@@ -56,6 +56,7 @@ import type { FailureKind } from "@/lib/ar/autonomous";
 import { EMPTY_FIELD_DIAGNOSTICS, describeField, type FieldDiagnostics } from "@/lib/ar/field";
 import { MonitorCamera, listVideoDevices } from "@/lib/ar/autonomousMonitor";
 import {
+  clearInspectionSummary,
   inspectingSummary,
   saveInspectionSummary,
   summarizeInspection,
@@ -166,6 +167,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [manualConfirm, setManualConfirm] = useState<{ stepId: string; at: string } | null>(null);
   // Finish: bound to the verified last step it was confirmed for (never a separate progress state).
   const [finishedFor, setFinishedFor] = useState<string | null>(null);
+  // Restart Assembly starts a NEW local run (epoch). Steps verified on the server in an
+  // earlier run stay verified (shown as such); `runVerified` lists steps verified in this run.
+  const [runEpoch, setRunEpoch] = useState(0);
+  const runEpochRef = useRef(0);
+  const [runVerified, setRunVerified] = useState<string[]>([]);
   const [lastGuideOutcome, setLastGuideOutcome] = useState("");
   // In-AR voice: explicit two-tap consent inside the panel and a visible last error.
   const [voiceConsentPending, setVoiceConsentPending] = useState(false);
@@ -293,13 +299,14 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       manuallyConfirmed,
       isLastStep,
       finished: finishedFor !== null && finishedFor === view.step_id,
+      verifiedEarlier: runEpoch > 0 && !!view.step_id && !runVerified.includes(view.step_id),
       checkError: stepCheckError,
       summary: stepSummary,
     });
     return active && anchorUi === "tracking_lost"
       ? { ...base, label: "Tracking lost", message: "Field tracking is uncertain — select Re-anchor.", tone: "warn" }
       : base;
-  }, [active, anchorUi, checkingStep, verified, online, manuallyConfirmed, isLastStep, finishedFor, view.step_id, stepCheckError, stepSummary]);
+  }, [active, anchorUi, checkingStep, verified, online, manuallyConfirmed, isLastStep, finishedFor, runEpoch, runVerified, view.step_id, stepCheckError, stepSummary]);
   const shortText = step
     ? shortInstruction(step.required_blocks.map((b) => ({ color: b.block.color, name: b.block.name, quantity: b.required_quantity })), !!placement)
     : "Loading project…";
@@ -537,7 +544,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       stepLabel: step ? `Step ${step.position} of ${totalSteps}` : "No step",
       progress: step ? { position: step.position, total: totalSteps, currentVerified: verified && online } : undefined,
       guideLabel: guide.label,
-      guideMessage: guide.message,
+      guideMessage: lastGuideOutcome || guide.message,
       guideTone: guide.tone,
       shortInstruction: shortText,
       primary: guide.buttons,
@@ -559,7 +566,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
     runtime.current?.setViewMode(resultMode);
-  }, [placement, hologram, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag, guide, shortText, voiceLine, voiceTone, voiceButton]);
+  }, [placement, hologram, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag, guide, lastGuideOutcome, shortText, voiceLine, voiceTone, voiceButton]);
 
   useEffect(() => {
     viewRef.current = view;
@@ -773,7 +780,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       : { ...outcome, detail: `${outcome.detail ?? ""} (first inspection — no previous inspection yet)` };
   }
   /** 2D guided card: same actions as the AR panel buttons (no voice). */
-  async function runGuideAction(id: "verify" | "next" | "confirm" | "finish" | "previous") {
+  async function runGuideAction(id: "verify" | "next" | "confirm" | "finish" | "restart" | "previous") {
     const outcome = await handleAction(id);
     // Check results are shown by the status itself; only other failed actions get an extra line.
     if (alive.current) setLastGuideOutcome(id === "verify" || outcome.ok ? "" : outcome.reason ?? "Aktion fehlgeschlagen");
@@ -800,6 +807,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         return confirmPosition();
       case "finish":
         return finishAssembly();
+      case "restart":
+        return restartAssembly();
       case "exit":
         await exitAR();
         return { ok: true, detail: "XR session ended; microphone stopped" };
@@ -1022,7 +1031,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     }
   }
   useEffect(() => {
-    actionRef.current = (a) => handleAction(a);
+    // Guided step actions from the AR panel report failures like the 2D card does
+    // (shown in the panel message), e.g. a Restart that cannot reach Step 1.
+    actionRef.current = (a) =>
+      a === "next" || a === "confirm" || a === "finish" || a === "restart" ? void runGuideAction(a) : void handleAction(a);
     dispatchRef.current = (a, t) => dispatchVoiceAction(a, t);
   });
 
@@ -1518,6 +1530,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     if (!d.verificationStatus) controllerRef.current?.adoptManual(d.overallStatus, stepId);
     if (d.verificationStatus === "verified") {
       setVerification({ step: stepId, verified: true }); // backend response is authoritative; the poll confirms
+      setRunVerified((old) => (old.includes(stepId) ? old : [...old, stepId])); // verified in THIS run
       if (opts.advance ?? true) {
         await advanceIfVerified();
         return done({ ok: true, detail: "Step verified by the backend — advancing inside AR" }, d);
@@ -1552,12 +1565,15 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         setCheckError({ stepId, message: `Check unavailable: ${run.outcome.reason ?? "unknown error"}` });
       return run.outcome;
     };
+    const epoch = runEpochRef.current; // Restart Assembly ends this check's run
     try {
       const first = await captureCheck("inspect", { inPage: true, advance: autoOn });
       const r = first.result;
+      if (runEpochRef.current !== epoch) return { ok: false, reason: "Assembly restarted; this check was discarded" };
       if (!r || r.overallStatus !== "correct" || r.verificationStatus || viewRef.current.step_id !== stepId)
         return failedBeforeInspection(first);
       await new Promise((resolve) => setTimeout(resolve, 2000)); // a genuinely later, separate frame
+      if (runEpochRef.current !== epoch) return { ok: false, reason: "Assembly restarted; this check was discarded" };
       if (viewRef.current.step_id !== stepId) return { ok: false, reason: "Step changed" };
       return failedBeforeInspection(await captureCheck("verify", { inPage: true, advance: autoOn }));
     } finally {
@@ -1590,6 +1606,61 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     } catch (cause) {
       return { ok: false, reason: `Progress unavailable: ${errorMessage(cause)}` };
     }
+  }
+  /**
+   * Restart Assembly (after Finish): ends the finished run and starts a NEW local run
+   * at Step 1. Stops Autonomous, voice and every in-flight camera/Meta/poll action,
+   * invalidates late answers (lease + run epoch), clears the shown result and captured
+   * frame, and moves the shared cursor back to Step 1 (absolute target, nothing skipped).
+   * Starts NO camera or Meta request. Project, blocks, instructions, AR placements and
+   * server progress/verification history are untouched; XR state is kept as it is.
+   */
+  async function restartAssembly(): Promise<ExecutionOutcome> {
+    if (!project || !project.steps.length) return { ok: false, reason: "Project is still loading" };
+    if (!online) return { ok: false, reason: "Project state unavailable (offline) — restart needs the shared step cursor. Check the connection and try again." };
+    const first = project.steps[0];
+    // 1) End the finished run: nothing from it may run on or answer into the new one.
+    runEpochRef.current += 1;
+    if (runner.active || runner.phase === "completed" || machineRef.current)
+      stopAutonomous("Assembly restarted — Autonomous Assembly stopped. Start it again when ready.");
+    autoAbort.current?.abort();
+    autoOwnedAbort.current?.abort();
+    coordinatorRef.current.invalidateStep(); // a late manual/auto answer no longer holds a lease
+    if (extTracker.current) {
+      extTracker.invalidate();
+      setExtPending(false);
+    }
+    stopAllVoice(true);
+    // 2) Clear the shown result and captured frame (local view state only).
+    previews.invalidate();
+    resultBinding.current = { summary: null, id: 0 };
+    clearInspectionSummary();
+    setResultSummary(null);
+    setLastTrace(null);
+    setLastFrame(null);
+    setShowFrame(false);
+    setResultMode("guide");
+    runtime.current?.setViewMode("guide");
+    setCheckError(null);
+    setManualConfirm(null);
+    setFinishedFor(null);
+    setLastGuideOutcome("");
+    autoWorkflow.current = null;
+    setRunVerified([]);
+    setRunEpoch(runEpochRef.current);
+    // 3) Back to Step 1 through the shared cursor (bound origin, absolute target).
+    const current = viewRef.current;
+    const index = project.steps.findIndex((x) => x.id === current.step_id);
+    if (index > 0) {
+      const moved = await navigate(-index, current.step_id ?? undefined);
+      if (!moved.ok)
+        return { ok: false, reason: `Restart could not return to Step 1: ${moved.reason ?? "unknown error"}`, detail: moved.detail };
+    }
+    const where = runtime.current && active
+      ? "The confirmed AR field is kept; Step 1 guidance is shown."
+      : "Select Enter immersive AR to continue in AR.";
+    setStatus(`Assembly restarted at Step ${first.position}. ${where} Nothing is checked until you select Check Step.`);
+    return { ok: true, detail: `Assembly restarted at Step ${first.position} of ${project.steps.length}` };
   }
   /** Visible manual fallback (Confirm Position): user-confirmed, never AI/backend-verified. */
   function confirmPosition(): ExecutionOutcome {

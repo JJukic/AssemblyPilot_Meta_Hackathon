@@ -26,7 +26,7 @@ async function demo(request: APIRequestContext) {
   }
   const steps = await (await request.get(`${E2E_API}/api/projects/${project.id}/steps`)).json();
   const progress = await (await request.get(`${E2E_API}/api/projects/${project.id}/progress`)).json();
-  return { project, steps, spec: (id: string) => progress.find((p: { step_id: string }) => p.step_id === id).specification_id };
+  return { block, project, steps, spec: (id: string) => progress.find((p: { step_id: string }) => p.step_id === id).specification_id };
 }
 
 function workflow(stepId: string, specId: string, n: number, kind: "correct" | "incorrect" | "uncertain") {
@@ -208,4 +208,49 @@ test("last step: Next Step is replaced by Finish only after backend verification
   const real = await (await request.get(`${E2E_API}/api/projects/${a.project.id}/progress`)).json();
   expect(real.find((p: { step_id: string }) => p.step_id === s1.id).status).not.toBe("verified");
   expect((await (await request.get(`${E2E_API}/api/projects/${a.project.id}/ar-view`)).json()).step_id).toBe(s2.id);
+
+  // Completion view offers Restart Assembly as the primary follow-up (no hidden command needed).
+  const before = {
+    steps: await (await request.get(`${E2E_API}/api/projects/${a.project.id}/steps`)).json(),
+    placements: await Promise.all(a.steps.map(async (s: { id: string }) =>
+      (await request.get(`${E2E_API}/api/projects/${a.project.id}/steps/${s.id}/ar-placement`)).json())),
+    // Only this project's block: other specs create blocks in parallel.
+    block: (await (await request.get(`${E2E_API}/api/blocks`)).json()).find((x: { id: string }) => x.id === a.block.id),
+  };
+  const result = page.getByRole("region", { name: "Latest Meta inspection result" });
+  await page.getByText("Full instructions, reference & inspection results", { exact: true }).click();
+  await expect(result).toContainText("Step Verified");
+  const restart = card(page).getByRole("button", { name: "Restart Assembly" });
+  await expect(restart).toBeVisible();
+  await restart.click();
+  // Back on Step 1 (nothing skipped), a new run: Ready → Check Step, no Finish/Restart, old result gone.
+  await expect(card(page)).toContainText("Step 1 of 2", { timeout: 15000 });
+  await expect(state(page)).toHaveText("Ready", { timeout: 15000 });
+  await expect(card(page).getByRole("button", { name: "Check Step", exact: true })).toBeVisible();
+  await expect(card(page).getByRole("button", { name: "Restart Assembly" })).toHaveCount(0);
+  await expect(card(page).getByRole("button", { name: "Finish" })).toHaveCount(0);
+  await expect(result).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "AR panel capture preview" })).toHaveCount(0);
+  // No automatic camera/Meta request after Restart.
+  await page.waitForTimeout(4000);
+  expect(calls).toEqual(["inspect:uncertain", "inspect:correct", "verify"]);
+  expect((await (await request.get(`${E2E_API}/api/projects/${a.project.id}/ar-view`)).json()).step_id).toBe(s1.id);
+  // Project, steps/instructions, blocks and AR placements are preserved exactly.
+  expect(await (await request.get(`${E2E_API}/api/projects/${a.project.id}/steps`)).json()).toEqual(before.steps);
+  expect(before.block).toBeTruthy();
+  expect((await (await request.get(`${E2E_API}/api/blocks`)).json()).find((x: { id: string }) => x.id === a.block.id)).toEqual(before.block);
+  for (const [i, s] of a.steps.entries())
+    expect(await (await request.get(`${E2E_API}/api/projects/${a.project.id}/steps/${s.id}/ar-placement`)).json()).toEqual(before.placements[i]);
+  // The earlier server verification of the last step is not erased by Restart.
+  expect(verifiedOnServer).toBe(true);
+  const progressNow = await (await page.request.get(`${E2E_API}/api/projects/${a.project.id}/progress`)).json();
+  expect(progressNow.length).toBe(2);
+  // A new run works normally: Check Step on Step 1 sends exactly one new inspection.
+  next = "correct";
+  await card(page).getByRole("button", { name: "Check Step", exact: true }).click();
+  await expect.poll(() => calls.length, { timeout: 20000 }).toBeGreaterThanOrEqual(4);
+  expect(calls[3]).toBe("inspect:correct");
+  // The page keeps polling progress: a poll still inside the route handler at teardown
+  // would read a disposed response. Remove the handlers, ignoring such in-flight polls.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });

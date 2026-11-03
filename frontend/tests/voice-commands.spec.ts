@@ -115,7 +115,11 @@ async function mockVoice(page: Page) {
 async function enableLocal(page: Page) {
   await page.getByRole("checkbox", { name: /I agree to local voice/ }).check();
   await page.getByRole("button", { name: "Enable local voice control" }).click();
-  await expect(page.getByRole("status", { name: "Local microphone state" })).toContainText("Listening");
+  // Capturing = "Listening…" or a window already being transcribed while the mic keeps
+  // capturing (voiceLocal: "… microphone still capturing"); under load the latter can
+  // be what is shown when the check runs. Both mean the microphone is live.
+  await expect(page.getByRole("status", { name: "Local microphone state" }))
+    .toContainText(/Listening|microphone still capturing/, { timeout: 15_000 });
 }
 const diag = (page: Page) => page.getByRole("region", { name: "Voice command diagnostics" });
 async function expectDiag(page: Page, text: string) {
