@@ -4,12 +4,46 @@ import { mediaUrl } from "@/lib/api";
 import { AlertCircle, CircleCheck, HelpCircle } from "lucide-react";
 import { DiagnosticOverlay } from "./DiagnosticOverlay";
 import type { InspectionResponse } from "@/types/inspection";
+import { overallResult } from "@/lib/overall";
+import { validPrint } from "@/lib/prints";
+import { isWorkflowInspection } from "@/lib/workflow";
 
 export function DiagnosisDetails({ result }: { result: InspectionResponse }) {
   const face = "face" in result && validFace(result.face) ? result.face : null;
+  const workflow = "state" in result && isWorkflowInspection(result, result.step_id) ? result : null;
+  const print = workflow && "print_recognition" in workflow && validPrint(workflow.print_recognition, workflow.snapshot_id)
+    ? workflow.print_recognition : null;
+  const overall = workflow ? overallResult({
+    state: workflow.state, status: workflow.status,
+    printGate: print?.gate_status ?? null,
+    faceStatus: face?.status ?? null,
+    geometryStatus: workflow.geometry?.geometry_status ?? null,
+    geometryConstrained: !!workflow.geometry?.constraint_id,
+  }) : null;
+  const overallClass = overall?.kind === "verified" || overall?.kind === "correct" ? "correct"
+    : overall?.kind === "uncertain" ? "uncertain" : "incorrect";
   const referenceLayers = face?.snapshot_id === result.snapshot_id ? face?.contours ?? [] : [];
   return <div className="diagnosis">
-    <p className="detection-eyebrow">Semantic assessment</p>
+    {overall && <section aria-label="Overall assembly result" className={`diagnosis-status diagnosis-${overallClass}`}>
+      {overall.kind === "incorrect" || overall.kind === "error" ? <AlertCircle size={20} /> : overall.kind === "uncertain" ? <HelpCircle size={20} /> : <CircleCheck size={20} />}
+      <div>
+        <h3>{overall.headline}</h3>
+        <p>{overall.detail}</p>
+        {print && print.gate_status === "fail" && <>
+          <p>Reason: The observed printed side does not match the required side.</p>
+          <p><b>Expected:</b> {print.expected_print}</p>
+          <p><b>Observed:</b> {print.observed_print ?? "Not read"}</p>
+          <p><b>Required action:</b> {print.suggested_action}</p>
+        </>}
+        {print && print.gate_status === "uncertain" && <>
+          <p>Reason: The required printed side or its orientation could not be verified.</p>
+          <p><b>Expected:</b> {print.expected_print}</p>
+          <p><b>Observed:</b> {print.observed_print ?? "Not read"}</p>
+          <p><b>Required action:</b> {print.suggested_action}</p>
+        </>}
+      </div>
+    </section>}
+    <p className="detection-eyebrow">Semantic assessment (shape, color and assembly arrangement)</p>
     <div className={`diagnosis-status diagnosis-${result.status}`}>
       {result.status === "correct" ? <CircleCheck size={20} /> : result.status === "incorrect" ? <AlertCircle size={20} /> : <HelpCircle size={20} />}
       <h3>{result.status.charAt(0).toUpperCase() + result.status.slice(1)}</h3>

@@ -1,15 +1,16 @@
 # Independent Edge Detection Debug Mode
 
-The dashboard now offers **Edge Detection Debug Mode** for its latest captured
-camera snapshot, including the practice demo and projects with no successful
+The **Settings → Debugging** section (`/settings`) offers **Edge Detection Debug Mode**
+for its latest captured camera snapshot, including the practice demo and projects with no successful
 inspection. No Muse diagnosis, SAM mask, ORB match, model key or registered face
 is needed. The existing evidence-backed contour controls remain available in the
 inspection panels.
 
 ## Use
 
-1. Start the camera and capture a snapshot.
-2. Enable **Edge Detection Debug Mode** below the camera/calibration workspace.
+1. Start the camera and capture a snapshot in **Workspace** or **Settings**.
+2. Open **Settings** beside **Projects** and enable **Edge Detection Debug Mode**
+   in the Debugging section. The same latest snapshot is available on both pages.
 3. Optionally drag a rectangle directly on **Original captured snapshot**.
    The ROI is expressed in native image pixels, independent of CSS size. Reverse
    drags work; selections must be at least 2×2 pixels. Keyboard users can enter
@@ -30,6 +31,11 @@ own validated inspection snapshots, which can have different hashes/resolutions.
 Debug output is never substituted for those layers, and it never updates a
 semantic diagnosis, face rule, correction plan, inspection history or verified
 progress. It also does not trigger SAM to obtain missing evidence.
+
+Workspace ↔ Settings navigation retains edge settings and evidence in memory.
+The mode defaults to off (blur 3, low 50, high 150, full image, overlay off).
+A new snapshot or camera source still resets these values as before. No edge
+preferences or photographs are written to localStorage or sessionStorage.
 
 ## Endpoint and image identity
 

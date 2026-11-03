@@ -5,25 +5,25 @@ import type { useCamera } from "@/hooks/useCamera";
 import { apiRequest, errorMessage } from "@/lib/api";
 import { snapshotFile } from "@/lib/camera-image";
 import { assessCapture, downloadBoard } from "@/lib/calibration";
-import type { CalibrationProfile, CalibrationStatus, CameraConfiguration, CaptureAssessment, GeometrySetup } from "@/types/calibration";
+import type { CalibrationProfile, CalibrationStatus, CameraConfiguration } from "@/types/calibration";
 import type { Snapshot } from "@/types/assembly";
 
-type Sample = { snapshot: Snapshot; hash: string };
-export function CalibrationPanel({ camera, onSelectionChange }: { camera: ReturnType<typeof useCamera>; onSelectionChange: (setup: GeometrySetup | null) => void }) {
-  const [status, setStatus] = useState<CalibrationStatus | null>(null);
-  const [mode, setMode] = useState<"calibrate" | "precision">("calibrate");
-  const [profileId, setProfileId] = useState("");
-  const [lens, setLens] = useState("");
-  const [notes, setNotes] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-  const [measuredWidth, setMeasuredWidth] = useState("");
-  const [measuredHeight, setMeasuredHeight] = useState("");
-  const [samples, setSamples] = useState<Sample[]>([]);
-  const [sampleCamera, setSampleCamera] = useState<CameraConfiguration | null>(null);
-  const [assessment, setAssessment] = useState<CaptureAssessment | null>(null);
-  const [assessedCamera, setAssessedCamera] = useState<CameraConfiguration | null>(null);
-  const [assessedSnapshot, setAssessedSnapshot] = useState<Snapshot | null>(null);
-  const [result, setResult] = useState<CalibrationProfile | null>(null);
+import { useCalibrationSetting } from "@/components/settings/WorkspaceSession";
+export function CalibrationPanel({ camera }: { camera: ReturnType<typeof useCamera> }) {
+  const [status, setStatus] = useCalibrationSetting("status");
+  const [mode, setMode] = useCalibrationSetting("mode");
+  const [profileId, setProfileId] = useCalibrationSetting("profileId");
+  const [lens, setLens] = useCalibrationSetting("lens");
+  const [notes, setNotes] = useCalibrationSetting("notes");
+  const [confirmed, setConfirmed] = useCalibrationSetting("confirmed");
+  const [measuredWidth, setMeasuredWidth] = useCalibrationSetting("measuredWidth");
+  const [measuredHeight, setMeasuredHeight] = useCalibrationSetting("measuredHeight");
+  const [samples, setSamples] = useCalibrationSetting("samples");
+  const [sampleCamera, setSampleCamera] = useCalibrationSetting("sampleCamera");
+  const [assessment, setAssessment] = useCalibrationSetting("assessment");
+  const [assessedCamera, setAssessedCamera] = useCalibrationSetting("assessedCamera");
+  const [assessedSnapshot, setAssessedSnapshot] = useCalibrationSetting("assessedSnapshot");
+  const [result, setResult] = useCalibrationSetting("result");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -31,17 +31,9 @@ export function CalibrationPanel({ camera, onSelectionChange }: { camera: Return
   useEffect(() => {
     const abort = new AbortController(); controller.current = abort;
     apiRequest<CalibrationStatus>("/api/calibration/status", { signal: abort.signal })
-      .then(setStatus).catch((e) => { if (!abort.signal.aborted) setError(errorMessage(e)); });
+      .then((value) => { if (!abort.signal.aborted) setStatus(value); }).catch((e) => { if (!abort.signal.aborted) setError(errorMessage(e)); });
     return () => abort.abort();
-  }, []);
-  useEffect(() => {
-    const profile = status?.profiles.find((item) => item.id === profileId);
-    onSelectionChange(profile && confirmed ? {
-      profile_id: profile.id,
-      camera: profile.camera,
-      configuration_confirmed: true,
-    } : null);
-  }, [confirmed, onSelectionChange, profileId, status]);
+  }, [setStatus]);
   const signal = () => AbortSignal.any([controller.current!.signal, AbortSignal.timeout(120000)]);
   function resetEvidence() {
     setSamples([]); setSampleCamera(null); setAssessment(null); setAssessedSnapshot(null);
@@ -113,7 +105,7 @@ export function CalibrationPanel({ camera, onSelectionChange }: { camera: Return
       <button className="button secondary" disabled={busy} onClick={() => { resetEvidence(); setMode("precision"); }}>Precision Capture</button>
     </div>
     <h2>{mode === "calibrate" ? "Camera Calibration" : "Precision Capture"}</h2>
-    <p>Select a camera using the workspace controls. Keep its lens, resolution, focus, zoom, crop and stabilization unchanged. Continuity Camera may change these without exposing them to the browser. Recalibrate after any change; device labels alone cannot establish compatibility.</p>
+    <p>Select a camera using the controls above. Keep its lens, resolution, focus, zoom, crop and stabilization unchanged. Continuity Camera may change these without exposing them to the browser. Recalibrate after any change; device labels alone cannot establish compatibility.</p>
     {mode === "calibrate" ? <>
       <p>Print the 7 × 5 board at <strong>100% / actual size</strong>, disable fit-to-page, keep a white margin and mount flat. The pattern must measure 140 × 100 mm (20 mm squares, 15 mm markers, DICT_4X4_50). Measure both outer pattern edges before use.</p>
       <button className="button secondary" onClick={() => void downloadBoard().catch((e) => setError(errorMessage(e)))}>Download printable board PDF</button>
@@ -132,7 +124,7 @@ export function CalibrationPanel({ camera, onSelectionChange }: { camera: Return
     </div>
     <label className="calibration-confirm"><input type="checkbox" checked={confirmed} disabled={busy} onChange={(e) => { setConfirmed(e.target.checked); setAssessment(null); setAssessedSnapshot(null); }} /> I confirm the camera configuration is unchanged across these samples / matches the selected profile. Hidden camera changes still require recalibration.</label>
     <div className="calibration-toolbar">
-      <button className="button primary" disabled={busy || camera.status !== "connected" || !lens.trim() || !notes.trim() || (mode === "calibrate" && samples.length >= 20)} onClick={() => void capture()}>{busy ? "Processing camera evidence…" : mode === "calibrate" ? "Capture calibration sample" : "Capture & assess perspective"}</button>
+      <button className="button primary" disabled={busy || camera.status !== "connected" || !camera.previewReady || !lens.trim() || !notes.trim() || (mode === "calibrate" && samples.length >= 20)} onClick={() => void capture()}>{busy ? "Processing camera evidence…" : mode === "calibrate" ? "Capture calibration sample" : "Capture & assess perspective"}</button>
       {mode === "calibrate" && <>
         <button className="button primary" disabled={busy || samples.length < 12 || !confirmed || !measuredWidth || !measuredHeight} onClick={() => void runCalibration()}>Calibrate &amp; save profile</button>
         <button className="button secondary" disabled={busy || !samples.length} onClick={resetEvidence}>Clear samples</button>
@@ -156,7 +148,7 @@ export function CalibrationPanel({ camera, onSelectionChange }: { camera: Return
       {mode === "precision" && assessedSnapshot && <><p>{assessment.suitable_for_top_down_capture ? "Capture guidance passed. A supported constrained step will still require complete stud evidence before returning a measurement." : "Precision guidance did not pass. You may still request a semantic AI inspection, but configured geometry will remain uncertain."}</p>
         <button className="button primary" onClick={() => { try {
           if (JSON.stringify(configuration(assessedSnapshot)) !== JSON.stringify(assessedCamera)) throw new Error("Camera configuration changed. Assess a fresh capture.");
-          camera.publishSnapshot(assessedSnapshot); setMessage("Capture selected. Choose Inspect with Meta AI for your project and step; no AI request was sent yet."); } catch (e) { setError(errorMessage(e)); } }}>Use this capture for AI inspection</button></>}
+          camera.publishSnapshot(assessedSnapshot); setMessage("Capture selected. Return to Workspace and choose Inspect with Meta AI for your project and step; no AI request was sent yet."); } catch (e) { setError(errorMessage(e)); } }}>Use this capture for AI inspection</button></>}
     </div>}
     {status && <p className="muted">OpenCV {status.opencv_version} · Board {status.board_id} · {status.profiles.length} saved profiles{status.invalid_profile_count > 0 && ` · ${status.invalid_profile_count} invalid profiles ignored; recalibrate`}</p>}
   </details>;

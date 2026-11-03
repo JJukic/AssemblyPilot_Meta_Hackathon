@@ -42,8 +42,8 @@ export function AssemblyPanel({ assembly, currentStep, onStepChange }: {
         <h4 className="reference-label">REFERENCE</h4>
         <ReferenceImage key={step.id} path={step.reference_image} title={step.title} />
         <div className="step-navigation">
-          <button className="button secondary" disabled={current === 0} onClick={() => setCurrent(current - 1)}><ArrowLeft size={15} /> Previous</button>
-          <button className="button primary" disabled={current === assembly.steps.length - 1} onClick={() => setCurrent(current + 1)}>Next step <ArrowRight size={15} /></button>
+          <button className="button secondary" disabled={current === 0} onClick={() => setCurrent(current - 1)}><ArrowLeft size={15} /> Previous Step</button>
+          <button className="button primary" disabled={current === assembly.steps.length - 1} onClick={() => setCurrent(current + 1)}>Next Step <ArrowRight size={15} /></button>
         </div>
         <p className="manual-note">Navigate at your own pace. Steps are not AI verified.</p>
       </div>

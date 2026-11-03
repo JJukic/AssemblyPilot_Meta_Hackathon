@@ -6,6 +6,7 @@ import { useResource } from "@/hooks/useResource";
 import { registry } from "@/lib/registry";
 import { errorMessage } from "@/lib/api";
 import { ImageManager } from "@/components/ui/ImageManager";
+import { PlacementEditor } from "@/components/ar/PlacementEditor";
 import { StepEditor } from "./StepEditor";
 import { ProjectForm } from "./ProjectForm";
 
@@ -41,6 +42,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   if (!project.data) return <div className="empty-state">{project.error ? <p role="alert">{project.error}</p> : <p role="status">Loading project…</p>}<button className="button secondary" onClick={project.reload}>Retry</button><Link href="/projects">Back to projects</Link></div>;
   return <>
     <div className="collection-toolbar"><Link className="text-button" href="/projects"><ArrowLeft size={14} /> All projects</Link><Link className="button primary" href={`/?project=${projectId}`}><Camera size={16} /> Open in workspace</Link></div>
+    <Link className="button secondary" href={`/ar?project=${projectId}`}>Spatial AR guidance</Link>
     <section className="panel project-summary"><div><p className="eyebrow">YOUR CONSTRUCTION</p><h2>{project.data.name}</h2><p className="muted">{project.data.description || "Add instructions to turn your idea into a repeatable build."}</p></div><button className="button secondary" onClick={() => setEditProject(!editProject)}><Pencil size={14} /> Edit project details</button></section>
     {editProject && <section className="panel standalone-form"><ProjectForm project={project.data} onCancel={() => setEditProject(false)} onSave={async (input) => { await registry.saveProject(input, projectId); project.reload(); setEditProject(false); setNotice("Project saved."); }} /></section>}
     <div className="collection-toolbar"><h2>{project.data.steps.length} construction steps</h2><button className="button primary" onClick={() => { setEditing("new"); setNotice(null); }}><Plus size={16} /> Add step</button></div>
@@ -57,6 +59,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     {editing && <aside className="panel editor-panel"><div className="panel-heading"><h2>{editing === "new" ? "New construction step" : "Edit construction step"}</h2></div>
       {(editing === "new" || selected) && blocks.data ? <>
         <StepEditor key={editing} step={selected} blocks={blocks.data} onCancel={() => setEditing(null)} onSave={async (input) => { const saved = await registry.saveStep(projectId, input, selected?.id); project.reload(); setEditing(saved.id); setNotice("Step saved. Manage reference photographs below."); }} />
+        {selected && <PlacementEditor key={`ar:${selected.id}`} projectId={projectId} step={selected} />}
         {selected && <ImageManager key={`images:${selected.id}`} images={selected.reference_images}
           endpoint={`/api/projects/${projectId}/steps/${selected.id}/images`} onChange={project.reload}
           onSelect={(image) => registry.selectStepReference(projectId, selected.id, image.id)} />}

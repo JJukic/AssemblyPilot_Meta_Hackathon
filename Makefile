@@ -13,6 +13,7 @@ dev-frontend:
 test:
 	cd backend && uv run --frozen pytest
 	cd frontend && npm run typecheck
+	cd frontend && npm run test:unit
 
 lint:
 	cd backend && uv run --frozen ruff check .

@@ -29,3 +29,7 @@ backend/data/
 *.db-journal
 *.sqlite
 *.sqlite3
+
+# Local speech models and voice recordings (never commit)
+*.bin
+voice-clips/

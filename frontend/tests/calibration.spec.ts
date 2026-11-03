@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { CaptureAssessment, CalibrationProfile } from "../src/types/calibration";
 
 async function start(page: Page) {
-  await page.goto("/");
+  await page.goto("/settings");
   await page.getByRole("button", { name: "Start camera", exact: true }).click();
   await expect(page.getByRole("status", { name: "Camera: Connected" })).toBeVisible();
   await page.locator("summary").filter({ hasText: "Camera Calibration & Precision Capture" }).click();
@@ -40,6 +40,7 @@ test("real OpenCV endpoint rejects synthetic webcam without markers and enables 
   await page.getByRole("button", { name: "Capture & assess perspective", exact: true }).click();
   await expect(page.getByText("Camera calibration is missing.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Use this capture for AI inspection" }).click();
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Workspace", exact: true }).click();
   await expect(page.getByAltText("Latest captured LEGO assembly")).toBeVisible();
   expect(metaCalls).toBe(0);
 });
@@ -51,6 +52,10 @@ test("collects samples, rejects duplicates, requires measurements and saves prof
   await page.route("**/api/calibration/validate-capture", (route) => route.fulfill({ json: fixtures[index] }));
   const capture = page.getByRole("button", { name: "Capture calibration sample", exact: true });
   await capture.click();
+  await expect(page.getByText("1 / 20 samples accepted", { exact: false })).toBeVisible();
+  await page.getByRole("navigation").getByRole("link", { name: "Workspace", exact: true }).click();
+  await page.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
+  if (await page.locator(".calibration-panel").getAttribute("open") === null) await page.locator(".calibration-panel summary").click();
   await expect(page.getByText("1 / 20 samples accepted", { exact: false })).toBeVisible();
   await capture.click();
   await expect(page.getByText("Sample rejected: duplicate image.", { exact: false })).toBeVisible();

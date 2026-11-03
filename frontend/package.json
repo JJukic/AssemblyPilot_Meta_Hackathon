@@ -11,23 +11,27 @@
     "start": "next start --hostname 0.0.0.0",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "next typegen && tsc --noEmit",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:unit": "node --test unit/*.test.cjs"
   },
   "dependencies": {
+    "lucide-react": "^1.61.0",
     "next": "16.4.3",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "lucide-react": "^1.61.0"
+    "three": "^0.187.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58",
     "@tailwindcss/postcss": "^4.3.3",
-    "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.187.0",
+    "@types/webxr": "^0.5.24",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
-    "@playwright/test": "^1.58"
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3"
   }
 }

@@ -15,6 +15,7 @@ export function PrintResultPanel({ result, snapshot }: { result: PrintRecognitio
     {result.observed_logo && <p><b>Logo interpretation:</b> {result.observed_logo}</p>}
     <p><b>Registered printed side:</b> {result.observed_registered_side_name ?? "Unidentified"}</p>
     <p><b>Print Recognition:</b> {result.recognition_status}</p>
+    <p><b>Print gate:</b> {result.gate_status === "fail" ? "FAIL — correction required" : result.gate_status === "pass" ? "PASS" : result.gate_status === "uncertain" ? "UNCERTAIN — no pass issued" : "Not applicable (no print rule configured)"}</p>
     <p><b>Method:</b> {result.recognition_method.replaceAll("_", " ")} · <b>Evidence quality:</b> {result.evidence_quality}</p>
     <p><b>Physical direction:</b> {!result.direction_required ? "Not required" : result.direction_supported ? "Supported surface; see orientation result" : "Uncertain"}</p>
     <p>{result.description}</p><p>{result.suggested_action}</p>

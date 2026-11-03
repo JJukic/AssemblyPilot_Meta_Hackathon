@@ -25,11 +25,23 @@ export function useCamera() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState("");
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [previewReady, setPreviewReady] = useState(false);
+
+  // Reattach the same live stream when switching between Workspace and Settings.
+  const attachVideo = useCallback((video: HTMLVideoElement | null) => {
+    videoRef.current = video;
+    setPreviewReady(false);
+    if (video) {
+      video.onloadeddata = () => { if (videoRef.current === video) setPreviewReady(true); };
+      video.srcObject = streamRef.current;
+    }
+  }, []);
 
   const releaseStream = useCallback(() => {
     const stream = streamRef.current;
     streamRef.current = null;
     stream?.getTracks().forEach((track) => track.stop());
+    setPreviewReady(false);
     if (videoRef.current) videoRef.current.srcObject = null;
   }, []);
 
@@ -153,5 +165,5 @@ export function useCamera() {
     // Read on every explicit capture; browser-exposed changes invalidate saved profiles.
     return { label: track.label || "Unlabelled camera", settings: track.getSettings() };
   }, []);
-  return { getConfiguration, publishSnapshot: setSnapshot, videoRef, status, error, devices, deviceId, snapshot, start, stop, selectDevice, capture };
+  return { getConfiguration, publishSnapshot: setSnapshot, videoRef, attachVideo, previewReady, status, error, devices, deviceId, snapshot, start, stop, selectDevice, capture };
 }

@@ -1,0 +1,651 @@
+{
+  "comment": "Canonical parity fixture: frontend (voice.ts) and backend (voice_commands.py) tests both assert every entry. Runtime tables live in those two files and must stay in sync with this fixture. Navigation, Check Step/Check Again, panel paging, Autonomous control and Confirm Assembly Field are voice commands (they dispatch the same actions as the panel buttons; voice never verifies a step).",
+  "accepted": [
+    [
+      "show reference",
+      "show-reference",
+      "en"
+    ],
+    [
+      "show reference photo",
+      "show-reference",
+      "en"
+    ],
+    [
+      "show reference photograph",
+      "show-reference",
+      "en"
+    ],
+    [
+      "display reference",
+      "show-reference",
+      "en"
+    ],
+    [
+      "show the reference",
+      "show-reference",
+      "en"
+    ],
+    [
+      "hide reference",
+      "hide-reference",
+      "en"
+    ],
+    [
+      "hide reference photo",
+      "hide-reference",
+      "en"
+    ],
+    [
+      "hide reference photograph",
+      "hide-reference",
+      "en"
+    ],
+    [
+      "hide the reference",
+      "hide-reference",
+      "en"
+    ],
+    [
+      "show instructions",
+      "show-instructions",
+      "en"
+    ],
+    [
+      "show instruction",
+      "show-instructions",
+      "en"
+    ],
+    [
+      "expand instructions",
+      "show-instructions",
+      "en"
+    ],
+    [
+      "show the instructions",
+      "show-instructions",
+      "en"
+    ],
+    [
+      "read instructions",
+      "read-instructions",
+      "en"
+    ],
+    [
+      "read instruction",
+      "read-instructions",
+      "en"
+    ],
+    [
+      "read instructions aloud",
+      "read-instructions",
+      "en"
+    ],
+    [
+      "read the instructions",
+      "read-instructions",
+      "en"
+    ],
+    [
+      "read the instruction aloud",
+      "read-instructions",
+      "en"
+    ],
+    [
+      "reanchor",
+      "re-anchor",
+      "en"
+    ],
+    [
+      "re anchor",
+      "re-anchor",
+      "en"
+    ],
+    [
+      "reset alignment",
+      "re-anchor",
+      "en"
+    ],
+    [
+      "reset tabletop alignment",
+      "re-anchor",
+      "en"
+    ],
+    [
+      "recenter",
+      "recenter",
+      "en"
+    ],
+    [
+      "recenter panel",
+      "recenter",
+      "en"
+    ],
+    [
+      "re centre",
+      "recenter",
+      "en"
+    ],
+    [
+      "re centre panel",
+      "recenter",
+      "en"
+    ],
+    [
+      "center panel",
+      "recenter",
+      "en"
+    ],
+    [
+      "centre panel",
+      "recenter",
+      "en"
+    ],
+    [
+      "help",
+      "help",
+      "en"
+    ],
+    [
+      "show commands",
+      "help",
+      "en"
+    ],
+    [
+      "show help",
+      "help",
+      "en"
+    ],
+    [
+      "list commands",
+      "help",
+      "en"
+    ],
+    [
+      "stop listening",
+      "stop-listening",
+      "en"
+    ],
+    [
+      "stop voice",
+      "stop-listening",
+      "en"
+    ],
+    [
+      "disable voice",
+      "stop-listening",
+      "en"
+    ],
+    [
+      "turn off microphone",
+      "stop-listening",
+      "en"
+    ],
+    [
+      "stop microphone",
+      "stop-listening",
+      "en"
+    ],
+    [
+      "exit ar",
+      "exit",
+      "en"
+    ],
+    [
+      "leave ar",
+      "exit",
+      "en"
+    ],
+    [
+      "close ar",
+      "exit",
+      "en"
+    ],
+    [
+      "quit ar",
+      "exit",
+      "en"
+    ],
+    [
+      "exit",
+      "exit",
+      "en"
+    ],
+    [
+      "referenz anzeigen",
+      "show-reference",
+      "de"
+    ],
+    [
+      "referenz zeigen",
+      "show-reference",
+      "de"
+    ],
+    [
+      "anleitung vorlesen",
+      "read-instructions",
+      "de"
+    ],
+    [
+      "anleitung lesen",
+      "read-instructions",
+      "de"
+    ],
+    [
+      "ar beenden",
+      "exit",
+      "de"
+    ],
+    [
+      "beenden",
+      "exit",
+      "de"
+    ],
+    [
+      "show result",
+      "show-result",
+      "en"
+    ],
+    [
+      "show inspection result",
+      "show-result",
+      "en"
+    ],
+    [
+      "display result",
+      "show-result",
+      "en"
+    ],
+    [
+      "show the result",
+      "show-result",
+      "en"
+    ],
+    [
+      "show errors",
+      "show-errors",
+      "en"
+    ],
+    [
+      "show issues",
+      "show-errors",
+      "en"
+    ],
+    [
+      "what is wrong",
+      "show-errors",
+      "en"
+    ],
+    [
+      "show the errors",
+      "show-errors",
+      "en"
+    ],
+    [
+      "read result",
+      "read-result",
+      "en"
+    ],
+    [
+      "read the result",
+      "read-result",
+      "en"
+    ],
+    [
+      "read correction",
+      "read-correction",
+      "en"
+    ],
+    [
+      "read the correction",
+      "read-correction",
+      "en"
+    ],
+    [
+      "back to instructions",
+      "back-to-instructions",
+      "en"
+    ],
+    [
+      "back to instruction",
+      "back-to-instructions",
+      "en"
+    ],
+    [
+      "ergebnis anzeigen",
+      "show-result",
+      "de"
+    ],
+    [
+      "ergebnis zeigen",
+      "show-result",
+      "de"
+    ],
+    [
+      "fehler anzeigen",
+      "show-errors",
+      "de"
+    ],
+    [
+      "fehler zeigen",
+      "show-errors",
+      "de"
+    ],
+    [
+      "ergebnis vorlesen",
+      "read-result",
+      "de"
+    ],
+    [
+      "korrektur vorlesen",
+      "read-correction",
+      "de"
+    ],
+    [
+      "zurueck zur anleitung",
+      "back-to-instructions",
+      "de"
+    ],
+    [
+      "zuruck zur anleitung",
+      "back-to-instructions",
+      "de"
+    ],
+    [
+      "next step",
+      "next",
+      "en"
+    ],
+    [
+      "next steps",
+      "next",
+      "en"
+    ],
+    [
+      "go to next step",
+      "next",
+      "en"
+    ],
+    [
+      "go to the next step",
+      "next",
+      "en"
+    ],
+    [
+      "go forward",
+      "next",
+      "en"
+    ],
+    [
+      "previous step",
+      "previous",
+      "en"
+    ],
+    [
+      "previous steps",
+      "previous",
+      "en"
+    ],
+    [
+      "go to previous step",
+      "previous",
+      "en"
+    ],
+    [
+      "go to the previous step",
+      "previous",
+      "en"
+    ],
+    [
+      "prev step",
+      "previous",
+      "en"
+    ],
+    [
+      "go back",
+      "previous",
+      "en"
+    ],
+    [
+      "back one step",
+      "previous",
+      "en"
+    ],
+    [
+      "check step",
+      "verify",
+      "en"
+    ],
+    [
+      "check this step",
+      "verify",
+      "en"
+    ],
+    [
+      "check the step",
+      "verify",
+      "en"
+    ],
+    [
+      "verify step",
+      "verify",
+      "en"
+    ],
+    [
+      "verify this step",
+      "verify",
+      "en"
+    ],
+    [
+      "verify the step",
+      "verify",
+      "en"
+    ],
+    [
+      "inspect step",
+      "verify",
+      "en"
+    ],
+    [
+      "check again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "check it again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "check step again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "verify again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "verify it again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "inspect again",
+      "verify-again",
+      "en"
+    ],
+    [
+      "more text",
+      "more-text",
+      "en"
+    ],
+    [
+      "show more text",
+      "more-text",
+      "en"
+    ],
+    [
+      "next page",
+      "more-text",
+      "en"
+    ],
+    [
+      "previous text",
+      "previous-text",
+      "en"
+    ],
+    [
+      "previous page",
+      "previous-text",
+      "en"
+    ],
+    [
+      "start autonomous",
+      "auto-start",
+      "en"
+    ],
+    [
+      "start autonomous assembly",
+      "auto-start",
+      "en"
+    ],
+    [
+      "start auto",
+      "auto-start",
+      "en"
+    ],
+    [
+      "pause autonomous",
+      "auto-pause",
+      "en"
+    ],
+    [
+      "pause autonomous assembly",
+      "auto-pause",
+      "en"
+    ],
+    [
+      "pause auto",
+      "auto-pause",
+      "en"
+    ],
+    [
+      "resume autonomous",
+      "auto-resume",
+      "en"
+    ],
+    [
+      "resume autonomous assembly",
+      "auto-resume",
+      "en"
+    ],
+    [
+      "resume auto",
+      "auto-resume",
+      "en"
+    ],
+    [
+      "stop autonomous",
+      "auto-stop",
+      "en"
+    ],
+    [
+      "stop autonomous assembly",
+      "auto-stop",
+      "en"
+    ],
+    [
+      "stop auto",
+      "auto-stop",
+      "en"
+    ],
+    [
+      "confirm assembly field",
+      "confirm-field",
+      "en"
+    ],
+    [
+      "confirm the assembly field",
+      "confirm-field",
+      "en"
+    ],
+    [
+      "confirm field",
+      "confirm-field",
+      "en"
+    ],
+    [
+      "reset panel position",
+      "recenter",
+      "en"
+    ],
+    [
+      "reset panel",
+      "recenter",
+      "en"
+    ],
+    [
+      "naechster schritt",
+      "next",
+      "de"
+    ],
+    [
+      "nachster schritt",
+      "next",
+      "de"
+    ],
+    [
+      "vorheriger schritt",
+      "previous",
+      "de"
+    ],
+    [
+      "schritt pruefen",
+      "verify",
+      "de"
+    ],
+    [
+      "schritt prufen",
+      "verify",
+      "de"
+    ],
+    [
+      "erneut pruefen",
+      "verify-again",
+      "de"
+    ],
+    [
+      "nochmal pruefen",
+      "verify-again",
+      "de"
+    ],
+    [
+      "schritt erneut pruefen",
+      "verify-again",
+      "de"
+    ]
+  ],
+  "rejected": [
+    "",
+    "verify",
+    "next",
+    "previous",
+    "step",
+    "please tidy the room",
+    "the weather is nice",
+    "next step and previous step",
+    "don't go to next step",
+    "do not verify step",
+    "never exit ar",
+    "exit step",
+    "go to the next step please and hurry",
+    "previous step please go back now",
+    "show me the previous step",
+    "what is the next step",
+    "verify this",
+    "go backwards",
+    "verify step again"
+  ]
+}

@@ -9,6 +9,7 @@ interface Props {
   onStop: () => void;
   onCapture: () => void;
   onDeviceChange: (id: string) => void;
+  captureReady?: boolean;
 }
 
 export function CameraControls(props: Props) {
@@ -31,7 +32,7 @@ export function CameraControls(props: Props) {
           {running ? <Square size={15} /> : <Play size={15} />}
           {running ? "Stop camera" : "Start camera"}
         </button>
-        <button className="button primary" onClick={props.onCapture} disabled={props.status !== "connected"}>
+        <button className="button primary" onClick={props.onCapture} disabled={props.status !== "connected" || props.captureReady === false}>
           <Camera size={16} /> Capture
         </button>
       </div>
