@@ -122,7 +122,7 @@ export interface CaptureView {
 const PHASE_LABEL: Record<CapturePhase, { status: string; tone: IndicatorTone }> = {
   validating: { status: "FRAME CAPTURED · VALIDATING", tone: "info" },
   rejected: { status: "IMAGE REJECTED — NOT SENT TO META", tone: "error" },
-  uploading: { status: "SENT TO BACKEND · INSPECTION RUNNING", tone: "info" },
+  uploading: { status: "Inspecting by Meta…", tone: "info" },
   complete: { status: "INSPECTION COMPLETE", tone: "ok" },
   failed: { status: "INSPECTION FAILED", tone: "error" },
   stale: { status: "DISCARDED — STEP CHANGED", tone: "warn" },

@@ -45,7 +45,7 @@ test("no image is labelled as uploaded unless the upload started; 'sent' can nev
   store.update(id2, { phase: "uploading", sent: true });
   store.update(id2, { sent: false });
   assert.equal(store.current.sent, true);
-  assert.match(captureView(store.current).status, /SENT TO BACKEND/);
+  assert.equal(captureView(store.current).status, "Inspecting by Meta…");
 });
 
 test("superseded or stale captures can never be updated (late async work cannot overwrite a newer capture)", () => {
@@ -86,4 +86,36 @@ test("indicator reflects real phases only", () => {
   assert.match(indicatorFor(store.current, true).label, /ERROR/);
   assert.equal(captureView(store.current).isNew, true);
   assert.equal(captureView(store.current, Date.now() + 10_000).isNew, false);
+});
+
+test("panel shows 'Inspecting by Meta…' only while the Meta request runs, then the real result or the existing error", () => {
+  const store = new CapturePreviewStore();
+  const id = store.begin(input());
+  // Camera capture / local validation is not a Meta inspection.
+  assert.notEqual(captureView(store.current).status, "Inspecting by Meta…");
+  assert.equal(captureView(store.current).status, "FRAME CAPTURED · VALIDATING");
+  // The HTTP request to /api/inspect (or /api/verify) has started.
+  store.update(id, { phase: "uploading", sent: true });
+  const running = captureView(store.current);
+  assert.equal(running.status, "Inspecting by Meta…");
+  assert.equal(running.tone, "info");
+  assert.ok(running.status.length <= 28, "fits one line of the WebXR panel status column");
+  assert.ok(!running.lines.some((l) => l.startsWith("Result:")), "no result is claimed while running");
+  // Completion: the real result replaces the running label.
+  store.finish(id, "complete", "Meta response received", "✗ Incorrect — Correction Required");
+  const done = captureView(store.current);
+  assert.equal(done.status, "INSPECTION COMPLETE");
+  assert.ok(done.lines.includes("Result: ✗ Incorrect — Correction Required"));
+  // Failure: the existing error label and message stay unchanged.
+  const id2 = store.begin(input());
+  store.update(id2, { phase: "uploading", sent: true });
+  store.finish(id2, "failed", "TRANSPORT ERROR", "TRANSPORT ERROR");
+  const failed = captureView(store.current);
+  assert.equal(failed.status, "INSPECTION FAILED");
+  assert.equal(failed.tone, "error");
+  assert.ok(failed.lines.includes("TRANSPORT ERROR"));
+  // A frame rejected before upload never shows the Meta label.
+  store.begin(input());
+  store.finish(store.current.id, "rejected", "Rejected before upload: too dark", "not sent to Meta");
+  assert.equal(captureView(store.current).status, "IMAGE REJECTED — NOT SENT TO META");
 });

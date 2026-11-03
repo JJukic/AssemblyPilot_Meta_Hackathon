@@ -796,7 +796,7 @@ assessment next to the capture that produced it). Tap **Camera** to toggle.
 - A burst where every candidate is rejected shows the best rejected frame
   labelled **NOT SENT TO META** with the reason; it is never uploaded.
 - Phases follow real events: FRAME CAPTURED · VALIDATING → IMAGE REJECTED
-  or SENT TO BACKEND · INSPECTION RUNNING (set when the HTTP request
+  or "Inspecting by Meta…" (set when the HTTP request
   starts; the backend reports no intermediate progress, so no separate
   "backend received"/"Meta started" state is claimed) → INSPECTION COMPLETE
   ("Meta response received", attempts and latency as reported by the
