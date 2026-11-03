@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { Boxes } from "lucide-react";
+import { Brand } from "./Brand";
 import { Navigation } from "./Navigation";
 
 export function ManagementLayout({ active, title, description, children }: {
@@ -7,7 +6,7 @@ export function ManagementLayout({ active, title, description, children }: {
 }) {
   return <div className="app-shell">
     <header className="topbar">
-      <Link href="/" className="brand"><div className="brand-icon"><Boxes size={24} /></div><div><span className="brand-name">Assembly<span>Pilot</span></span><p>Visual Assembly Intelligence</p></div></Link>
+      <Brand href="/" />
       <span className="tag">{active === "settings" ? "WORKSPACE SETTINGS" : "LOCAL REGISTRY"}</span>
     </header>
     <Navigation active={active} />

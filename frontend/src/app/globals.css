@@ -12,7 +12,11 @@ h1, h2, h3, h4, p { margin: 0; }
 .app-shell { max-width: 1680px; margin: 0 auto; padding: 0 44px; }
 .topbar { min-height: 100px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--border); }
 .brand { display: flex; align-items: center; gap: 13px; }
-.brand-icon { width: 43px; height: 43px; display: grid; place-items: center; border: 1px solid #3764a9; border-radius: 12px; color: #7aaaff; background: #142a4e; }
+.brand-icon { width: 43px; height: 43px; display: grid; place-items: center; border: 1px solid #3764a9; border-radius: 12px; color: #7aaaff; background: #142a4e; flex: none; }
+/* Static header mascot: fixed box (width/height attributes reserve the space → no layout shift), aspect kept, never cropped. */
+.brand-mascot { display: block; flex: none; height: 48px; width: auto; aspect-ratio: 117 / 168; object-fit: contain; margin-left: -3px; user-select: none; }
+/* Very narrow (≤ 360 px, e.g. small phones): the mascot steps aside so the wordmark and navigation never overflow. */
+@media (max-width: 360px) { .brand-mascot { display: none; } }
 .brand-name { font-size: 22px; font-weight: 700; letter-spacing: -.8px; }
 .brand-name > span { color: #75a6ff; }
 .brand p { margin-top: 5px; color: var(--muted); font-size: 11px; letter-spacing: .4px; }
@@ -101,8 +105,8 @@ footer { border-top: 1px solid var(--border); display: flex; justify-content: sp
 .footer-divider { margin: 0 9px; }
 @media (min-width: 1450px) { .camera-grid { padding-top: 30px; padding-bottom: 24px; } }
 @media (max-width: 1150px) { .app-shell { padding: 0 26px; } .workspace-grid { grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; } .camera-grid { grid-template-columns: 1fr; } .snapshot-frame { aspect-ratio: 16/7; } .pipeline-panel > .tag { display: none; } }
-@media (max-width: 800px) { .topbar { flex-wrap: wrap; padding: 20px 0; } .header-status { gap: 8px; } .workspace-grid { grid-template-columns: 1fr; } .camera-grid { grid-template-columns: 1fr 1fr; } .snapshot-frame { aspect-ratio: 4/3; } .phase-badge { display: none; } .page-heading { padding-top: 30px; } }
-@media (max-width: 520px) { .app-shell { padding: 0 16px; } .camera-grid { grid-template-columns: 1fr; } .snapshot-frame { aspect-ratio: 16/9; } .panel-heading, .assembly-content { padding-left: 16px; padding-right: 16px; } .camera-controls { padding: 18px 16px; } .source-label { max-width: none; width: 100%; } .control-buttons { width: 100%; } .control-buttons .button { flex: 1; } .pipeline-panel { align-items: flex-start; padding: 16px; gap: 12px; } .pipeline-icon { width: 34px; height: 34px; } footer { flex-direction: column; gap: 10px; } }
+@media (max-width: 800px) { .brand { gap: 10px; } .brand-mascot { height: 40px; } .topbar { flex-wrap: wrap; padding: 20px 0; } .header-status { gap: 8px; } .workspace-grid { grid-template-columns: 1fr; } .camera-grid { grid-template-columns: 1fr 1fr; } .snapshot-frame { aspect-ratio: 4/3; } .phase-badge { display: none; } .page-heading { padding-top: 30px; } }
+@media (max-width: 520px) { .brand-mascot { height: 34px; } .brand-name { font-size: 20px; } .app-shell { padding: 0 16px; } .camera-grid { grid-template-columns: 1fr; } .snapshot-frame { aspect-ratio: 16/9; } .panel-heading, .assembly-content { padding-left: 16px; padding-right: 16px; } .camera-controls { padding: 18px 16px; } .source-label { max-width: none; width: 100%; } .control-buttons { width: 100%; } .control-buttons .button { flex: 1; } .pipeline-panel { align-items: flex-start; padding: 16px; gap: 12px; } .pipeline-icon { width: 34px; height: 34px; } footer { flex-direction: column; gap: 10px; } }
 
 /* Phase 2 registry and project management, sharing the camera workspace palette. */
 .main-nav { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--border); padding: 16px 0; }
