@@ -536,6 +536,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       : "";
     const headline = resultHeadline(resultSummary, verified && online);
     info.current = {
+      completion: finishedFor === view.step_id && finishedFor !== null && verified && online && !checkingStep && !extPending && stepSummary?.kind !== "inspecting",
       placement: online ? placement : null,
       hologram: online ? hologram : EMPTY_HOLOGRAM,
       text: step ? `Step ${step.position} — ${step.instruction}` : "Choose a project step",
@@ -580,7 +581,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     runtime.current?.setShowReference(showReference);
     runtime.current?.setHelpVisible(helpVisible);
     runtime.current?.setViewMode(resultMode);
-  }, [placement, hologram, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag, guide, lastGuideOutcome, shortText, voiceLine, voiceTone, voiceButton]);
+  }, [checkingStep, stepSummary, finishedFor, view.step_id, placement, hologram, step, target, verified, online, totalSteps, refPath, voiceLabel, voiceMessage, voice.errorCode, lastCommand, showReference, helpVisible, verificationStatus, localOn, localStatus, diagnostic, captureDiag, active, anchorUi, autoOn, extPending, autoStateLabel, autoStatus, resultSummary, resultMode, resultErrorsOnly, fieldLine, autoButton, autoDiag, guide, lastGuideOutcome, shortText, voiceLine, voiceTone, voiceButton]);
 
   useEffect(() => {
     viewRef.current = view;
@@ -1620,19 +1621,30 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
    * marks anything verified, never skips a step; Autonomous is completed as usual.
    */
   async function finishAssembly(): Promise<ExecutionOutcome> {
+    const runEpoch = runEpochRef.current;
+    const xrSession = runtime.current;
+    const anchorEpoch = xrSession?.anchorEpoch;
+    const issuedSpec = specRef.current;
+    if (xrSession && !["anchored", "tracking_degraded"].includes(xrSession.anchorState))
+      return { ok: false, reason: "Confirm the assembly field before Finish" };
     const stepId = viewRef.current.step_id;
     if (!project || !stepId) return { ok: false, reason: "Project is still loading" };
     const index = project.steps.findIndex((s) => s.id === stepId);
     if (index < 0 || index !== project.steps.length - 1)
       return { ok: false, reason: "Finish is only available on the last step — use Next Step" };
-    if (coordinatorRef.current.busy) return { ok: false, reason: "Inspection running — wait for the result" };
+    if (coordinatorRef.current.busy || checkingRef.current || extTracker.current) return { ok: false, reason: "Inspection running — wait for the result" };
     try {
       const progress = await getProgress(projectId);
+      if (!alive.current || runEpoch !== runEpochRef.current || xrSession !== runtime.current || anchorEpoch !== runtime.current?.anchorEpoch || issuedSpec !== specRef.current || coordinatorRef.current.busy || checkingRef.current || extTracker.current)
+        return { ok: false, reason: "Assembly context changed or inspection running — select Finish again" };
       if (viewRef.current.step_id !== stepId) return { ok: false, reason: "The step changed meanwhile; nothing was finished" };
       if (progress.find((r) => r.step_id === stepId)?.status !== "verified")
         return { ok: false, reason: "The last step is not verified yet — select Check Again" };
       const done = project.steps.filter((s) => progress.find((r) => r.step_id === s.id)?.status === "verified").length;
       setFinishedFor(stepId);
+      setResultMode("guide");
+      setHelpVisible(false);
+      runtime.current?.showCompletion();
       if (runner.active) finishAutonomous();
       setStatus(`Assembly complete — ${done} of ${project.steps.length} steps verified by the backend.`);
       return { ok: true, detail: `Assembly complete — ${done} of ${project.steps.length} steps verified` };
@@ -1647,6 +1659,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
    * stored summary/last inspection and completion state are cleared. Starts nothing.
    */
   function resetLocalRun(autoMessage: string) {
+    runtime.current?.clearCompletion();
     runEpochRef.current += 1;
     if (runner.active || runner.phase === "completed" || machineRef.current) stopAutonomous(autoMessage);
     autoAbort.current?.abort();
@@ -1916,6 +1929,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   async function enter() {
     if (!navigator.xr || !cap.available || busy || !host.current) return;
     setBusy(true);
+    setFinishedFor(null); // Every XR entry requires a new explicit Finish.
     setError("");
     const epoch = ++generation.current;
     try {
@@ -1942,6 +1956,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           (a) => actionRef.current(a),
           () => {
             runtime.current = null;
+            setFinishedFor(null);
             stopAllVoice(true);
             // Contract: ending immersive AR stops Autonomous completely (anchors are
             // session-only, so monitoring has no trustworthy field any more).

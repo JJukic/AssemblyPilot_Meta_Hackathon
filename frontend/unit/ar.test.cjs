@@ -129,6 +129,41 @@ global.XRRigidTransform = class {
   }
 };
 const { SpatialSession } = require("../src/lib/ar/runtime.ts");
+test("completion is Finish-only, last-verified-only and session-owned; field never moves", async () => {
+  const { runtime, ended } = await setup();
+  confirmField(runtime);
+  let loads = 0;
+  runtime.mascot.load = async () => {
+    loads++;
+    const scene = new THREE.Group();
+    scene.add(new THREE.Mesh(new THREE.BoxGeometry(1,2,1), new THREE.MeshBasicMaterial()));
+    return { scene, animations: [] };
+  };
+  const info = { placement: placement(), text: "Final", detail: "", progress: { position: 1, total: 2, currentVerified: true } };
+  runtime.update(info); runtime.showCompletion(); assert.equal(loads,0);
+  runtime.update({ ...info, progress: {position:2,total:2,currentVerified:false} }); runtime.showCompletion(); assert.equal(loads,0);
+  runtime.update({ ...info, progress: {position:2,total:2,currentVerified:true}, completion:true });
+  assert.equal(loads,0, "polling completion never loads a GLB");
+  const pose=runtime.origin.matrix.clone(); const field=runtime.fieldGroup; const target=runtime.target;
+  runtime.showCompletion(); await Promise.resolve(); assert.equal(loads,1);
+  assert.ok(runtime.origin.children.includes(runtime.mascot.transform));
+  runtime.clearCompletion(); assert.equal(runtime.mascot.mixer,null);
+  assert.equal(runtime.fieldGroup,field); assert.equal(runtime.target,target); assert.deepEqual(runtime.origin.matrix.elements,pose.elements);
+  runtime.showCompletion(); await Promise.resolve();
+  await runtime.end(); assert.equal(ended(),1); assert.equal(runtime.mascot.mixer,null); assert.equal(runtime.mascot.transform.parent,null);
+});
+test("failed completion load leaves XR alive and reports unavailable; late load after XR end is discarded", async () => {
+  const { runtime, ended } = await setup(); confirmField(runtime);
+  runtime.update({placement:null,text:"Final",detail:"",completion:true,guideLabel:"Assembly complete", progress:{position:2,total:2,currentVerified:true}});
+  runtime.mascot.load=async()=>{throw Error('invalid GLB');};
+  runtime.showCompletion(); await Promise.resolve();
+  assert.equal(ended(),0); assert.equal(runtime.completionNotice,"Completion hologram unavailable");
+  assert.equal(runtime.info.guideLabel,"Assembly complete");
+  runtime.clearCompletion(); let resolve;
+  runtime.mascot.load=()=>new Promise(r=>{resolve=r;}); runtime.showCompletion(); await runtime.end();
+  const scene=new THREE.Group(); scene.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial()));
+  resolve({scene,animations:[]}); await Promise.resolve(); assert.equal(runtime.mascot.transform.parent,null);
+});
 class Session extends EventTarget {
   constructor() {
     super();
