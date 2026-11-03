@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowUpRight, Boxes, CircleHelp, Eye, ScanLine } from "lucide-react";
+import { ArrowUpRight, CircleHelp, Eye, ScanLine } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Navigation } from "@/components/ui/Navigation";
+import { Brand } from "@/components/ui/Brand";
 import { InspectionHistory } from "@/components/inspection/InspectionHistory";
 import { CustomAssembly } from "@/components/assembly/CustomAssembly";
 import { useResource } from "@/hooks/useResource";
@@ -51,7 +52,7 @@ export function Dashboard({ assembly, initialProjectId = "", initialStepId = "" 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand"><div className="brand-icon"><Boxes size={24} /></div><div><span className="brand-name">Assembly<span>Pilot</span></span><p>Visual Assembly Intelligence</p></div></div>
+        <Brand />
         <div className="header-status"><StatusIndicator label="Backend" status={backend} /><StatusIndicator label="Camera" status={camera.status} /></div>
       </header>
       <Navigation active="workspace" />
