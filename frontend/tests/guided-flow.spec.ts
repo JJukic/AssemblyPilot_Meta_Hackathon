@@ -216,6 +216,7 @@ test("last step: Next Step is replaced by Finish only after backend verification
   expect((await (await request.get(`${E2E_API}/api/projects/${a.project.id}/ar-view`)).json()).step_id).toBe(s2.id);
 
   // Completion view offers Restart Assembly as the primary follow-up (no hidden command needed).
+  expect(calls).toEqual(["inspect:uncertain", "inspect:correct", "verify"]); // Finish adds no inference.
   const before = {
     steps: await (await request.get(`${E2E_API}/api/projects/${a.project.id}/steps`)).json(),
     placements: await Promise.all(a.steps.map(async (s: { id: string }) =>

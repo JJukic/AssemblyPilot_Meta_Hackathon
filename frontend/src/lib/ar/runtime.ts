@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { CompletionMascot } from "./mascot";
 import { disposeObject, ghost } from "./geometry";
 import type { Placement } from "./data";
 import type { HologramView } from "./hologram";
@@ -45,6 +46,7 @@ export type Action =
   | "finish"
   | "restart";
 export interface Guidance {
+  completion?: boolean;
   /** Legacy single target (used when `hologram` is absent). */
   placement: Placement | null;
   /** Cumulative step hologram: earlier steps dimmed, current step highlighted. Guidance only. */
@@ -328,6 +330,26 @@ export class SpatialSession {
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera();
   private origin = new THREE.Group();
+  private completionNotice = "";
+  private mascot = new CompletionMascot(this.origin, text => {
+    this.completionNotice = text;
+    this.draw();
+  });
+  private mascotTime: number | null = null;
+
+  /** Explicit Finish only; polling/update never starts an asset request. */
+  showCompletion() {
+    const p = this.info.progress;
+    if (this.ended || !this.selected || !p?.currentVerified || p.position !== p.total) return;
+    this.viewMode = "guide";
+    this.mascot.setField(this.fieldConfig); // behind THIS field (size), relative to its confirmed origin
+    void this.mascot.start();
+  }
+  clearCompletion() {
+    this.mascot.stop();
+    this.mascotTime = null;
+    this.completionNotice = "";
+  }
   private target: THREE.Group | null = null;
   private panel: THREE.Mesh;
   private canvas = document.createElement("canvas");
@@ -500,6 +522,7 @@ export class SpatialSession {
   setFieldSize(widthM: number, depthM: number) {
     this.fieldConfig = { widthM, depthM };
     this.rebuildField();
+    this.mascot.setField(this.fieldConfig);
   }
   get fieldSize() { return { ...this.fieldConfig }; }
   /** Visible tabletop assembly field: boundary + translucent plane + front tick.
@@ -576,6 +599,7 @@ export class SpatialSession {
   /** Step content only. The field, its anchor and the origin pose are never touched here. */
   update(info: Guidance) {
     this.info = info;
+    if (!info.completion) this.clearCompletion();
     if (info.instruction !== this.lastInstruction) {
       this.lastInstruction = info.instruction ?? "";
       this.pages.guide = 0;
@@ -1055,7 +1079,9 @@ export class SpatialSession {
     c.clearRect(0, 0, PANEL_W, PANEL_H);
     c.fillStyle = "rgba(4,16,26,.96)";
     c.fillRect(0, 0, PANEL_W, PANEL_H);
-    const info = this.info;
+    const info = this.completionNotice && this.info.completion
+      ? { ...this.info, guideMessage: this.completionNotice }
+      : this.info;
     this.drawManipulationBar(c, info);
     const hasRef = !!info.hasReference;
     if (this.viewMode === "camera") this.drawCameraView(c, info);
@@ -1203,6 +1229,8 @@ export class SpatialSession {
   };
   /** Explicit re-anchor (panel/voice/2D button). The ONLY path that discards a placement. */
   reset() {
+    // The completion mascot stays (it belongs to the finished assembly, not to the anchor);
+    // it is hidden until the field is confirmed again and is then placed behind the NEW field.
     this.epoch++;
     this.anchor?.delete();
     this.anchor = null;
@@ -1618,6 +1646,8 @@ export class SpatialSession {
     if (!frame || !this.reference || this.ended) return;
     const pose = frame.getViewerPose(this.reference);
     if (!pose) {
+      this.mascot.transform.visible = false;
+      this.mascotTime = null;
       // Head tracking temporarily unavailable. Never discard the placement:
       // keep the origin/anchor exactly as they are and resume next frame.
       this.tracking = false;
@@ -1713,6 +1743,7 @@ export class SpatialSession {
         this.selected = true;
         this.fixed.copy(this.candidate);
         this.relayout(); // placement controls give way to the guided flow; yaw is kept
+        this.mascot.setField(this.fieldConfig); // re-anchor: behind the newly confirmed field
         this.anchorTracker.confirm(this.candidate.elements, !frame.createAnchor);
         const epoch = ++this.epoch;
         this.message =
@@ -1764,6 +1795,11 @@ export class SpatialSession {
     this.origin.visible = poseOk && (this.selected || this.candidateValid);
     if (this.fieldGroup) this.fieldGroup.visible = true;
     const state = this.anchorTracker.state;
+    this.mascot.transform.visible = this.selected && state !== "tracking_lost" && this.visibility === "visible";
+    if (this.mascot.transform.visible) {
+      this.mascot.tick(this.mascotTime === null ? 0 : (_time - this.mascotTime) / 1000);
+      this.mascotTime = _time;
+    } else this.mascotTime = null;
     this.tintField(
       !this.selected ? 0x38d9ff
         : state === "tracking_lost" ? 0xff4d4d
@@ -1784,6 +1820,7 @@ export class SpatialSession {
   private onEnd = () => {
     if (this.ended) return;
     this.ended = true;
+    this.clearCompletion();
     this.epoch++;
     this.renderer.setAnimationLoop(null);
     this.reference?.removeEventListener("reset", this.onReset);

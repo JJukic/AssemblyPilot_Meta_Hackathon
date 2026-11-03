@@ -87,6 +87,8 @@ export function deriveGuide(input: GuideInput): GuideView {
     state, label, message, tone: "ok", marker: MARKER.correct, ghostTint: MARKER.correct,
     buttons: input.isLastStep ? [] : [NEXT],
   });
+  if (input.serverVerified && (input.checking || input.summary?.kind === "inspecting"))
+    return { state: "checking", label: "Inspecting by Meta…", message: "Wait for the current check to finish.", tone: "info", marker: MARKER.target, ghostTint: null, buttons: [] };
   if (input.serverVerified)
     return input.isLastStep
       ? input.finished
