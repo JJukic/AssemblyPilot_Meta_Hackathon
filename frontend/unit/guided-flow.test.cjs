@@ -106,19 +106,15 @@ test("Next Step before the last step; Finish only on the verified last step; Ass
   assert.deepEqual(ids(done), ["restart:Restart Assembly"], "after Finish the only (primary) action is Restart Assembly");
 });
 
-test("restarted run: steps verified earlier stay verified (never erased) and offer Next/Finish plus an optional new check", () => {
-  const first = deriveGuide({ ...base, serverVerified: true, isLastStep: false, verifiedEarlier: true });
-  assert.equal(first.label, "Verified earlier");
-  assert.equal(first.tone, "ok");
-  assert.deepEqual(ids(first), ["next:Next Step ▶", "verify:Check Again"], "Next Step stays the main action");
-  const last = deriveGuide({ ...base, serverVerified: true, isLastStep: true, verifiedEarlier: true });
-  assert.deepEqual(ids(last), ["finish:Finish", "verify:Check Again"]);
-  // Not verified on the server: a restarted run starts like a fresh one (Ready → Check Step).
-  assert.deepEqual(ids(deriveGuide({ ...base, verifiedEarlier: true })), ["verify:Check Step"]);
-  // Verified again in this run (verifiedEarlier false): the normal states.
-  assert.deepEqual(ids(deriveGuide({ ...base, serverVerified: true, isLastStep: false })), ["next:Next Step ▶"]);
-  // Finished wins over verifiedEarlier: Assembly complete + Restart.
-  assert.deepEqual(ids(deriveGuide({ ...base, serverVerified: true, isLastStep: true, verifiedEarlier: true, finished: true })), ["restart:Restart Assembly"]);
+test("new run after Restart: 'New assembly started · Step 1 of N · No steps verified', then the normal guidance", () => {
+  const fresh = deriveGuide({ ...base, newRun: { total: 4 } });
+  assert.equal(fresh.label, "New assembly started");
+  assert.match(fresh.message, /^Step 1 of 4 · No steps verified/);
+  assert.deepEqual(ids(fresh), ["verify:Check Step"], "the user starts the first check — nothing automatic");
+  assert.equal(deriveGuide({ ...base }).label, "Ready", "after the notice: the normal Step-1 guidance");
+  // A check or a result replaces the notice; the notice never claims verification.
+  assert.equal(deriveGuide({ ...base, newRun: { total: 4 }, checking: true }).state, "checking");
+  assert.equal(deriveGuide({ ...base, newRun: { total: 4 }, summary: sum("inspection", "uncertain") }).state, "partial");
 });
 
 test("a check that could not run (camera unavailable) shows an error with the visible fallback, not the old result", () => {

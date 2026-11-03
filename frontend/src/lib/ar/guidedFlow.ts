@@ -55,11 +55,8 @@ export interface GuideInput {
   isLastStep: boolean;
   /** Finish was selected and the backend confirmed the last step (assembly complete). */
   finished?: boolean;
-  /**
-   * After Restart Assembly: this step is verified on the server from an EARLIER
-   * run (not re-checked in the current one). Shown truthfully, never cleared.
-   */
-  verifiedEarlier?: boolean;
+  /** Just after Restart Assembly (Step 1 of a new run): a short "New assembly started" notice. */
+  newRun?: { total: number } | null;
   /** The last check could not even run (e.g. camera unavailable); shown instead of an older result. */
   checkError?: string | null;
   /** Latest inspection summary for THIS step (null when none). */
@@ -90,14 +87,6 @@ export function deriveGuide(input: GuideInput): GuideView {
     state, label, message, tone: "ok", marker: MARKER.correct, ghostTint: MARKER.correct,
     buttons: input.isLastStep ? [] : [NEXT],
   });
-  if (input.serverVerified && input.verifiedEarlier && !input.finished)
-    // Restarted run: the server still says verified (kept, not erased); a new check is optional.
-    return {
-      ...done("correct", "Verified earlier", input.isLastStep
-        ? "Verified in an earlier run. Select Check Again for a new check, or Finish."
-        : "Verified in an earlier run. Select Check Again for a new check, or Next Step."),
-      buttons: [input.isLastStep ? FINISH : NEXT, RECHECK],
-    };
   if (input.serverVerified)
     return input.isLastStep
       ? input.finished
@@ -122,6 +111,8 @@ export function deriveGuide(input: GuideInput): GuideView {
   if (input.checkError)
     return { state: "error", label: "Check unavailable", message: input.checkError, tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
   const s = input.summary;
+  if (!s && input.newRun)
+    return { state: "ready", label: "New assembly started", message: `Step 1 of ${input.newRun.total} · No steps verified. Place the brick, then select Check Step.`, tone: "ready", marker: MARKER.target, ghostTint: null, buttons: [CHECK] };
   if (!s) return { state: "ready", label: "Ready", message: "Place the brick, then select Check Step.", tone: "ready", marker: MARKER.target, ghostTint: null, buttons: [CHECK] };
   if (s.kind === "error")
     return { state: "error", label: "Check unavailable", message: "Check the camera or connection, or confirm the position yourself.", tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };

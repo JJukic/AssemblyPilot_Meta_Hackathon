@@ -187,9 +187,9 @@ export class AutoController {
     this.detector.reset(); // never reuse previous-step frames
     this.lastSentClock = Number.NEGATIVE_INFINITY;
   }
-  /** A manual Verify Step result for the current step while autonomous is on. */
-  adoptManual(status: "correct" | "incorrect" | "uncertain", stepId: string) {
-    this.machine.adoptManualResult(this.machine.projectId, stepId, status, this.deps.now());
+  /** A manual (Check Again / Verify Step / external camera) verdict for the current step while autonomous is on. */
+  adoptManual(status: "correct" | "incorrect" | "uncertain", stepId: string, needsView = false) {
+    this.machine.adoptManualResult(this.machine.projectId, stepId, status, this.deps.now(), needsView);
     this.detector.accept();
   }
 

@@ -58,6 +58,20 @@ export const setView = (project: string, step: string, revision: number) =>
     method: "PUT",
     body: JSON.stringify({ step_id: step, revision }),
   });
+/** Assembly run (Restart Assembly starts a new one; run_id null = never restarted). */
+export interface AssemblyRun {
+  run_id: string | null;
+  number: number;
+  started_at: string | null;
+}
+export const getAssemblyRun = (project: string) =>
+  apiRequest<AssemblyRun>(`/api/projects/${project}/assembly-run`);
+/** New run + shared cursor on Step 1 (atomic). 409 when another device already restarted. */
+export const startAssemblyRun = (project: string, expectedRunId: string | null) =>
+  apiRequest<AssemblyRun & { view: ViewedStep }>(`/api/projects/${project}/assembly-runs`, {
+    method: "POST",
+    body: JSON.stringify({ expected_run_id: expectedRunId }),
+  });
 export function validPlacement(p: Placement): boolean {
   if (
     !p ||

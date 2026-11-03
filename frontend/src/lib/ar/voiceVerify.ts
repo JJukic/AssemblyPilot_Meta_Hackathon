@@ -89,3 +89,12 @@ export function isFreshFrame(capturedAt: string, requestedAt: string): boolean {
   const requested = Date.parse(requestedAt);
   return Number.isFinite(captured) && Number.isFinite(requested) && captured >= requested;
 }
+
+/** A new assembly run: the previous inspection can never be the base of a verification. */
+export function clearLastInspection() {
+  try {
+    storage()?.removeItem(LAST_INSPECTION_KEY);
+  } catch {
+    /* ignore */
+  }
+}

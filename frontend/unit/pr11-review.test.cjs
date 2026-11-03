@@ -471,3 +471,17 @@ test("P2#6 unmount captures the camera references BEFORE runner.stop() clears th
   const companion = SOURCE.slice(SOURCE.indexOf("async function runCompanionOnce"), SOURCE.indexOf("/** Bridge from the long-lived controller"));
   assert.match(companion, /companionCameraRef\.current = monitor; \/\/ owner known before the first await/);
 });
+
+test("uncertain fix contract: every manual verdict (incl. verification and external camera) reaches Autonomous", () => {
+  const src = fs.readFileSync(require.resolve("../src/components/ar/ARWorkspace.tsx"), "utf8");
+  assert.match(src, /const manualVerdict = manualVerdictOf\(d\);\s*if \(manualVerdict\) controllerRef\.current\?\.adoptManual\(manualVerdict, stepId, !!d\.needsView\);/);
+  assert.doesNotMatch(src, /if \(!d\.verificationStatus\) controllerRef\.current\?\.adoptManual/, "verification results are no longer skipped");
+  const fn = src.slice(src.indexOf("function manualVerdictOf"), src.indexOf("function summaryVerdictOf"));
+  assert.match(fn, /verificationStatus === "uncertain"\) return "uncertain"/);
+  assert.match(fn, /verificationStatus === "still_incorrect"\) return "incorrect"/);
+  assert.match(src, /const external = summaryVerdictOf\(summary\);\s*if \(external && summary\.stepId === viewRef\.current\.step_id\) controllerRef\.current\?\.adoptManual\(external, summary\.stepId\);/);
+  // Double Check Again: a second press while one runs is refused (single flight).
+  const check = src.slice(src.indexOf("async function checkStep"), src.indexOf("async function finishAssembly"));
+  assert.match(check, /if \(checkingRef\.current\) return \{ ok: false, reason: "Check already in progress" \};\s*const stepId/);
+  assert.ok(check.indexOf("checkingRef.current = true") < check.indexOf("await "), "the guard is set before the first await");
+});

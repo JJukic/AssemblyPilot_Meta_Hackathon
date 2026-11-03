@@ -211,3 +211,21 @@ class ARView(SQLModel, table=True):
     )
     step_id: str = Field(foreign_key="assembly_steps.id", ondelete="CASCADE")
     revision: int = 0
+
+
+class AssemblyRun(SQLModel, table=True):
+    """One assembly attempt of a project (additive). Restart Assembly starts a new run.
+
+    Every run row is kept (history). The current run is the highest `number`; its id is
+    part of the step specification identity, so a new run scopes progress afresh without
+    deleting or rewriting any project, block, placement or earlier progress data.
+    """
+
+    __tablename__ = "assembly_runs"
+    __table_args__ = (UniqueConstraint("project_id", "number"),)
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    project_id: str = Field(
+        foreign_key="assembly_projects.id", ondelete="CASCADE", index=True
+    )
+    number: int
+    started_at: datetime = Field(default_factory=now)

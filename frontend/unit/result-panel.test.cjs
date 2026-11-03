@@ -285,40 +285,51 @@ test("Finish handler contract: last step only, re-reads server progress, never m
   assert.match(src, /case "finish":\s*return finishAssembly\(\);/, "the panel/2D Finish button dispatches it");
 });
 
-test("Restart handler contract: new run, everything in flight stopped, Step 1 via the cursor, no request, data and XR untouched", () => {
+test("Restart handler contract: server-side new run, old run ended locally first, no request, data and XR untouched", () => {
   const src = fs.readFileSync(require.resolve("../src/components/ar/ARWorkspace.tsx"), "utf8");
   const fn = src.slice(src.indexOf("async function restartAssembly"), src.indexOf("/** Visible manual fallback (Confirm Position)"));
-  assert.ok(fn.length > 200, "restartAssembly exists");
-  // Ends the finished run before anything else.
-  const epochAt = fn.indexOf("runEpochRef.current += 1");
-  assert.ok(epochAt > 0 && epochAt < fn.indexOf("await "), "new run epoch before the first await");
+  const reset = src.slice(src.indexOf("function resetLocalRun"), src.indexOf("function enterNewRun"));
+  const enter = src.slice(src.indexOf("function enterNewRun"), src.indexOf("async function restartAssembly"));
+  assert.ok(fn.length > 200 && reset.length > 200 && enter.length > 100, "restart, local reset and new-run entry exist");
+  // The old run ends locally BEFORE the first await (nothing of it can answer into the new run).
+  assert.ok(fn.indexOf("resetLocalRun(") > 0 && fn.indexOf("resetLocalRun(") < fn.indexOf("await "), "local reset before the first await");
+  assert.match(fn, /startAssemblyRun\(projectId, expected\)/, "a real new run on the server (with the run being restarted)");
+  assert.match(fn, /isRevisionConflict\(cause\)[\s\S]*getAssemblyRun\(projectId\)[\s\S]*joined = true/, "another device restarted first → join its run, never stack");
   for (const [re, why] of [
+    [/runEpochRef\.current \+= 1/, "new local epoch"],
     [/stopAutonomous\(/, "Autonomous stopped (also a 'completed' runner)"],
     [/runner\.phase === "completed"/, "a completed runner is reset, not left frozen"],
     [/autoAbort\.current\?\.abort\(\)/, "in-flight manual request aborted"],
     [/autoOwnedAbort\.current\?\.abort\(\)/, "in-flight autonomous request aborted"],
     [/coordinatorRef\.current\.invalidateStep\(\)/, "late answers lose their lease"],
-    [/extTracker\.invalidate\(\)/, "external camera poll invalidated"],
+    [/extTracker\.invalidate\(\)/, "external camera poll / result bridge invalidated"],
     [/stopAllVoice\(true\)/, "voice stopped"],
     [/previews\.invalidate\(\)/, "captured frame removed"],
     [/clearInspectionSummary\(\)/, "stored result cleared"],
+    [/clearLastInspection\(\)/, "old inspection id cleared (never a verify base)"],
+    [/clearVoiceVerifyIntent\(\)/, "pending voice verify intent cleared"],
     [/setResultSummary\(null\)/, "shown result cleared"],
     [/setFinishedFor\(null\)/, "completion state reset"],
-    [/setRunVerified\(\[\]\)/, "new local run"],
-    [/navigate\(-index, current\.step_id/, "back to Step 1 through the bound shared cursor"],
-  ]) assert.match(fn, re, why);
-  assert.doesNotMatch(fn, /checkStep\(|captureCheck\(|inspectSnapshot\(|verifySnapshot\(|startAutonomous\(|getUserMedia|\.start\(/,
-    "no automatic camera or Meta request");
-  assert.doesNotMatch(fn, /runtime\.current\?\.(end|reset)\(|reanchorField\(|setReferenceImage\(null\)|delete|DELETE|setPlacement|putPlacement/,
-    "XR session, field placement and stored data are left as they are");
+    [/setVerification\(\{ step: "", verified: false \}\)/, "no verified display carried over"],
+  ]) assert.match(reset, re, why);
+  assert.match(enter, /viewRef\.current = v;[\s\S]*setViewed\(v\)/, "the run's Step-1 cursor is adopted");
+  assert.match(enter, /setNewRunNotice\(/, "the 'New assembly started' notice is shown");
+  for (const part of [fn, reset, enter]) {
+    assert.doesNotMatch(part, /checkStep\(|captureCheck\(|inspectSnapshot\(|verifySnapshot\(|startAutonomous\(|getUserMedia|enableVoice\(|\.start\(/,
+      "no automatic photo, Meta request, retry, verification or voice action");
+    assert.doesNotMatch(part, /runtime\.current\?\.(end|reset)\(|reanchorField\(|delete|DELETE|putPlacement|savePlacements/,
+      "XR session, field placement and stored data are left as they are");
+  }
   assert.match(fn, /Enter immersive AR/, "after an ended XR session an explicit Enter immersive AR is asked for");
   assert.match(fn, /confirmed AR field is kept/, "an active XR session keeps its placement");
-  // A check that was waiting for its separate verification frame is discarded by the new run.
+  // Multi-device: a run started elsewhere resets this device (old run's poll ignored).
+  assert.match(src, /getAssemblyRun\(projectId\),\n\s*\]\);/, "the 3 s poll reads the current run");
+  assert.match(src, /epochAtStart === runEpochRef\.current/, "a poll begun before this device's own restart is ignored");
+  assert.match(src, /run\.run_id !== runIdRef\.current\) runChangedRef\.current\(run, v\)/);
+  // A check waiting for its separate verification frame is discarded by the new run.
   const check = src.slice(src.indexOf("async function checkStep"), src.indexOf("async function finishAssembly"));
-  assert.ok(check.length > 200, "checkStep precedes finishAssembly");
   assert.equal((check.match(/runEpochRef\.current !== epoch/g) ?? []).length, 2, "checked after the inspection and after the 2 s wait");
-  // Panel buttons report a failed Restart/Finish in the panel (no silent freeze in AR).
-  assert.match(src, /a === "finish" \|\| a === "restart" \? void runGuideAction\(a\)/);
+  assert.match(src, /a === "finish" \|\| a === "restart" \? void runGuideAction\(a\)/, "a failed restart is shown in the AR panel");
   assert.match(src, /guideMessage: lastGuideOutcome \|\| guide\.message/);
 });
 

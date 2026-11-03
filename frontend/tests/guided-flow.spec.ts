@@ -161,6 +161,7 @@ test("last step: Next Step is replaced by Finish only after backend verification
   let next: "uncertain" | "correct" = "uncertain";
   let n = 0;
   let verifiedOnServer = false;
+  let verifiedSpec: string | null = null; // verification is bound to the specification identity (incl. run)
   const calls: string[] = [];
   await page.route("**/api/inspect", async (r) => {
     const stepId = String(r.request().postDataBuffer()?.toString("latin1").match(/name="step_id"\r\n\r\n([^\r]+)/)?.[1]);
@@ -176,11 +177,16 @@ test("last step: Next Step is replaced by Finish only after backend verification
     const inspection = { ...workflow(stepId, a.spec(stepId), ++n, "correct"), state: "verified" };
     return r.fulfill({ json: { verification_id: `ver-${n}`, previous_inspection_id: previous, status: "verified", inspection, issue_assessments: [] } });
   });
-  // Server progress stays authoritative: only the last step, and only after its verification.
+  // Server progress stays authoritative: only the last step, only after its verification,
+  // and — like the real backend — only for the specification identity it was verified in
+  // (a new assembly run changes that identity, so the old verification no longer applies).
   await page.route(`**/api/projects/${a.project.id}/progress`, async (r) => {
     const real = await (await r.fetch()).json();
-    return r.fulfill({ json: real.map((row: { step_id: string; status: string }) =>
-      row.step_id === s2.id && verifiedOnServer ? { ...row, status: "verified", verified_at: new Date().toISOString() } : row) });
+    return r.fulfill({ json: real.map((row: { step_id: string; status: string; specification_id: string }) => {
+      if (row.step_id !== s2.id || !verifiedOnServer) return row;
+      verifiedSpec ??= row.specification_id;
+      return row.specification_id === verifiedSpec ? { ...row, status: "verified", verified_at: new Date().toISOString() } : row;
+    }) });
   });
 
   await page.goto(`/ar?project=${a.project.id}`);
@@ -222,10 +228,18 @@ test("last step: Next Step is replaced by Finish only after backend verification
   await expect(result).toContainText("Step Verified");
   const restart = card(page).getByRole("button", { name: "Restart Assembly" });
   await expect(restart).toBeVisible();
+  const runBefore = await (await request.get(`${E2E_API}/api/projects/${a.project.id}/assembly-run`)).json();
   await restart.click();
-  // Back on Step 1 (nothing skipped), a new run: Ready → Check Step, no Finish/Restart, old result gone.
+  // A NEW run on Step 1 (nothing skipped): "New assembly started · Step 1 of 2 · No steps verified" …
   await expect(card(page)).toContainText("Step 1 of 2", { timeout: 15000 });
+  await expect(state(page)).toHaveText("New assembly started", { timeout: 15000 });
+  await expect(card(page)).toContainText("Step 1 of 2 · No steps verified");
+  const runAfter = await (await request.get(`${E2E_API}/api/projects/${a.project.id}/assembly-run`)).json();
+  expect(runAfter.number).toBe(runBefore.number + 1);
+  expect(runAfter.run_id).not.toBe(runBefore.run_id);
+  // … then the normal Step-1 guidance. Every step is unverified in the new run.
   await expect(state(page)).toHaveText("Ready", { timeout: 15000 });
+  await expect(page.getByText("Manually viewed / not verified")).toBeVisible();
   await expect(card(page).getByRole("button", { name: "Check Step", exact: true })).toBeVisible();
   await expect(card(page).getByRole("button", { name: "Restart Assembly" })).toHaveCount(0);
   await expect(card(page).getByRole("button", { name: "Finish" })).toHaveCount(0);
@@ -241,10 +255,12 @@ test("last step: Next Step is replaced by Finish only after backend verification
   expect((await (await request.get(`${E2E_API}/api/blocks`)).json()).find((x: { id: string }) => x.id === a.block.id)).toEqual(before.block);
   for (const [i, s] of a.steps.entries())
     expect(await (await request.get(`${E2E_API}/api/projects/${a.project.id}/steps/${s.id}/ar-placement`)).json()).toEqual(before.placements[i]);
-  // The earlier server verification of the last step is not erased by Restart.
+  // The last step, verified in the OLD run, is not verified in the new one (as seen by the page).
   expect(verifiedOnServer).toBe(true);
-  const progressNow = await (await page.request.get(`${E2E_API}/api/projects/${a.project.id}/progress`)).json();
-  expect(progressNow.length).toBe(2);
+  const seen = await page.evaluate(async (url) => (await fetch(url)).json(), `${E2E_API}/api/projects/${a.project.id}/progress`);
+  expect(seen.map((p: { status: string }) => p.status)).toEqual(["not_started", "not_started"]);
+  const realNow = await (await request.get(`${E2E_API}/api/projects/${a.project.id}/progress`)).json();
+  expect(realNow.every((p: { status: string }) => p.status !== "verified")).toBe(true);
   // A new run works normally: Check Step on Step 1 sends exactly one new inspection.
   next = "correct";
   await card(page).getByRole("button", { name: "Check Step", exact: true }).click();
@@ -253,4 +269,117 @@ test("last step: Next Step is replaced by Finish only after backend verification
   // The page keeps polling progress: a poll still inside the route handler at teardown
   // would read a disposed response. Remove the handlers, ignoring such in-flight polls.
   await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
+/** A still camera (no change): Autonomous never has a physical reason to inspect. */
+async function stillCamera(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "xr", { value: undefined, configurable: true });
+    const canvas = document.createElement("canvas");
+    canvas.width = 320; canvas.height = 240;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#2a6"; ctx.fillRect(0, 0, 320, 240);
+    ctx.fillStyle = "#d22"; ctx.fillRect(120, 90, 64, 32);
+    const stream = canvas.captureStream(10);
+    const w = window as unknown as { __captures: number };
+    w.__captures = 0;
+    const real = navigator.mediaDevices;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
+      getUserMedia: async (c: MediaStreamConstraints) => { if (c?.video) { w.__captures++; return stream; } return real.getUserMedia(c); },
+      enumerateDevices: () => real.enumerateDevices(),
+      addEventListener: (...x: unknown[]) => (real.addEventListener as (...a: unknown[]) => void)(...x),
+      removeEventListener: (...x: unknown[]) => (real.removeEventListener as (...a: unknown[]) => void)(...x),
+    } });
+  });
+}
+
+test("Autonomous on: manual Check Step → correct → UNCERTAIN verification → 30 s without photo or Meta request; Check Again sends exactly one", async ({ page, request }) => {
+  test.setTimeout(150000);
+  const a = await demo(request);
+  await stillCamera(page);
+  const calls: string[] = [];
+  const stamps: number[] = [];
+  let gate: Promise<void> | null = null;
+  let n = 0;
+  let inspectAnswer: "correct" | "uncertain" = "correct";
+  await page.route("**/api/inspect", async (r) => {
+    const stepId = String(r.request().postDataBuffer()?.toString("latin1").match(/name="step_id"\r\n\r\n([^\r]+)/)?.[1]);
+    calls.push(`inspect:${inspectAnswer}`);
+    stamps.push(Date.now());
+    if (gate) await gate;
+    return r.fulfill({ json: workflow(stepId, a.spec(stepId), ++n, inspectAnswer) });
+  });
+  await page.route("**/api/verify", async (r) => {
+    const body = r.request().postDataBuffer()?.toString("latin1") ?? "";
+    const stepId = String(body.match(/name="step_id"\r\n\r\n([^\r]+)/)?.[1]);
+    const previous = String(body.match(/name="previous_inspection_id"\r\n\r\n([^\r]+)/)?.[1]);
+    calls.push("verify:uncertain");
+    stamps.push(Date.now());
+    const inspection = workflow(stepId, a.spec(stepId), ++n, "uncertain");
+    return r.fulfill({ json: { verification_id: `ver-${n}`, previous_inspection_id: previous, status: "uncertain", inspection, issue_assessments: [] } });
+  });
+  await page.goto(`/ar?project=${a.project.id}`);
+  await expect(card(page)).toContainText("Step 1 of 2");
+  await page.getByText("Automatic camera checks · Off", { exact: true }).click(); // collapsed by default
+  await page.getByRole("button", { name: "Start Autonomous Assembly" }).click();
+  const auto = page.getByRole("status", { name: "Autonomous assembly state" });
+  await expect(auto).toContainText("Watching", { timeout: 20000 });
+  expect(calls).toEqual([]);
+  // Manual Check Step: inspection correct, then its separate verification frame → uncertain.
+  await card(page).getByRole("button", { name: "Check Step", exact: true }).click();
+  await expect.poll(() => calls, { timeout: 30000 }).toEqual(["inspect:correct", "verify:uncertain"]);
+  await expect(state(page)).toHaveText("Position uncertain", { timeout: 20000 });
+  const captures = await page.evaluate(() => (window as unknown as { __captures: number }).__captures);
+  // Wait well past verifyDelayMs, the cooldown and any former retry timer.
+  await page.waitForTimeout(30_000);
+  expect(calls, "no automatic Meta request after uncertain").toEqual(["inspect:correct", "verify:uncertain"]);
+  expect(await page.evaluate(() => (window as unknown as { __captures: number }).__captures), "no new camera capture").toBe(captures);
+  await expect(state(page)).toHaveText("Position uncertain");
+  // Check Again pressed twice quickly while Meta is still answering: exactly ONE new inspection.
+  inspectAnswer = "uncertain";
+  let release!: () => void;
+  gate = new Promise<void>((resolve) => { release = resolve; });
+  const again = card(page).getByRole("button", { name: "Check Again" });
+  await again.click();
+  await expect.poll(() => calls.length, { timeout: 20000 }).toBe(3);
+  await expect(state(page)).toHaveText("Inspecting by Meta…");
+  await expect(again, "no second Check Again while one runs").toHaveCount(0);
+  await again.click({ timeout: 500 }).catch(() => { /* not clickable while checking — as intended */ });
+  release();
+  gate = null;
+  await expect(state(page)).toHaveText("Position uncertain", { timeout: 20000 });
+  expect(calls).toEqual(["inspect:correct", "verify:uncertain", "inspect:uncertain"]);
+  await page.waitForTimeout(8000);
+  expect(calls.length, `again a hold: nothing automatic after the new uncertain — ${JSON.stringify(calls)} at +${stamps.map((t) => t - stamps[0])} ms; auto: ${await page.getByRole("status", { name: "Autonomous assembly state" }).textContent()}`).toBe(3);
+  await page.getByRole("button", { name: "Stop Autonomous Assembly" }).click();
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
+test("multi-device: a new run started on device A resets device B to Step 1 with no step verified (nothing automatic)", async ({ browser, request }) => {
+  test.setTimeout(90000);
+  const a = await demo(request);
+  const [, s2] = a.steps;
+  const view = await (await request.get(`${E2E_API}/api/projects/${a.project.id}/ar-view`)).json();
+  await request.put(`${E2E_API}/api/projects/${a.project.id}/ar-view`, { data: { step_id: s2.id, revision: view.revision } });
+  const context = await browser.newContext();
+  const deviceB = await context.newPage();
+  await fakeCamera(deviceB);
+  let requests = 0;
+  deviceB.on("request", (r) => { if (/\/api\/(inspect|verify)$/.test(r.url())) requests++; });
+  await deviceB.goto(`/ar?project=${a.project.id}`);
+  await expect(card(deviceB)).toContainText("Step 2 of 2");
+  // Device A restarts the assembly (same endpoint the Restart Assembly button uses).
+  const run = await (await request.get(`${E2E_API}/api/projects/${a.project.id}/assembly-run`)).json();
+  const started = await request.post(`${E2E_API}/api/projects/${a.project.id}/assembly-runs`, { data: { expected_run_id: run.run_id } });
+  expect(started.status()).toBe(201);
+  // Device B follows within its 3 s poll: new run, Step 1, nothing verified.
+  await expect(card(deviceB)).toContainText("Step 1 of 2", { timeout: 15000 });
+  await expect(state(deviceB)).toHaveText("New assembly started", { timeout: 10000 });
+  await expect(card(deviceB)).toContainText("No steps verified");
+  // A second (stale) restart from device B's old knowledge is refused, never stacks a run.
+  const stale = await request.post(`${E2E_API}/api/projects/${a.project.id}/assembly-runs`, { data: { expected_run_id: run.run_id } });
+  expect(stale.status()).toBe(409);
+  await deviceB.waitForTimeout(4000);
+  expect(requests, "no automatic photo/Meta request on device B").toBe(0);
+  await context.close();
 });

@@ -11,6 +11,7 @@ from app.db.tables import BlockFace, StepProgress, now
 from app.models.workflow import StepProgressRead
 from app.services.face_registry import public_face
 from app.services.project_service import public_step, require_project, require_step
+from app.services.run_service import current_run
 
 
 def specification_id(session: Session, project_id: str, step_id: str) -> str:
@@ -19,6 +20,12 @@ def specification_id(session: Session, project_id: str, step_id: str) -> str:
     # Includes step/block revisions, quantities, selected reference order and all photo IDs.
     # Reverting an edit cannot resurrect old verification because revision timestamps change.
     data = {"project": project.model_dump(mode="json"), "step": step.model_dump(mode="json")}
+    # A restarted assembly (new run) is a new progress scope: earlier verification no
+    # longer matches, and a request begun in the old run fails its final identity check.
+    # Projects without a run keep their original identity (no silent invalidation).
+    run = current_run(session, project_id)
+    if run is not None:
+        data["run"] = run.id
     if step.face_constraint:
         data["faces"] = [
             public_face(session, face).model_dump(mode="json")

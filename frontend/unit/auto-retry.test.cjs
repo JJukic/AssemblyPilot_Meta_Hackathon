@@ -350,3 +350,67 @@ test("field out of view: the due incorrect reassessment waits (no countdown), th
   await tickUntil(env, tick, 2, 20);
   assert.equal(env.calls.length, 2);
 });
+
+/* ---- Manual Check Step / Check Again while Autonomous runs (the reported auto re-check) ---- */
+test("manual Check Step: correct inspection then UNCERTAIN verification → no automatic photo, no request, no timer (30 s+)", async () => {
+  const { c, env, tick } = harness({ minIntervalMs: 1_000 });
+  await tick(6); // monitoring, baseline captured
+  const bursts = countBursts(c);
+  // The user's Check Step ran OUTSIDE the controller (manual pipeline): inspection correct …
+  c.adoptManual("correct", "s1");
+  assert.equal(c.machine.nextIntent, "verify");
+  // … then its separate verification frame came back uncertain.
+  c.adoptManual("uncertain", "s1");
+  assert.equal(c.machine.state, "uncertain");
+  assert.equal(c.machine.awaitingUserCheck, true);
+  assert.equal(c.machine.nextIntent, "inspect", "never a verification on the old correct inspection");
+  assert.equal(c.machine.scheduledRetry().kind, "await_user", "no retry plan");
+  await tick(80); // 40 s, many controller ticks
+  assert.equal(env.calls.length, 0, "no automatic Meta request (before the fix: an automatic /api/verify after ~5 s)");
+  assert.equal(bursts.n, 0, "no automatic photo (frame selection)");
+  assert.equal(last(env).code, "uncertain_hold");
+  // Check Again (explicit) → exactly one new capture + one request.
+  env.respond = { kind: "inspection", status: "uncertain" };
+  await c.inspectNow();
+  assert.equal(bursts.n, 1);
+  assert.deepEqual(intents(env), ["inspect"]);
+});
+
+test("manual still-incorrect verification is adopted as incorrect (no automatic verification of the old inspection)", async () => {
+  const { c, env, tick } = harness({ minIntervalMs: 1_000 });
+  await tick(6);
+  c.adoptManual("correct", "s1");
+  c.adoptManual("incorrect", "s1");
+  assert.equal(c.machine.state, "correction_required");
+  assert.equal(c.machine.nextIntent, "inspect");
+  await tick(20); // 10 s: before the bounded 60 s reassessment
+  assert.ok(!env.calls.some((x) => x.intent === "verify"), "no automatic verify");
+});
+
+test("a manual uncertain result while PAUSED is kept for Resume: Resume alone sends nothing", async () => {
+  const { c, env, tick } = harness({ minIntervalMs: 1_000 });
+  await tick(6);
+  c.adoptManual("correct", "s1"); // pending verification …
+  c.pause();
+  c.adoptManual("uncertain", "s1"); // … a manual check while paused said uncertain
+  assert.equal(c.machine.state, "paused");
+  c.resume();
+  assert.equal(c.machine.state, "uncertain", "resumes into the manual verdict, not the old correct");
+  await tick(60);
+  assert.equal(env.calls.length, 0, "no automatic photo/request after Resume");
+});
+
+test("Stop after a manual uncertain: no tick ever sends; uncertain never turns into a retry for other verdicts", async () => {
+  const { c, env, tick } = harness({ minIntervalMs: 1_000, correctionReassessMs: 5_000 });
+  await tick(6);
+  c.adoptManual("uncertain", "s1");
+  c.stop();
+  await tick(40);
+  assert.equal(env.calls.length, 0);
+  // Other verdicts keep their own (unchanged) behaviour and never become an uncertain hold.
+  const h = harness({ minIntervalMs: 1_000, correctionReassessMs: 5_000 });
+  await h.tick(6);
+  h.c.adoptManual("incorrect", "s1");
+  assert.equal(h.c.machine.awaitingUserCheck, false);
+  assert.equal(h.c.machine.scheduledRetry().kind, "reassess");
+});

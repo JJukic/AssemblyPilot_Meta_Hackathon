@@ -448,16 +448,30 @@ export class AutonomousMachine {
     if (verdict === "correct") this.timedRetries = 0; // progress: the next failure may retry again
   }
 
-  /** A manual (Verify Step / companion) result for this step while autonomous is on. */
-  adoptManualResult(projectId: string, stepId: string, status: "correct" | "incorrect" | "uncertain", now = Date.now()) {
+  /**
+   * A manual result for this step while Autonomous is on: Check Step / Check
+   * Again (inspection AND its separate verification), Verify Step, or an
+   * external-camera result. Every visual verdict is adopted — including an
+   * uncertain or still-incorrect VERIFICATION — so the machine never keeps an
+   * older "correct" and silently sends its own verification frame afterwards.
+   * While paused the verdict only becomes the state to resume into.
+   */
+  adoptManualResult(
+    projectId: string,
+    stepId: string,
+    status: "correct" | "incorrect" | "uncertain",
+    now = Date.now(),
+    needsView = false,
+  ) {
     if (projectId !== this.projectId || stepId !== this.stepId || this.outstanding) return;
-    if (["idle", "completed", "paused"].includes(this.state)) return;
+    if (["idle", "completed"].includes(this.state)) return;
     this.hasInspection = true;
     this.lastOutcome = status;
-    this.noteVerdict(status, now, false);
+    this.noteVerdict(status, now, needsView);
     this.timedRetries = 0;
     if (status === "correct") this.correctAt = now;
-    this.state = this.resumeTarget();
+    if (this.state === "paused") this.pausedFrom = this.resumeTarget();
+    else this.state = this.resumeTarget();
   }
 
   /** Server progress for THIS step is verified (any path). */

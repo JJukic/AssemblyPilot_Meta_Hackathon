@@ -6,9 +6,11 @@ import { registry } from "@/lib/registry";
 import { errorMessage, mediaUrl } from "@/lib/api";
 import {
   capabilities,
+  getAssemblyRun,
   getScene,
   getView,
   setView,
+  startAssemblyRun,
   type Placement,
   type ViewedStep,
 } from "@/lib/ar/data";
@@ -63,7 +65,7 @@ import {
   summarizeVerification,
   errorSummary as autoErrorSummary,
 } from "@/lib/ar/inspectionResult";
-import { saveLastInspection } from "@/lib/ar/voiceVerify";
+import { clearLastInspection, clearVoiceVerifyIntent, saveLastInspection } from "@/lib/ar/voiceVerify";
 import {
   claimExternalRequest, latestExternalResult, newPairingCode, pendingExternalRequests,
   postExternalResult, requestExternalCapture, validPairingCode, ExternalRequestTracker,
@@ -93,6 +95,8 @@ const CHECKING_SPEECH = {
   reason: "Checking speech support…",
 } as const;
 let speechCache: ReturnType<typeof detectSpeechSupport> | null = null;
+/** How long "New assembly started · Step 1 of N · No steps verified" stays before the normal guidance. */
+const NEW_RUN_NOTICE_MS = 6000;
 function detectSpeechSupportCached() {
   if (!speechCache)
     speechCache = detectSpeechSupport(window as unknown as Record<string, unknown>);
@@ -167,11 +171,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [manualConfirm, setManualConfirm] = useState<{ stepId: string; at: string } | null>(null);
   // Finish: bound to the verified last step it was confirmed for (never a separate progress state).
   const [finishedFor, setFinishedFor] = useState<string | null>(null);
-  // Restart Assembly starts a NEW local run (epoch). Steps verified on the server in an
-  // earlier run stay verified (shown as such); `runVerified` lists steps verified in this run.
-  const [runEpoch, setRunEpoch] = useState(0);
+  // Restart Assembly starts a NEW run: a new server run (progress scope) and a new local
+  // epoch that discards every answer/check of the old run on this device.
   const runEpochRef = useRef(0);
-  const [runVerified, setRunVerified] = useState<string[]>([]);
+  /** Server run id last seen (undefined = not loaded yet); a change means another device restarted. */
+  const runIdRef = useRef<string | null | undefined>(undefined);
+  const [newRunNotice, setNewRunNotice] = useState<number | null>(null);
   const [lastGuideOutcome, setLastGuideOutcome] = useState("");
   // In-AR voice: explicit two-tap consent inside the panel and a visible last error.
   const [voiceConsentPending, setVoiceConsentPending] = useState(false);
@@ -299,14 +304,14 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       manuallyConfirmed,
       isLastStep,
       finished: finishedFor !== null && finishedFor === view.step_id,
-      verifiedEarlier: runEpoch > 0 && !!view.step_id && !runVerified.includes(view.step_id),
+      newRun: newRunNotice !== null && !!step && step.position === 1 ? { total: totalSteps } : null,
       checkError: stepCheckError,
       summary: stepSummary,
     });
     return active && anchorUi === "tracking_lost"
       ? { ...base, label: "Tracking lost", message: "Field tracking is uncertain — select Re-anchor.", tone: "warn" }
       : base;
-  }, [active, anchorUi, checkingStep, verified, online, manuallyConfirmed, isLastStep, finishedFor, runEpoch, runVerified, view.step_id, stepCheckError, stepSummary]);
+  }, [active, anchorUi, checkingStep, verified, online, manuallyConfirmed, isLastStep, finishedFor, newRunNotice, step, totalSteps, view.step_id, stepCheckError, stepSummary]);
   const shortText = step
     ? shortInstruction(step.required_blocks.map((b) => ({ color: b.block.color, name: b.block.name, quantity: b.required_quantity })), !!placement)
     : "Loading project…";
@@ -390,12 +395,21 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       if (running) return;
       running = true;
       try {
-        const [p, v, progress] = await Promise.all([
+        const epochAtStart = runEpochRef.current;
+        const [p, v, progress, run] = await Promise.all([
           registry.project(projectId),
           getView(projectId),
           getProgress(projectId),
+          getAssemblyRun(projectId),
         ]);
         if (cancelled) return;
+        // Another device started a new assembly run: end this device's old run first
+        // (its results, frames, requests and completion state belong to the old run).
+        // (A poll that started before this device's own restart carries the OLD run: ignore it.)
+        if (epochAtStart === runEpochRef.current) {
+          if (runIdRef.current !== undefined && run.run_id !== runIdRef.current) runChangedRef.current(run, v);
+          runIdRef.current = run.run_id;
+        }
         setProject(p);
         setViewed((old) =>
           v.revision >= old.revision || !p.steps.some((s) => s.id === old.step_id) ? v : old,
@@ -650,6 +664,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         const { summary } = received;
         saveInspectionSummary(summary);
         setResultSummary(summary);
+        // The external verdict is a manual check: Autonomous adopts it (uncertain = wait for Check Again).
+        const external = summaryVerdictOf(summary);
+        if (external && summary.stepId === viewRef.current.step_id) controllerRef.current?.adoptManual(external, summary.stepId);
         setResultMode("result");
         runtime.current?.setViewMode("result");
         setExtPending(false); // only the active request was consumed by pollOnce
@@ -1234,6 +1251,21 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     stale?: boolean;
     needsView?: boolean;
   };
+  /** Visual verdict of a manual in-AR result for the Autonomous machine (null = nothing to adopt). */
+  function manualVerdictOf(d: InARResult): "correct" | "incorrect" | "uncertain" | null {
+    if (d.stale || d.overallStatus === "error") return null;
+    if (d.verificationStatus === "verified") return null; // server progress handles the advance
+    if (d.verificationStatus === "uncertain") return "uncertain";
+    if (d.verificationStatus === "still_incorrect") return "incorrect";
+    return d.overallStatus;
+  }
+  /** Visual verdict of a stored/external summary (verified/error/inspecting adopt nothing). */
+  function summaryVerdictOf(summary: InspectionSummary): "correct" | "incorrect" | "uncertain" | null {
+    if (summary.kind === "error" || summary.kind === "inspecting" || summary.verificationStatus === "verified") return null;
+    const kind = summary.overall?.kind ?? summary.status;
+    if (summary.kind === "verification") return kind === "incorrect" || summary.verificationStatus === "still_incorrect" ? "incorrect" : kind === "verified" ? null : "uncertain";
+    return kind === "correct" || kind === "incorrect" || kind === "uncertain" ? kind : null;
+  }
   /** The result asks for evidence the frame did not contain (print/face/active view). */
   function needsAnotherView(summary: InspectionSummary): boolean {
     return !!summary.activeVision || summary.overall?.printGate === "uncertain" || summary.overall?.faceStatus === "uncertain";
@@ -1526,11 +1558,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       return done({ ok: false, reason: `Captured frame rejected before upload: ${d.message ?? "unusable frame"}. Nothing was sent to Meta — see the Camera view.` }, d);
     if (d.overallStatus === "error")
       return done({ ok: false, reason: `${failureHeadline(d.failure ?? "backend")} — see the result panel; AR and the anchored field are unchanged` }, d);
-    // Keep autonomous mode consistent with a manual result (no duplicate paid call).
-    if (!d.verificationStatus) controllerRef.current?.adoptManual(d.overallStatus, stepId);
+    // Keep Autonomous consistent with EVERY manual verdict — also an uncertain or
+    // still-incorrect verification — so it never sends its own frame afterwards.
+    const manualVerdict = manualVerdictOf(d);
+    if (manualVerdict) controllerRef.current?.adoptManual(manualVerdict, stepId, !!d.needsView);
     if (d.verificationStatus === "verified") {
       setVerification({ step: stepId, verified: true }); // backend response is authoritative; the poll confirms
-      setRunVerified((old) => (old.includes(stepId) ? old : [...old, stepId])); // verified in THIS run
       if (opts.advance ?? true) {
         await advanceIfVerified();
         return done({ ok: true, detail: "Step verified by the backend — advancing inside AR" }, d);
@@ -1608,21 +1641,14 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     }
   }
   /**
-   * Restart Assembly (after Finish): ends the finished run and starts a NEW local run
-   * at Step 1. Stops Autonomous, voice and every in-flight camera/Meta/poll action,
-   * invalidates late answers (lease + run epoch), clears the shown result and captured
-   * frame, and moves the shared cursor back to Step 1 (absolute target, nothing skipped).
-   * Starts NO camera or Meta request. Project, blocks, instructions, AR placements and
-   * server progress/verification history are untouched; XR state is kept as it is.
+   * End everything of the current local run (this device): Autonomous (also a
+   * completed runner), voice, external-camera poll and in-flight requests; late
+   * answers lose their lease and the run epoch; the shown result, captured frame,
+   * stored summary/last inspection and completion state are cleared. Starts nothing.
    */
-  async function restartAssembly(): Promise<ExecutionOutcome> {
-    if (!project || !project.steps.length) return { ok: false, reason: "Project is still loading" };
-    if (!online) return { ok: false, reason: "Project state unavailable (offline) — restart needs the shared step cursor. Check the connection and try again." };
-    const first = project.steps[0];
-    // 1) End the finished run: nothing from it may run on or answer into the new one.
+  function resetLocalRun(autoMessage: string) {
     runEpochRef.current += 1;
-    if (runner.active || runner.phase === "completed" || machineRef.current)
-      stopAutonomous("Assembly restarted — Autonomous Assembly stopped. Start it again when ready.");
+    if (runner.active || runner.phase === "completed" || machineRef.current) stopAutonomous(autoMessage);
     autoAbort.current?.abort();
     autoOwnedAbort.current?.abort();
     coordinatorRef.current.invalidateStep(); // a late manual/auto answer no longer holds a lease
@@ -1631,10 +1657,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       setExtPending(false);
     }
     stopAllVoice(true);
-    // 2) Clear the shown result and captured frame (local view state only).
     previews.invalidate();
     resultBinding.current = { summary: null, id: 0 };
     clearInspectionSummary();
+    clearLastInspection(); // an old inspection id can never base a verification
+    clearVoiceVerifyIntent();
     setResultSummary(null);
     setLastTrace(null);
     setLastFrame(null);
@@ -1645,22 +1672,59 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     setManualConfirm(null);
     setFinishedFor(null);
     setLastGuideOutcome("");
+    setVerification({ step: "", verified: false });
     autoWorkflow.current = null;
-    setRunVerified([]);
-    setRunEpoch(runEpochRef.current);
-    // 3) Back to Step 1 through the shared cursor (bound origin, absolute target).
-    const current = viewRef.current;
-    const index = project.steps.findIndex((x) => x.id === current.step_id);
-    if (index > 0) {
-      const moved = await navigate(-index, current.step_id ?? undefined);
-      if (!moved.ok)
-        return { ok: false, reason: `Restart could not return to Step 1: ${moved.reason ?? "unknown error"}`, detail: moved.detail };
+  }
+  /** Adopt the run's Step-1 cursor and show the "New assembly started" notice briefly. */
+  function enterNewRun(run: { run_id: string | null }, v: ViewedStep) {
+    runIdRef.current = run.run_id;
+    setHologram(EMPTY_HOLOGRAM);
+    runtime.current?.setReferenceImage(null);
+    viewRef.current = v;
+    setViewed(v);
+    const notice = Date.now();
+    setNewRunNotice(notice);
+    setTimeout(() => {
+      if (alive.current) setNewRunNotice((current) => (current === notice ? null : current));
+    }, NEW_RUN_NOTICE_MS);
+  }
+  /**
+   * Restart Assembly (after Finish): a REAL new assembly run. The backend starts a
+   * new run (history kept) and puts the shared cursor on Step 1 atomically; the run
+   * id is part of every step's specification identity, so all steps are unverified
+   * again and any request begun in the old run fails its final identity check (409).
+   * Locally the old run is ended completely (see resetLocalRun). Starts NO camera,
+   * Meta, retry, verification or voice action. Project, blocks, references,
+   * instructions, placements and calibration are untouched; XR state is kept.
+   */
+  async function restartAssembly(): Promise<ExecutionOutcome> {
+    if (!project || !project.steps.length) return { ok: false, reason: "Project is still loading" };
+    if (!online) return { ok: false, reason: "Project state unavailable (offline) — Restart Assembly needs the backend. Check the connection and try again." };
+    resetLocalRun("Assembly restarted — Autonomous Assembly stopped. Start it again when ready.");
+    let joined = false;
+    try {
+      let started: { run_id: string | null; view: ViewedStep };
+      try {
+        const expected = runIdRef.current === undefined ? (await getAssemblyRun(projectId)).run_id : runIdRef.current;
+        started = await startAssemblyRun(projectId, expected);
+      } catch (cause) {
+        if (!isRevisionConflict(cause)) throw cause;
+        // Another device restarted first: join ITS new run instead of stacking another one.
+        const [run, v] = await Promise.all([getAssemblyRun(projectId), getView(projectId)]);
+        started = { run_id: run.run_id, view: v };
+        joined = true;
+      }
+      if (!alive.current) return { ok: false, reason: "Page closed" };
+      enterNewRun(started, started.view);
+    } catch (cause) {
+      return { ok: false, reason: `Restart Assembly failed: ${errorMessage(cause)}. Nothing was changed on the server — try again.` };
     }
+    const first = project.steps[0];
     const where = runtime.current && active
       ? "The confirmed AR field is kept; Step 1 guidance is shown."
       : "Select Enter immersive AR to continue in AR.";
-    setStatus(`Assembly restarted at Step ${first.position}. ${where} Nothing is checked until you select Check Step.`);
-    return { ok: true, detail: `Assembly restarted at Step ${first.position} of ${project.steps.length}` };
+    setStatus(`New assembly started${joined ? " (joined the run another device started)" : ""} — Step ${first.position} of ${project.steps.length}, no steps verified. ${where} Nothing is checked until you select Check Step.`);
+    return { ok: true, detail: `New assembly started — Step ${first.position} of ${project.steps.length}, no steps verified` };
   }
   /** Visible manual fallback (Confirm Position): user-confirmed, never AI/backend-verified. */
   function confirmPosition(): ExecutionOutcome {
@@ -1825,6 +1889,15 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     if (message) setAutoStatus(message);
   }
   const stopAutoRef = useRef(stopAutonomous);
+  /** Poll → latest render: a run started elsewhere resets this device's local run (starts nothing). */
+  const runChangedRef = useRef<(run: { run_id: string | null }, v: ViewedStep) => void>(() => {});
+  useEffect(() => {
+    runChangedRef.current = (run, v) => {
+      resetLocalRun("Another device started a new assembly — Autonomous Assembly stopped here.");
+      enterNewRun(run, v);
+      setStatus("Another device started a new assembly — Step 1, no steps verified. Nothing is checked until you select Check Step.");
+    };
+  });
   useEffect(() => {
     stopAutoRef.current = stopAutonomous;
   });

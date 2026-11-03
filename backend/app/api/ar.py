@@ -5,8 +5,17 @@ from pydantic import ValidationError
 
 from app.db.database import ReadSession, WriteSession
 from app.db.tables import ARPlacement, ARView, now
-from app.models.ar import Placement, Placements, Scene, SceneBlock, SceneExclusion, ViewInput
+from app.models.ar import (
+    Placement,
+    Placements,
+    RunInput,
+    Scene,
+    SceneBlock,
+    SceneExclusion,
+    ViewInput,
+)
 from app.services.project_service import ordered_steps, public_step, require_project, require_step
+from app.services.run_service import current_run, public_run, start_run
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["spatial guidance"])
 
@@ -166,3 +175,34 @@ def set_view(project_id: str, data: ViewInput, session: WriteSession):
     row.step_id, row.revision = data.step_id, data.revision + 1
     session.add(row)
     return {"step_id": row.step_id, "revision": row.revision}
+
+
+@router.get("/assembly-run")
+def get_run(project_id: str, session: ReadSession):
+    require_project(session, project_id)
+    return public_run(current_run(session, project_id))
+
+
+@router.post("/assembly-runs", status_code=201)
+def restart_run(project_id: str, data: RunInput, session: WriteSession):
+    """Restart Assembly: a new run and the shared cursor back on Step 1, atomically.
+
+    `expected_run_id` is the run the caller is restarting; if another device already
+    started a newer run the request is refused (409) so two restarts never stack up.
+    Nothing is deleted: project, blocks, references, placements, calibration and the
+    earlier run (with its progress rows) stay as they are.
+    """
+    require_project(session, project_id)
+    steps = ordered_steps(session, project_id)
+    if not steps:
+        raise HTTPException(409, "This project has no steps to assemble.")
+    latest = current_run(session, project_id)
+    if (latest.id if latest else None) != data.expected_run_id:
+        raise HTTPException(
+            409, "Another device already started a new assembly. Reload and continue."
+        )
+    run = start_run(session, project_id)
+    row = session.get(ARView, project_id) or ARView(project_id=project_id, step_id=steps[0].id)
+    row.step_id, row.revision = steps[0].id, (row.revision or 0) + 1
+    session.add(row)
+    return {**public_run(run), "view": {"step_id": row.step_id, "revision": row.revision}}

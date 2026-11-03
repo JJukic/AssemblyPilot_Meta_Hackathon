@@ -59,6 +59,12 @@ class ViewInput(ARModel):
     revision: int = Field(ge=0)
 
 
+class RunInput(ARModel):
+    """Restart Assembly: the run being restarted (None = the project never restarted)."""
+
+    expected_run_id: str | None = Field(default=None, max_length=64)
+
+
 class Placements(ARModel):
     """Version-2 step hologram: every block placed IN this step.
 

@@ -584,18 +584,29 @@ workspace:
   writes nothing and makes no Meta call; it completes a running Autonomous
   run as before and shows **Assembly complete** with **Restart Assembly** as
   the primary follow-up.
-- **Restart Assembly.** Ends the finished run and starts a new local run at
-  Step 1: stops Autonomous (also a completed runner, which previously stayed
-  frozen in "Assembly Complete ✓"), voice, the external-camera poll and any
-  in-flight request; invalidates late answers (inspection lease + run epoch);
-  clears the shown result, captured frame and stored summary; moves the shared
-  cursor back to Step 1 (bound origin, absolute target — nothing skipped). It
-  starts no camera or Meta request. Project, blocks, instructions, placements
-  and server progress are untouched; a step the server still reports verified
-  is shown as **Verified earlier** (Next Step / Finish, plus an optional Check
-  Again). An active XR session keeps its confirmed field; after an ended
-  session, Enter immersive AR is required as usual. A failed restart (offline,
-  cursor conflict) is reported in the panel message.
+- **Restart Assembly = a new assembly run.** `POST /api/projects/{id}/assembly-runs`
+  (`{expected_run_id}`) creates a new row in the additive `assembly_runs` table (all
+  earlier runs are kept as history) and puts the shared `ar-view` cursor on Step 1 in
+  the same transaction. The current run id is part of every step's specification
+  identity (`progress_service.specification_id`), so in the new run every step reads
+  `not_started` / "Step verified: No", every step needs a new photo, inspection and
+  fresh verification, and a request begun in the old run fails the existing final
+  identity check (409) — it can never verify, show progress or complete the new run.
+  Projects that never restarted keep their original identity (no silent invalidation).
+  Nothing is deleted: project, blocks, references, instructions, placements,
+  calibration and the old run's progress rows stay. A stale restart from another
+  device (`expected_run_id` no longer current) is refused with 409 and that device
+  joins the newer run instead of stacking one.
+- Locally the old run is ended first: Autonomous (also a completed runner), voice,
+  external-camera poll/result bridge and in-flight requests stop; late answers lose
+  their lease and run epoch; the shown result, captured frame, stored summary, last
+  inspection id, pending voice-verify intent and completion state are cleared. The
+  panel briefly shows **New assembly started · Step 1 of N · No steps verified**,
+  then the normal Step-1 guidance. Nothing automatic starts (no photo, Meta request,
+  retry, verification or voice action). Other devices notice the new run in their 3 s
+  poll and reset the same way (a poll begun before a device's own restart is ignored).
+  An active XR session keeps its confirmed field; after an ended session Enter
+  immersive AR is required as usual. A failed restart is reported in the panel.
 - **Voice.** New deterministic commands (frontend/backend parity-tested):
   "Show result", "Show errors", "Read result", "Read correction",
   "Back to instructions" (German: Ergebnis anzeigen, Fehler anzeigen,
@@ -1087,6 +1098,11 @@ ambiguous view. Now:
   runs the panel shows `Inspecting by Meta…`, then the new result. If Meta says
   `correct`, the usual separate verification frame follows. Another `uncertain` → hold again.
 - **Confirm Position** stays the visible manual fallback (user-confirmed, never AI-verified).
+- Every manual verdict reaches the Autonomous machine — Check Step / Check Again
+  (inspection **and** its separate verification), Verify Step and external-camera
+  results, also while paused. Previously an uncertain/still-incorrect *verification*
+  was not adopted, so the machine kept the earlier "correct" and took its own frame
+  for an automatic `/api/verify` ~5 s later.
 - The hold ends only with a new non-uncertain verdict, a step change or Stop. Check Again
   still respects single flight, budgets, Pause, tracking/anchor and the step guard.
 
