@@ -18,6 +18,12 @@
  *  - uncertain / incorrect verdicts schedule a bounded re-check on this same
  *    tick (no second timer); it still needs a stable view, a fresh frame,
  *    the cooldown/back-off and the budgets
+ *  - in AR a request needs a trustworthy anchor AND a current viewer pose;
+ *    both are re-checked after the async frame selection and immediately
+ *    before the upload (`guard`). Re-anchor (anchor epoch change) invalidates
+ *    every prepared capture and discards results of earlier requests
+ *  - Pause is sticky: a late result is recorded but never resumes monitoring,
+ *    starts a request or advances; a verified step advances only after Resume
  */
 import type { Snapshot } from "@/types/assembly";
 import { AutonomousMachine, type AutoConfig, type AutoState, type FailureKind, type RetryPlan } from "./autonomous";
@@ -63,6 +69,10 @@ export interface AutoContext {
   xrActive: boolean;
   anchored: boolean;
   anchorState: string;
+  /** XR viewer pose available in the last frame (false = head tracking lost). */
+  viewerTracked?: boolean;
+  /** Incremented by every Re-anchor: captures prepared under another epoch are invalid. */
+  anchorEpoch?: number;
   /** Head-gaze relation to the anchored field (null = unknown / not in AR). */
   fieldInView: boolean | null;
   /** A manual or companion inspection holds the step lease. */
@@ -96,7 +106,11 @@ export interface AutoStatus {
 export interface AutoDeps {
   camera: AutoCamera;
   selectFrame(minClock: number): Promise<Selection>;
-  inspect(intent: "inspect" | "verify", frame: SelectedFrame, stepId: string): Promise<InspectOutcome>;
+  /**
+   * Run one paid request. `guard()` must be true after every async preparation
+   * step and directly before the upload; when it turns false, nothing is sent.
+   */
+  inspect(intent: "inspect" | "verify", frame: SelectedFrame, stepId: string, guard: () => boolean): Promise<InspectOutcome>;
   context(): AutoContext;
   /** Re-check server progress and advance exactly one step if verified. */
   advance(stepId: string): Promise<void>;
@@ -123,6 +137,10 @@ export class AutoController {
   private lastCamera: CameraHealth | null = null;
   private lastFieldInView: boolean | null = null;
   private metrics = "";
+  /** Anchor epoch the detector reference belongs to (Re-anchor ⇒ new epoch). */
+  private anchorEpoch: number | undefined = undefined;
+  /** A verified step that must advance once Resume happened (never while paused). */
+  private advanceAfterResume: string | null = null;
   status: AutoStatus;
 
   constructor(private deps: AutoDeps, config: Partial<AutoConfig> = {}) {
@@ -150,9 +168,21 @@ export class AutoController {
   resume() {
     this.machine.resume();
     this.detector.reset(); // the scene may have changed while paused: re-reference, don't pay for it
+    // A verification that arrived while paused advances now (once), never earlier.
+    if (this.machine.state === "verified") this.advanceAfterResume = this.machine.stepId;
     this.emit("monitoring", "RESUMED", "Re-establishing the reference view…");
   }
+  /** Read live (not narrowed): a pause can happen during any await. */
+  private get paused(): boolean {
+    return this.machine.state === "paused";
+  }
+  /** In AR: a request needs a trustworthy anchor, a viewer pose and an unchanged anchor epoch. */
+  private trackingValid(ctx: AutoContext, epoch: number | undefined): boolean {
+    if (!ctx.xrActive) return true;
+    return ctx.anchored && ctx.viewerTracked !== false && ctx.anchorEpoch === epoch;
+  }
   onStepChanged(stepId: string) {
+    this.advanceAfterResume = null;
     this.machine.stepChanged(stepId);
     this.detector.reset(); // never reuse previous-step frames
     this.lastSentClock = Number.NEGATIVE_INFINITY;
@@ -190,6 +220,15 @@ export class AutoController {
     const ctx = this.deps.context();
     if (m.state === "idle") return "Autonomous Assembly is off";
     if (m.state === "paused") { this.pause(); return "Paused"; }
+    if (this.advanceAfterResume) {
+      const verifiedStep = this.advanceAfterResume;
+      this.advanceAfterResume = null;
+      if (m.state === "verified" && verifiedStep === ctx.stepId && verifiedStep === m.stepId) {
+        this.emit("verified", "VERIFIED — ADVANCING", "Resumed after a verification that arrived while paused. Loading next step…");
+        await this.deps.advance(verifiedStep);
+        return "Verified";
+      }
+    }
     if (m.state === "completed") {
       this.emit("complete", "ASSEMBLY COMPLETE", "All steps verified by the backend. No further Meta requests.");
       return "Complete";
@@ -215,12 +254,20 @@ export class AutoController {
     }
     if (m.state === "camera_unavailable") m.cameraRecovered();
     if (m.state === "camera_initializing") m.cameraReady(true);
-    // 2) Field: in AR, inspections need a trustworthy anchored field.
+    // 2) Field: in AR, inspections need a trustworthy anchored field AND a
+    // current viewer pose (an anchored field without head tracking is not enough).
     this.lastFieldInView = ctx.fieldInView;
-    if (ctx.xrActive && !ctx.anchored) {
-      if (ctx.anchorState === "tracking_lost") {
+    if (ctx.xrActive && ctx.anchorEpoch !== this.anchorEpoch) {
+      // Re-anchor: frames/reference of the previous placement are never reused.
+      if (this.anchorEpoch !== undefined) this.detector.reset();
+      this.anchorEpoch = ctx.anchorEpoch;
+    }
+    if (ctx.xrActive && (!ctx.anchored || ctx.viewerTracked === false)) {
+      if (ctx.anchorState === "tracking_lost" || (ctx.anchored && ctx.viewerTracked === false)) {
         m.anchorLost();
-        this.emit("tracking_lost", "TRACKING LOST", "The spatial field cannot currently be reliably tracked. Inspections paused; it recovers automatically or Re-anchor.");
+        this.emit("tracking_lost", "TRACKING LOST", ctx.viewerTracked === false && ctx.anchored
+          ? "Head tracking is unavailable (no viewer pose). Inspections paused; nothing is sent until tracking recovers."
+          : "The spatial field cannot currently be reliably tracked. Inspections paused; it recovers automatically or Re-anchor.");
       } else {
         m.awaitAnchor();
         this.emit("field_not_placed", "AR FIELD NOT PLACED", "Position the assembly field on your tabletop and confirm it. Camera frames are arriving.");
@@ -338,10 +385,28 @@ export class AutoController {
     const stepId = ctx.stepId!;
     const projectId = m.projectId;
     const stableBefore = this.detector.stableFrame;
+    const epoch = ctx.anchorEpoch;
+    /** The prepared run may still send: not stopped/paused, same step, tracking + anchor epoch intact. */
+    const guard = () => {
+      if (this.stopped || this.paused || m.stepId !== stepId) return false;
+      const now = this.deps.context();
+      return now.stepId === stepId && this.trackingValid(now, epoch);
+    };
     m.noteSelecting();
     this.emit("selecting", "SELECTING FRAME", "Capturing a short burst and choosing the sharpest, best-exposed fresh frame…");
     const selection = await this.deps.selectFrame(this.lastSentClock);
     if (this.stopped || this.deps.context().stepId !== stepId || m.stepId !== stepId) return "Step changed";
+    if (this.paused) {
+      this.pause();
+      return "Paused";
+    }
+    if (!this.trackingValid(this.deps.context(), epoch)) {
+      // Tracking lost or Re-anchor during the (async) frame selection: the prepared capture is invalid.
+      m.frameRejected();
+      this.emit("tracking_lost", "TRACKING LOST — CAPTURE DISCARDED",
+        "Tracking or the field anchor changed while the frame was selected. The prepared capture was discarded; nothing was sent to Meta.");
+      return "Tracking lost";
+    }
     if (!selection.ok) {
       this.lastRejection = selection.reason;
       this.deps.onFrameRejected?.(selection.preview ?? null, selection.reason);
@@ -361,17 +426,33 @@ export class AutoController {
     this.emit(intent === "verify" ? "verifying" : "inspecting",
       intent === "verify" ? "CHECK AGAIN — VERIFYING" : timed ? "CHECKING STEP AGAIN WITH META AI…" : "CHECKING STEP WITH META AI…",
       intent === "verify" ? "Real verification request with a separate fresh frame in progress." : "Real inspection request in progress — keep the assembly still.");
-    const outcome = await this.deps.inspect(intent, selection.frame, stepId);
+    if (!guard()) {
+      // Final pre-request check (synchronous path): release the reserved slot, send nothing.
+      m.onInspectResult(projectId, stepId, "error", "aborted");
+      if (this.paused) this.pause();
+      else this.emit("tracking_lost", "TRACKING LOST — CAPTURE DISCARDED", "Tracking or the field anchor changed before the upload. Nothing was sent to Meta.");
+      return "Not sent";
+    }
+    const outcome = await this.deps.inspect(intent, selection.frame, stepId, guard);
     if (this.stopped) return "Stopped";
     if (outcome.kind === "stale" || this.deps.context().stepId !== stepId || m.stepId !== stepId) {
       // The machine already moved to the new step (beginStep cleared the outstanding flag).
       if (m.stepId === stepId) m.onInspectResult(projectId, stepId, "error", "stale");
       return "Stale result discarded";
     }
+    const after = this.deps.context();
+    if (after.xrActive && after.anchorEpoch !== epoch) {
+      // Re-anchored while the request ran: this result belongs to the old placement.
+      m.onInspectResult(projectId, stepId, "error", "aborted");
+      if (this.paused) this.pause();
+      else this.emit("tracking_lost", "RE-ANCHORED — RESULT DISCARDED", "The field was re-anchored while the request ran; that result is not used.");
+      return "Re-anchored";
+    }
     this.detector.accept(stableBefore ?? this.detector.stableFrame);
     if (outcome.kind === "error") {
       if (intent === "verify") m.onVerifyResult(projectId, stepId, "error", outcome.failure);
       else m.onInspectResult(projectId, stepId, "error", outcome.failure);
+      if (this.paused) return this.pausedResult(`request failed (${outcome.failure})`);
       this.emit(m.state === "error" ? "error" : "error", failureHeadline(outcome.failure),
         `${outcome.message} No step advance.${m.state === "error" ? " Monitoring stopped after repeated failures — Resume when fixed." : " Automatic retry after a back-off."}`);
       return outcome.message;
@@ -379,6 +460,7 @@ export class AutoController {
     if (outcome.kind === "verification") {
       const result = m.onVerifyResult(projectId, stepId, outcome.status, undefined, this.deps.now(), !!outcome.needsView);
       if (outcome.status === "uncertain" && outcome.needsView) this.detector.requestNewView();
+      if (this.paused) return this.pausedResult(outcome.status === "verified" ? "verified (advances after Resume)" : outcome.status);
       if (result.intent === "advance") {
         this.emit("verified", "VERIFIED — ADVANCING", "Backend confirmed the step. Loading next step…");
         await this.deps.advance(stepId);
@@ -393,6 +475,7 @@ export class AutoController {
     }
     m.onInspectResult(projectId, stepId, outcome.status, undefined, this.deps.now(), !!outcome.needsView);
     if (outcome.status === "uncertain" && outcome.needsView) this.detector.requestNewView();
+    if (this.paused) return this.pausedResult(outcome.status);
     if (outcome.status === "correct")
       this.emit("awaiting_verification", "CORRECT — PREPARING VERIFICATION", "Looks correct. A separate, later fresh frame must verify it (Check Again) before the step can advance.");
     else if (outcome.status === "incorrect")
@@ -402,6 +485,13 @@ export class AutoController {
     else
       this.emit("retry_scheduled", "UNCERTAIN — RETRYING WHEN READY", "Meta could not decide from this frame. A new Check Step with a fresh frame follows automatically.");
     return outcome.status;
+  }
+
+  /** A late result arrived while paused: shown, recorded, but nothing continues until Resume. */
+  private pausedResult(result: string): string {
+    this.emit("paused", "PAUSED — RESULT RECEIVED",
+      `The request that was already running returned: ${result}. Still paused — no new requests and no step advance until you resume.`);
+    return "Paused";
   }
 
   /** Truthful waiting status for a scheduled re-check (countdown only when it can really run). */

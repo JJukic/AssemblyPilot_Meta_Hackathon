@@ -74,3 +74,56 @@ def test_bridge_rejects_bad_codes_and_frame_payloads(client):
                        json={"code": "482916", "summary": bad}).status_code == 422
     assert client.post(f"/api/ar-camera/requests/{request_id}/result",
                        json={"code": "111111", "summary": SUMMARY}).status_code == 404
+
+
+def _request(client, code="482916", step="s1", mode="inspect"):
+    created = client.post("/api/ar-camera/requests", json={
+        "project_id": "p1", "step_id": step, "code": code, "mode": mode})
+    assert created.status_code == 201, created.text
+    return created.json()["id"]
+
+
+def _complete(client, request_id, summary, code="482916"):
+    assert client.post(f"/api/ar-camera/requests/{request_id}/claim",
+                       json={"code": code}).status_code == 200
+    return client.post(f"/api/ar-camera/requests/{request_id}/result",
+                       json={"code": code, "summary": summary})
+
+
+def _result(client, request_id=None, step="s1", code="482916"):
+    params = {"project_id": "p1", "step_id": step, "code": code}
+    if request_id:
+        params["request_id"] = request_id
+    return client.get("/api/ar-camera/result", params=params).json()["result"]
+
+
+def test_new_request_never_receives_an_older_result(client):
+    first = _request(client)
+    assert _complete(client, first, SUMMARY).status_code == 200
+    # A NEW request with the same project, step and pairing code.
+    second = _request(client)
+    # The legacy key still shows the old result; the request-scoped poll does not.
+    assert _result(client)["request_id"] == first
+    assert _result(client, second) is None
+    newer = dict(SUMMARY, inspectionId="insp-2")
+    assert _complete(client, second, newer).status_code == 200
+    scoped = _result(client, second)
+    assert scoped["request_id"] == second
+    assert scoped["summary"]["inspectionId"] == "insp-2"
+    assert (scoped["project_id"], scoped["step_id"]) == ("p1", "s1")
+    # The first request's result stays bound to the first request.
+    assert _result(client, first)["summary"]["inspectionId"] == "insp"
+
+
+def test_request_scoped_result_checks_project_step_and_code(client):
+    request_id = _request(client)
+    assert _complete(client, request_id, SUMMARY).status_code == 200
+    assert _result(client, request_id, step="s2") is None
+    assert _result(client, request_id, code="999999") is None
+    other = client.get("/api/ar-camera/result", params={
+        "project_id": "p2", "step_id": "s1", "code": "482916", "request_id": request_id}).json()
+    assert other == {"result": None}
+    # A request can be answered only once.
+    again = client.post(f"/api/ar-camera/requests/{request_id}/result",
+                        json={"code": "482916", "summary": SUMMARY})
+    assert again.status_code == 409

@@ -8,6 +8,7 @@ import pytest
 
 from app.api import voice as voice_api
 from app.services.voice_commands import match_command, normalize_transcript
+from app.services.voice_service import VoiceError
 
 
 def wav_bytes(seconds=1.0, rate=16000, channels=1):
@@ -167,3 +168,72 @@ def test_ambiguous_and_negated_commands_never_match():
         "next", "check", "start", "stop", "previous text and more text",
     ]:
         assert match_command(phrase) is None, phrase
+
+
+class FakeClock:
+    def __init__(self, now: float = 1_000.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_session_store_prunes_expired_sessions_on_create():
+    clock = FakeClock()
+    store = voice_api.VoiceSessionStore(ttl_seconds=60, max_sessions=10, clock=clock)
+    old = [store.create() for _ in range(5)]
+    assert len(store) == 5
+    clock.now += 61
+    fresh = store.create()
+    # All expired sessions are gone, only the new one remains.
+    assert len(store) == 1
+    for token in old:
+        with pytest.raises(VoiceError) as exc:
+            store.authorize(token)
+        assert exc.value.status_code == 401
+    store.authorize(fresh)
+
+
+def test_session_store_is_bounded_without_evicting_valid_sessions():
+    clock = FakeClock()
+    store = voice_api.VoiceSessionStore(ttl_seconds=60, max_sessions=3, clock=clock)
+    valid = [store.create() for _ in range(3)]
+    with pytest.raises(VoiceError) as exc:
+        store.create()
+    assert exc.value.status_code == 429
+    assert len(store) == 3
+    # The refused creation did not delete any still-valid session.
+    for token in valid:
+        store.authorize(token)
+    # Once one expires (or is revoked), a new session fits again.
+    store.revoke(valid[0])
+    replacement = store.create()
+    assert len(store) == 3
+    store.authorize(replacement)
+
+
+def test_valid_sessions_survive_pruning_and_expired_tokens_are_rejected():
+    clock = FakeClock()
+    store = voice_api.VoiceSessionStore(ttl_seconds=60, max_sessions=10, clock=clock)
+    early = store.create()
+    clock.now += 30
+    later = store.create()
+    clock.now += 31  # `early` expired (61 s), `later` still valid (31 s)
+    store.create()  # triggers pruning
+    store.authorize(later)
+    with pytest.raises(VoiceError) as exc:
+        store.authorize(early)
+    assert exc.value.status_code == 401
+    clock.now += 60
+    with pytest.raises(VoiceError):
+        store.authorize(later)
+
+
+def test_session_endpoint_refuses_when_store_is_full(voice_client):
+    voice_client.app.state.voice_sessions = voice_api.VoiceSessionStore(max_sessions=1)
+    try:
+        assert voice_client.post("/api/voice/session").status_code == 200
+        full = voice_client.post("/api/voice/session")
+        assert full.status_code == 429
+    finally:
+        del voice_client.app.state.voice_sessions

@@ -9,6 +9,10 @@ import {
 } from "./inspectionResult";
 
 export interface BridgeResult {
+  /** Request that produced this result (absent only on legacy, unscoped reads). */
+  request_id?: string;
+  project_id?: string;
+  step_id?: string;
   summary: Record<string, unknown>;
   mode: string;
   updated_at: number;
@@ -65,9 +69,11 @@ export async function latestExternalResult(
   projectId: string,
   stepId: string,
   code: string,
+  requestId?: string,
 ): Promise<BridgeResult | null> {
+  const scope = requestId ? `&request_id=${encodeURIComponent(requestId)}` : "";
   const result = await apiRequest<{ result: BridgeResult | null }>(
-    `/api/ar-camera/result?project_id=${encodeURIComponent(projectId)}&step_id=${encodeURIComponent(stepId)}&code=${encodeURIComponent(code)}`,
+    `/api/ar-camera/result?project_id=${encodeURIComponent(projectId)}&step_id=${encodeURIComponent(stepId)}&code=${encodeURIComponent(code)}${scope}`,
   );
   return result.result;
 }
@@ -111,4 +117,79 @@ export function summaryFromBridge(
   if (specificationId && summary.specificationId && summary.specificationId !== specificationId)
     return null;
   return summary;
+}
+
+/** One external capture request issued by this device (identity of everything we accept). */
+export interface ExternalRequest {
+  requestId: string;
+  projectId: string;
+  stepId: string;
+  code: string;
+  /** Step specification revision when the request was issued (local guidance revision). */
+  spec: string;
+  /** Backend specification id, when known; a result for another spec is rejected. */
+  specificationId?: string | null;
+}
+
+/**
+ * Accept a bridge payload only as the answer to exactly `request`: same request
+ * id, project, step and pairing code, unchanged step specification, and a
+ * summary that validates. Anything else (an older result, another step, a
+ * changed spec) is rejected — never shown, never used to verify.
+ */
+export function acceptExternalResult(
+  payload: BridgeResult | null,
+  request: ExternalRequest,
+  current: { projectId: string; stepId: string | null; code: string; spec: string },
+): InspectionSummary | null {
+  if (!payload) return null;
+  if (payload.request_id !== request.requestId) return null;
+  if (payload.project_id !== undefined && payload.project_id !== request.projectId) return null;
+  if (payload.step_id !== undefined && payload.step_id !== request.stepId) return null;
+  if (current.projectId !== request.projectId || current.stepId !== request.stepId) return null;
+  if (current.code !== request.code || current.spec !== request.spec) return null;
+  return summaryFromBridge(payload, request.projectId, request.stepId, request.specificationId);
+}
+
+/**
+ * Owns the single active external capture request of this page. Starting a
+ * new request, a step change, Stop and unmount all invalidate the previous
+ * one; a poll that resolves for a request that is no longer active is
+ * dropped, so a late result can never set a stale state (e.g. "Step Verified").
+ */
+export class ExternalRequestTracker {
+  private active: ExternalRequest | null = null;
+
+  get current(): ExternalRequest | null {
+    return this.active;
+  }
+  begin(request: ExternalRequest): ExternalRequest {
+    this.active = request;
+    return request;
+  }
+  /** Invalidate the active request (step change, Stop, unmount, Re-anchor…). */
+  invalidate(): void {
+    this.active = null;
+  }
+  isActive(request: ExternalRequest): boolean {
+    return this.active === request;
+  }
+  /**
+   * Poll once for the active request. Returns the validated summary only if
+   * the request is still the active one after the network round trip; the
+   * request is then consumed (exactly one result per request).
+   */
+  async pollOnce(
+    fetchLatest: (request: ExternalRequest) => Promise<BridgeResult | null>,
+    current: () => { projectId: string; stepId: string | null; code: string; spec: string },
+  ): Promise<{ request: ExternalRequest; summary: InspectionSummary } | null> {
+    const request = this.active;
+    if (!request) return null;
+    const payload = await fetchLatest(request).catch(() => null);
+    if (this.active !== request) return null;
+    const summary = acceptExternalResult(payload, request, current());
+    if (!summary) return null;
+    this.active = null;
+    return { request, summary };
+  }
 }

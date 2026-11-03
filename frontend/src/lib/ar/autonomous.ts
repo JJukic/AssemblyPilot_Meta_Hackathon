@@ -23,6 +23,11 @@
  * At most `maxTimedRetries` consecutive scheduled checks; after that (or
  * when Meta asked for another viewpoint) a new view / change is required.
  * The schedule never bypasses the cooldown, back-off or budgets.
+ *
+ * Pause is sticky: a result that arrives while paused (a request that was
+ * already in flight) is recorded, but the machine stays "paused" — the
+ * verdict only becomes the state to resume into. Nothing can leave "paused"
+ * except resume() or stop().
  */
 
 export type AutoState =
@@ -352,16 +357,22 @@ export class AutonomousMachine {
     return { intent: gate.intent };
   }
 
+  /** Apply a result state; while paused it only becomes the state to resume into. */
+  private settle(next: AutoState) {
+    if (this.state === "paused") this.pausedFrom = next;
+    else this.state = next;
+  }
+
   private failure(kind: FailureKind) {
     this.lastFailure = kind;
     this.lastOutcome = "error";
     if (kind === "conflict" || kind === "stale") this.hasInspection = false; // start a fresh transaction
     if (kind === "aborted") {
-      this.state = this.resumeTarget();
+      this.settle(this.resumeTarget());
       return;
     }
     this.consecutiveFailures++;
-    this.state = this.consecutiveFailures >= this.config.maxConsecutiveFailures ? "error" : "inspection_failed";
+    this.settle(this.consecutiveFailures >= this.config.maxConsecutiveFailures ? "error" : "inspection_failed");
   }
 
   onInspectResult(
@@ -381,12 +392,13 @@ export class AutonomousMachine {
     this.lastOutcome = status;
     this.noteVerdict(status, now, needsView);
     if (status === "correct") this.correctAt = now;
-    this.state =
+    this.settle(
       status === "correct"
         ? "correct_awaiting_verification"
         : status === "incorrect"
           ? "correction_required"
-          : "uncertain";
+          : "uncertain",
+    );
   }
 
   onVerifyResult(
@@ -401,6 +413,10 @@ export class AutonomousMachine {
     this.outstanding = false;
     if (status === "verified") {
       this.consecutiveFailures = 0;
+      if (this.state === "paused") {
+        this.pausedFrom = "verified"; // advance only after Resume
+        return { intent: "none" };
+      }
       this.state = "verified";
       return { intent: "advance" };
     }
@@ -411,7 +427,7 @@ export class AutonomousMachine {
     this.consecutiveFailures = 0;
     this.lastOutcome = status === "uncertain" ? "uncertain" : "incorrect";
     this.noteVerdict(this.lastOutcome, now, needsView);
-    this.state = status === "still_incorrect" ? "correction_required" : "uncertain";
+    this.settle(status === "still_incorrect" ? "correction_required" : "uncertain");
     return { intent: "none" };
   }
 
@@ -438,7 +454,8 @@ export class AutonomousMachine {
   /** Server progress for THIS step is verified (any path). */
   serverVerified(projectId: string, stepId: string) {
     if (projectId !== this.projectId || stepId !== this.stepId || this.outstanding) return;
-    if (!["idle", "completed", "advancing_step"].includes(this.state)) this.state = "verified";
+    if (this.state === "paused") this.pausedFrom = "verified"; // no advance while paused
+    else if (!["idle", "completed", "advancing_step"].includes(this.state)) this.state = "verified";
   }
 
   /**

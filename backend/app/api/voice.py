@@ -45,6 +45,7 @@ def get_sessions(
         store = VoiceSessionStore(
             ttl_seconds=settings.voice_session_ttl_seconds,
             per_minute=settings.voice_rate_limit_per_minute,
+            max_sessions=settings.voice_max_sessions,
         )
         request.app.state.voice_sessions = store
     return store
@@ -72,9 +73,11 @@ def create_session(
     sessions: Annotated[VoiceSessionStore, Depends(get_sessions)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
-    return VoiceSessionResponse(
-        token=sessions.create(), expires_in=settings.voice_session_ttl_seconds
-    )
+    try:
+        token = sessions.create()
+    except VoiceError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+    return VoiceSessionResponse(token=token, expires_in=settings.voice_session_ttl_seconds)
 
 
 @router.delete("/session", status_code=204)

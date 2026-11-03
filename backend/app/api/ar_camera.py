@@ -13,8 +13,9 @@ import re
 import secrets
 import threading
 import time
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/ar-camera", tags=["ar-camera"])
@@ -81,11 +82,17 @@ class Bridge:
         self.lock = threading.Lock()
         self.requests: dict[str, dict] = {}
         self.results: dict[tuple[str, str, str], dict] = {}
+        # Results are also keyed by the request that produced them, so a poll
+        # for request B can never be answered with request A's older result.
+        self.results_by_request: dict[str, dict] = {}
 
     def prune(self):
         now = self.clock()
         self.requests = {k: v for k, v in self.requests.items() if v["expires"] > now}
         self.results = {k: v for k, v in self.results.items() if v["expires"] > now}
+        self.results_by_request = {
+            k: v for k, v in self.results_by_request.items() if v["expires"] > now
+        }
 
     def create(self, body: CreateRequest) -> dict:
         if not CODE.match(body.code):
@@ -130,8 +137,11 @@ class Bridge:
             record = self.requests.get(request_id)
             if record is None or record["code"] != code:
                 raise HTTPException(404, "Camera request unavailable.")
+            if record["status"] == "completed":
+                raise HTTPException(409, "Camera request already has a result.")
             record["status"] = "completed"
             payload = {
+                "request_id": record["id"],
                 "summary": summary.model_dump(),
                 "project_id": record["project_id"],
                 "step_id": record["step_id"],
@@ -140,12 +150,22 @@ class Bridge:
                 "expires": self.clock() + self.ttl,
             }
             self.results[(record["project_id"], record["step_id"], code)] = payload
+            self.results_by_request[record["id"]] = {**payload, "code": code}
             return payload
 
-    def latest(self, project_id: str, step_id: str, code: str) -> dict | None:
+    def latest(
+        self, project_id: str, step_id: str, code: str, request_id: str | None = None
+    ) -> dict | None:
         with self.lock:
             self.prune()
-            return self.results.get((project_id, step_id, code))
+            if request_id is None:
+                return self.results.get((project_id, step_id, code))
+            payload = self.results_by_request.get(request_id)
+            if payload is None or (
+                payload["project_id"], payload["step_id"], payload["code"]
+            ) != (project_id, step_id, code):
+                return None
+            return payload
 
 
 def get_bridge(request: Request) -> Bridge:
@@ -185,14 +205,26 @@ def post_result(request_id: str, body: ResultPost, request: Request):
 
 
 @router.get("/result")
-def latest_result(project_id: str, step_id: str, code: str, request: Request):
+def latest_result(
+    project_id: str,
+    step_id: str,
+    code: str,
+    request: Request,
+    request_id: Annotated[str | None, Query(max_length=64)] = None,
+):
+    """Result for one capture request. With `request_id` (recommended) only the
+    result of exactly that request is returned; without it, the latest result
+    for project + step + pairing code (legacy behaviour)."""
     if not CODE.match(code):
         raise HTTPException(422, "Invalid pairing code.")
-    payload = get_bridge(request).latest(project_id, step_id, code)
+    payload = get_bridge(request).latest(project_id, step_id, code, request_id)
     if payload is None:
         return {"result": None}
     return {
         "result": {
+            "request_id": payload["request_id"],
+            "project_id": payload["project_id"],
+            "step_id": payload["step_id"],
             "summary": payload["summary"],
             "mode": payload["mode"],
             "updated_at": payload["updated_at"],

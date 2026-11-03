@@ -80,8 +80,11 @@ test("camera, snapshot and setting values survive Workspace and Settings navigat
   const image = await page.getByAltText("Latest captured LEGO assembly").getAttribute("src");
   const track = await page.locator("video").evaluateHandle((video: HTMLVideoElement) => (video.srcObject as MediaStream).getVideoTracks()[0]);
   await navigation(page).getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByRole("status", { name: "Camera: Connected" })).toBeVisible();
-  expect(await page.locator("video").evaluate((video: HTMLVideoElement) => video.videoWidth > 0 && video.srcObject !== null)).toBe(true);
+  // The Settings page mounts a NEW <video> for the same stream; its dimensions
+  // exist only after it loaded metadata, so poll instead of sampling once.
+  await expect.poll(() => page.locator("video").evaluate((video: HTMLVideoElement) => video.videoWidth > 0 && video.srcObject !== null), { timeout: 5_000 }).toBe(true);
   await openCalibration(page);
   await page.getByLabel("Lens identification").fill("Fixed test lens");
   await page.getByLabel("Focus / zoom / crop / stabilization configuration").fill("Fixed focus, no crop");
@@ -111,7 +114,12 @@ test("camera, snapshot and setting values survive Workspace and Settings navigat
   await page.getByRole("button", { name: "Capture", exact: true }).click();
   await expect(debug(page).getByRole("checkbox", { name: "Enable edge debug mode" })).not.toBeChecked();
   await navigation(page).getByRole("link", { name: "Projects", exact: true }).click();
-  expect(await track.evaluate((track) => track.readyState)).toBe("ended");
+  // Wait for the completed client-side navigation before judging the camera:
+  // the track is released by the workspace session teardown, which runs only
+  // once the /projects route has rendered.
+  await expect(page).toHaveURL(/\/projects$/);
+  await expect(navigation(page).locator('[aria-current="page"]')).toHaveText("Projects");
+  await expect.poll(() => track.evaluate((track) => track.readyState), { timeout: 5_000 }).toBe("ended");
 });
 
 const profile: CalibrationProfile = {

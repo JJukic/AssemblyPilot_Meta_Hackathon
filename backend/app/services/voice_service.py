@@ -11,6 +11,7 @@ import io
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import wave
 from collections import deque
@@ -26,38 +27,70 @@ class VoiceError(Exception):
 
 
 class VoiceSessionStore:
-    """In-memory, expiring voice-session tokens with per-session rate limits."""
+    """In-memory, expiring voice-session tokens with per-session rate limits.
 
-    def __init__(self, ttl_seconds: int = 600, per_minute: int = 30):
+    Bounded: expired sessions are pruned whenever a new session is created,
+    and at most `max_sessions` live sessions exist at once. When the store is
+    full of still-valid sessions, creation is refused (429) instead of
+    evicting a valid session early.
+    """
+
+    def __init__(
+        self,
+        ttl_seconds: int = 600,
+        per_minute: int = 30,
+        max_sessions: int = 256,
+        clock=time.monotonic,
+    ):
         self.ttl = ttl_seconds
         self.per_minute = per_minute
+        self.max_sessions = max_sessions
+        self.clock = clock
+        self._lock = threading.Lock()
         self._sessions: dict[str, dict] = {}
+
+    def __len__(self) -> int:
+        return len(self._sessions)
+
+    def _prune(self, now: float) -> None:
+        expired = [token for token, s in self._sessions.items() if s["expires"] <= now]
+        for token in expired:
+            del self._sessions[token]
 
     def create(self) -> str:
         import secrets
 
-        token = secrets.token_urlsafe(32)
-        self._sessions[token] = {"expires": time.monotonic() + self.ttl, "hits": deque()}
-        return token
+        with self._lock:
+            now = self.clock()
+            self._prune(now)
+            if len(self._sessions) >= self.max_sessions:
+                raise VoiceError(
+                    429, "Too many active voice sessions. Try again after one ends or expires."
+                )
+            token = secrets.token_urlsafe(32)
+            self._sessions[token] = {"expires": now + self.ttl, "hits": deque()}
+            return token
 
     def authorize(self, token: str | None) -> None:
         if not token:
             raise VoiceError(401, "Voice session required. Enable local voice first.")
-        session = self._sessions.get(token)
-        now = time.monotonic()
-        if session is None or session["expires"] < now:
-            self._sessions.pop(token, None)
-            raise VoiceError(401, "Voice session expired. Enable local voice again.")
-        hits: deque = session["hits"]
-        while hits and hits[0] < now - 60:
-            hits.popleft()
-        if len(hits) >= self.per_minute:
-            raise VoiceError(429, "Voice rate limit reached. Wait a moment, then try again.")
-        hits.append(now)
+        with self._lock:
+            session = self._sessions.get(token)
+            now = self.clock()
+            if session is None or session["expires"] <= now:
+                self._sessions.pop(token, None)
+                raise VoiceError(401, "Voice session expired. Enable local voice again.")
+            hits: deque = session["hits"]
+            while hits and hits[0] < now - 60:
+                hits.popleft()
+            if len(hits) >= self.per_minute:
+                raise VoiceError(429, "Voice rate limit reached. Wait a moment, then try again.")
+            hits.append(now)
 
     def revoke(self, token: str | None) -> None:
         if token:
-            self._sessions.pop(token, None)
+            with self._lock:
+                self._sessions.pop(token, None)
 
 
 def validate_wav(data: bytes, max_bytes: int, max_seconds: float) -> dict:

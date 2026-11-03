@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     voice_max_duration_seconds: float = Field(default=8, gt=0, le=30)
     voice_session_ttl_seconds: int = Field(default=600, ge=60, le=3600)
     voice_rate_limit_per_minute: int = Field(default=30, ge=1, le=120)
+    voice_max_sessions: int = Field(default=256, ge=1, le=10_000)
     voice_transcribe_timeout_seconds: float = Field(default=60, gt=0, le=180)
     max_upload_bytes: int = Field(default=8 * 1024 * 1024, gt=0)
     max_image_pixels: int = Field(default=20_000_000, gt=0)

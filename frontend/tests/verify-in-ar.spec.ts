@@ -56,6 +56,7 @@ async function fakeCamera(page: Page, a: Awaited<ReturnType<typeof setup>>) {
     ctx.fillStyle = "#ccaa00"; ctx.fillRect(0, 0, 320, 240);
     ctx.fillStyle = "#2255aa"; ctx.fillRect(100, 80, 90, 90);
     const stream = canvas.captureStream(10);
+    (window as unknown as { __fakeCameraStream: MediaStream }).__fakeCameraStream = stream;
     const real = navigator.mediaDevices;
     Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
       getUserMedia: async (c: MediaStreamConstraints) => (c?.video ? stream : real.getUserMedia(c)),
@@ -89,4 +90,26 @@ test("external companion captures for an in-AR request and returns the validated
   // The local AR page also surfaces the same overall result.
   await expect(page.getByRole("region", { name: "Latest Meta inspection result" }))
     .toContainText("Incorrect — Correction Required", { timeout: 10000 });
+});
+
+test("leaving the AR page releases the camera opened by the external companion", async ({ page, request }) => {
+  test.setTimeout(60000);
+  const a = await setup(request);
+  await fakeCamera(page, a);
+  const created = await request.post(`${api}/api/ar-camera/requests`, {
+    data: { project_id: a.project.id, step_id: a.step.id, code: "CAM456", mode: "inspect" },
+  });
+  expect(created.status()).toBe(201);
+  await page.goto(`/ar?project=${a.project.id}`);
+  await expect(page.getByRole("heading", { name: "Step 1 — First" })).toBeVisible();
+  await page.getByLabel(/Camera pairing code/).fill("CAM456");
+  await page.getByRole("button", { name: /Act as external camera companion/ }).click();
+  await expect(page.getByText(/Companion captured a fresh frame/)).toBeVisible({ timeout: 20000 });
+  const states = () => page.evaluate(() =>
+    (window as unknown as { __fakeCameraStream: MediaStream }).__fakeCameraStream.getVideoTracks().map((t) => t.readyState));
+  expect(await states()).toEqual(["live"]); // the companion opened (and still holds) the camera
+  // Leave the page through client-side navigation (same document, so the track stays inspectable).
+  await page.getByRole("link", { name: "Edit project / AR placements" }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${a.project.id}$`));
+  await expect.poll(states, { timeout: 5_000 }).toEqual(["ended"]);
 });

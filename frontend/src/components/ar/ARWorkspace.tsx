@@ -65,14 +65,15 @@ import {
 import { saveLastInspection } from "@/lib/ar/voiceVerify";
 import {
   claimExternalRequest, latestExternalResult, newPairingCode, pendingExternalRequests,
-  postExternalResult, requestExternalCapture, summaryFromBridge, validPairingCode,
+  postExternalResult, requestExternalCapture, validPairingCode, ExternalRequestTracker,
 } from "@/lib/ar/cameraBridge";
 import {
   InspectionTrace, encodedByteSize, snapshotFingerprint,
   type InspectionDiagnostics,
 } from "@/lib/ar/inspectionTrace";
 import { classifyUncertain, type FrameQuality } from "@/lib/ar/monitoring";
-import { InspectionCoordinator } from "@/lib/ar/coordinator";
+import { InspectionCoordinator, UploadRun } from "@/lib/ar/coordinator";
+import { isRevisionConflict, moveCursor } from "@/lib/ar/cursor";
 import type { TraceSummary } from "@/lib/ar/inspectionResult";
 import type { ProjectDetail } from "@/types/projects";
 import type { SpatialSession, Action, Guidance, PanelView } from "@/lib/ar/runtime";
@@ -180,12 +181,18 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [lastFrame, setLastFrame] = useState<{ dataUrl: string; source: string; capturedAt: string; fingerprint: string; width: number; height: number } | null>(null);
   const [showFrame, setShowFrame] = useState(false);
   const [extPending, setExtPending] = useState(false);
+  /** The single active external capture request (request id + scope); stale polls are dropped. */
+  const [extTracker] = useState(() => new ExternalRequestTracker());
+  const pairingRef = useRef("");
+  const specRef = useRef("");
   const [companionOn, setCompanionOn] = useState(false);
   const [interactionUi, setInteractionUi] = useState("");
   const machineRef = useRef<AutonomousMachine | null>(null);
   const controllerRef = useRef<AutoController | null>(null);
   const coordinatorRef = useRef(new InspectionCoordinator());
   const monitorRef = useRef<MonitorCamera | null>(null);
+  /** Camera OPENED by the external companion (owner), independent of the shared `monitorRef` reference. */
+  const companionCameraRef = useRef<MonitorCamera | null>(null);
   const autoAbort = useRef<AbortController | null>(null);
   /** The in-flight request started BY Autonomous (Stop aborts only this one, never a manual Check). */
   const autoOwnedAbort = useRef<AbortController | null>(null);
@@ -196,13 +203,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [runner] = useState(() => new AutonomousRunner({
     camera: () => (monitorRef.current?.live ? monitorRef.current : new MonitorCamera()),
     controller: {
-      inspect: (intent, frame, sid) => inspectRef.current(intent, frame, sid),
+      inspect: (intent, frame, sid, guard) => inspectRef.current(intent, frame, sid, guard),
       context: () => ({
         projectId,
         stepId: viewRef.current.step_id,
         xrActive: runtime.current !== null,
-        anchored: runtime.current?.isAnchored ?? false,
+        // Anchored AND a current viewer pose: an anchor held during head-tracking loss is not enough.
+        anchored: runtime.current?.autoInspectionReady ?? false,
         anchorState: runtime.current?.anchorState ?? "unplaced",
+        viewerTracked: runtime.current ? runtime.current.viewerTracked : undefined,
+        anchorEpoch: runtime.current?.anchorEpoch,
         fieldInView: runtime.current?.fieldInView ?? null,
         otherInspectionRunning: coordinatorRef.current.busy,
         externalPending: extPendingRef.current,
@@ -343,8 +353,16 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     });
     return () => {
       alive.current = false;
+      extTracker.invalidate(); // a poll resolving after unmount is dropped
+      // runner.stop() clears monitorRef via onPhase("off"): capture every camera
+      // reference first so a companion/probe camera it does not own is released too.
+      const monitor = monitorRef.current;
+      const companionCamera = companionCameraRef.current;
+      companionCameraRef.current = null;
       runner.stop();
       autoAbort.current?.abort();
+      monitor?.stop();
+      companionCamera?.stop();
       monitorRef.current?.stop();
       microphoneSession.active = false;
       voiceRef.current?.dispose();
@@ -353,7 +371,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       localRef.current = null;
       void runtime.current?.end();
     };
-  }, [runner]);
+  }, [runner, extTracker]);
   useEffect(() => {
     let cancelled = false,
       running = false,
@@ -422,7 +440,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           setLoadedFor(key);
         }
       } catch (e) {
-        if (!cancelled) setError(errorMessage(e));
+        if (!cancelled) {
+          setError(errorMessage(e));
+          setLoadedFor(key); // settled (empty): the manual proxy box becomes available
+        }
       }
     })();
     return () => {
@@ -579,6 +600,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       // it can neither overwrite the new step's state nor hit a backend 409.
       if (coordinatorRef.current.busy && coordinatorRef.current.activeStep !== view.step_id) autoAbort.current?.abort();
       coordinatorRef.current.invalidateStep();
+      // An external capture requested for the previous step can never answer this one.
+      // (the poll then sees no active request and clears the pending flag itself).
+      if (extTracker.current && extTracker.current.stepId !== view.step_id) extTracker.invalidate();
       previews.invalidate(); // never present a previous-step frame as current evidence
       resultBinding.current = { summary: null, id: 0 };
       if (controllerRef.current) controllerRef.current.onStepChanged(view.step_id);
@@ -586,28 +610,49 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       autoWorkflow.current = null;
       syncAutoLabel();
     }
-  }, [view.step_id, previews]);
+  }, [view.step_id, previews, extTracker]);
   useEffect(() => {
-    if (!extPending || !validPairingCode(pairingCode) || !view.step_id) return;
-    const stepId = view.step_id;
+    if (!extPending) return;
+    let disposed = false;
     const timer = setInterval(() => {
       void (async () => {
-        const payload = await latestExternalResult(projectId, stepId, pairingCode).catch(() => null);
-        if (!payload) return;
-        const summary = summaryFromBridge(payload, projectId, stepId);
-        if (!summary) return;
+        const request = extTracker.current;
+        if (!request) {
+          // Invalidated (step change / Stop): nothing is awaited any more.
+          if (!disposed && alive.current) setExtPending(false);
+          return;
+        }
+        if (request.spec !== specRef.current || request.code !== pairingRef.current) {
+          // The step guidance or pairing changed: this request can no longer be answered.
+          extTracker.invalidate();
+          if (!disposed && alive.current) {
+            setExtPending(false);
+            setAutoStatus("External camera request discarded — the step or pairing code changed. Request a new check.");
+          }
+          return;
+        }
+        const received = await extTracker.pollOnce(
+          (r) => latestExternalResult(r.projectId, r.stepId, r.code, r.requestId),
+          () => ({ projectId, stepId: viewRef.current.step_id, code: pairingRef.current, spec: specRef.current }),
+        );
+        if (!received || disposed || !alive.current) return;
+        const { summary } = received;
         saveInspectionSummary(summary);
         setResultSummary(summary);
         setResultMode("result");
         runtime.current?.setViewMode("result");
-        setExtPending(false);
+        setExtPending(false); // only the active request was consumed by pollOnce
         setAutoStatus("External camera result received in AR — see the result panel.");
+        // Advance only after the backend progress confirms this exact step.
         if (summary.verificationStatus === "verified") await advanceIfVerified();
       })();
     }, 2000);
-    return () => clearInterval(timer);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extPending, pairingCode, view.step_id]);
+  }, [extPending, extTracker]);
   useEffect(() => {
     if (!companionOn) return;
     const timer = setInterval(() => void runCompanionOnce(), 2000);
@@ -615,17 +660,36 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companionOn, pairingCode, view.step_id, cameraSource, camDeviceId]);
   useEffect(() => {
+    if (!companionOn) return;
+    return () => {
+      // Companion switched off: release the camera it opened unless Autonomous now owns it.
+      const camera = companionCameraRef.current;
+      companionCameraRef.current = null;
+      if (camera && camera !== runner.camera) {
+        camera.stop();
+        if (monitorRef.current === camera) monitorRef.current = null;
+      }
+    };
+  }, [companionOn, runner]);
+  useEffect(() => {
     if (autoOn && verified) void advanceIfVerified();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOn, verified]);
 
-  async function navigate(offset: number): Promise<ExecutionOutcome> {
+  /**
+   * Move the shared step cursor by `offset`. The move is bound to a fixed
+   * origin (`fromStepId`, default: the current step) and a fixed absolute
+   * target computed ONCE; a revision conflict never re-applies the offset
+   * (see lib/ar/cursor.ts), so with two devices no step is skipped.
+   */
+  async function navigate(offset: number, fromStepId?: string): Promise<ExecutionOutcome> {
     if (!project) return { ok: false, reason: "Project is still loading" };
     if (coordinatorRef.current.busy && !advancingRef.current)
       return { ok: false, reason: "Inspection running — navigation waits until Meta finishes" };
     if (!online) return { ok: false, reason: "Project state unavailable (offline)" };
     const current = viewRef.current;
-    const index = project.steps.findIndex((s) => s.id === current.step_id);
+    const originId = fromStepId ?? current.step_id;
+    const index = project.steps.findIndex((s) => s.id === originId);
     if (index < 0) return { ok: false, reason: "Current step is unknown" };
     const from = project.steps[index];
     const next = project.steps[index + offset];
@@ -635,52 +699,42 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         reason: offset < 0 ? "Already at first step" : "Already at last step",
         detail: `Step ${from.position} of ${project.steps.length}`,
       };
+    if (current.step_id === next.id) return { ok: true, detail: `Already at Step ${next.position}` };
+    if (current.step_id !== from.id)
+      return { ok: false, reason: "The step changed meanwhile; nothing was moved", detail: `Still at Step ${project.steps.find((s) => s.id === current.step_id)?.position ?? "?"}` };
     setHologram(EMPTY_HOLOGRAM);
     runtime.current?.setReferenceImage(null);
     runtime.current?.update({ ...info.current, placement: null, hologram: EMPTY_HOLOGRAM });
-    try {
-      let v: ViewedStep;
-      try {
-        v = await setView(projectId, next.id, current.revision);
-      } catch (cause) {
-        // Revision conflict: another writer moved the cursor. Reload the
-        // freshest view and retry once against that step, never silently.
-        if (!(cause instanceof Error) || !/409|changed the viewed step/i.test(cause.message))
-          throw cause;
-        const fresh = await getView(projectId);
-        viewRef.current = fresh;
-        setViewed(fresh);
-        const freshIndex = project.steps.findIndex((s) => s.id === fresh.step_id);
-        const retryTarget = project.steps[freshIndex + offset];
-        if (!retryTarget)
-          return {
-            ok: false,
-            reason: "Project state revision conflict",
-            detail: `Still at Step ${project.steps[freshIndex]?.position ?? "?"}`,
-          };
-        v = await setView(projectId, retryTarget.id, fresh.revision);
-        viewRef.current = v;
-        setViewed(v);
-        setVerification({ step: "", verified: false });
-        setError("");
-        return {
-          ok: true,
-          detail: `Step ${project.steps[freshIndex].position} → ${retryTarget.position} (after revision reload)`,
-        };
-      }
+    const adopt = (v: ViewedStep) => {
       viewRef.current = v;
       setViewed(v);
       setVerification({ step: "", verified: false });
       setError("");
-      return { ok: true, detail: `Step ${from.position} → ${next.position}` };
+    };
+    try {
+      const move = await moveCursor(
+        { setView: (step, revision) => setView(projectId, step, revision), getView: () => getView(projectId) },
+        { from: from.id, to: next.id, revision: current.revision },
+      );
+      adopt(move.view);
+      if (move.kind === "diverged")
+        return {
+          ok: false,
+          reason: "Project state revision conflict",
+          detail: `Another device moved to Step ${project.steps.find((s) => s.id === move.view.step_id)?.position ?? "?"}; nothing was moved`,
+        };
+      return {
+        ok: true,
+        detail: move.kind === "synced"
+          ? `Step ${from.position} → ${next.position} (already moved by another device)`
+          : `Step ${from.position} → ${next.position}${move.retried ? " (after revision reload)" : ""}`,
+      };
     } catch (e) {
       const message = errorMessage(e);
       setError(message);
       return {
         ok: false,
-        reason: /409|changed the viewed step/i.test(message)
-          ? "Project state revision conflict"
-          : message,
+        reason: isRevisionConflict(e) ? "Project state revision conflict" : message,
       };
     }
   }
@@ -746,7 +800,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       case "re-anchor":
       case "reanchor":
         if (!runtime.current) return { ok: false, reason: "No active AR session — enter AR first" };
-        runtime.current.reset();
+        reanchorField();
         return { ok: true, detail: "Tabletop alignment reset — confirm the origin again" };
       case "recenter":
         if (!runtime.current) return { ok: false, reason: "No active AR session — enter AR first" };
@@ -1099,7 +1153,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         return;
       }
       setAutoStatus(`STEP VERIFIED — Step ${project.steps[index].position} confirmed by the backend. Loading next step…`);
-      const outcome = await navigate(1);
+      // Bound to the verified origin step and its fixed successor (idempotent with two devices).
+      const outcome = await navigate(1, stepId);
       if (outcome.ok && viewRef.current.step_id && viewRef.current.step_id !== stepId) {
         autoWorkflow.current = null;
         if (m) {
@@ -1117,6 +1172,15 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     }
   }
 
+  /**
+   * Re-anchor: discards the placement AND invalidates every prepared automatic
+   * capture/request (the anchor epoch changes; the in-flight Autonomous browser
+   * request is cancelled). A manual check is not touched.
+   */
+  function reanchorField() {
+    autoOwnedAbort.current?.abort();
+    runtime.current?.reset();
+  }
   /** Switch the AR panel view (panel only — never the field or anchor). */
   function showPanelView(mode: PanelView) {
     setResultMode(mode);
@@ -1163,7 +1227,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     intent: "inspect" | "verify",
     frame: import("@/types/assembly").Snapshot,
     stepId: string,
-    opts: { cameraSource?: string; quality?: FrameQuality; frameFresh?: boolean; selection?: string; roiPx?: SelectedFrame["roiPx"]; origin?: "auto" | "manual" } = {},
+    opts: {
+      cameraSource?: string; quality?: FrameQuality; frameFresh?: boolean; selection?: string; roiPx?: SelectedFrame["roiPx"]; origin?: "auto" | "manual";
+      /** Run guard of the caller (Autonomous: not stopped/paused/superseded, tracking + anchor still valid). */
+      mayUpload?: () => boolean;
+    } = {},
   ): Promise<InARResult> {
     const lease = coordinatorRef.current.acquire(projectId, stepId, intent);
     if (lease === null)
@@ -1171,6 +1239,26 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     // A result is applied only while its lease and step are still current.
     const current = () => coordinatorRef.current.accepts(lease, projectId, stepId) && viewRef.current.step_id === stepId;
     const stale: InARResult = { overallStatus: "error", failure: "stale", stale: true, message: "The step changed while the request ran; its result was discarded." };
+    // Register the run (and its AbortController) BEFORE the first await, so Stop
+    // during fingerprinting / image preparation cancels it and no upload starts.
+    const run = new UploadRun(() => current() && (opts.mayUpload?.() ?? true));
+    const controller = run.controller;
+    autoAbort.current = controller;
+    if (opts.origin === "auto") autoOwnedAbort.current = controller;
+    const settle = () => {
+      coordinatorRef.current.release(lease);
+      if (autoAbort.current === controller) autoAbort.current = null;
+      if (autoOwnedAbort.current === controller) autoOwnedAbort.current = null;
+    };
+    /** The run closed before any upload: nothing was sent to Meta. */
+    const notSent = (previewId: number): InARResult => {
+      settle();
+      const superseded = !controller.signal.aborted && !current();
+      previews.finish(previewId, "rejected",
+        superseded ? "The step changed before upload — nothing was sent to Meta." : "Stopped before upload — nothing was sent to Meta.",
+        "not sent to Meta");
+      return superseded ? stale : { overallStatus: "error", failure: "aborted", message: "Cancelled before upload; nothing was sent to Meta." };
+    };
     const source = opts.cameraSource ?? cameraSource;
     const trace = new InspectionTrace(source, projectId, stepId);
     trace.stage("CAPTURE_REQUESTED", `${intent} requested`);
@@ -1190,13 +1278,14 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     });
     showPanelView("camera");
     try { trace.data.correlationId = await snapshotFingerprint(frame.dataUrl); } catch { /* fingerprint best-effort */ }
+    if (!run.open) return notSent(previewId); // Stop/Pause/step change/tracking loss while fingerprinting
     previews.update(previewId, { fingerprint: trace.data.correlationId ?? null });
     setLastFrame({ dataUrl: frame.dataUrl, source, capturedAt: frame.capturedAt, fingerprint: trace.data.correlationId ?? "unavailable", width: frame.width, height: frame.height });
     if (opts.quality && !opts.quality.ok) {
       trace.data.frameQuality = opts.quality.reason;
       trace.data.metaCalled = false;
       trace.fail(`FRAME_VALIDATED failed: ${opts.quality.reason}. No image was sent to Meta.`);
-      coordinatorRef.current.release(lease);
+      settle();
       trace.save();
       setLastTrace({ ...trace.data });
       const summary = autoErrorSummary(projectId, stepId, `CAMERA ERROR — no usable camera frame: ${opts.quality.reason}. Nothing was sent to Meta.`);
@@ -1251,9 +1340,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       setLastTrace({ ...trace.data });
       return traceSummary;
     };
-    const controller = new AbortController();
-    autoAbort.current = controller;
-    if (opts.origin === "auto") autoOwnedAbort.current = controller;
+    if (!run.open) return notSent(previewId); // final check before the in-progress state and upload
     const inProgress = inspectingSummary(projectId, stepId);
     saveInspectionSummary(inProgress);
     setResultSummary(inProgress);
@@ -1273,7 +1360,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     });
     try {
       if (intent === "verify" && autoWorkflow.current && autoWorkflow.current.step_id === stepId) {
-        const verification = await verifySnapshot(projectId, autoWorkflow.current, frame, controller.signal);
+        const workflow = autoWorkflow.current;
+        const sending = run.upload((signal) => verifySnapshot(projectId, workflow, frame, signal));
+        if (!sending) return notSent(previewId);
+        const verification = await sending;
         if (controller.signal.aborted) { previews.update(previewId, { phase: "failed", detail: "Request cancelled" }); return { overallStatus: "error", failure: "aborted", message: "Cancelled" }; }
         if (!current()) { previews.update(previewId, { phase: "stale", detail: "The step changed while the request ran — this result was discarded." }); return stale; }
         autoWorkflow.current = verification.inspection;
@@ -1291,7 +1381,9 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           needsView: needsAnotherView(traced),
         };
       }
-      const diagnosis = await inspectSnapshot(projectId, stepId, frame, controller.signal);
+      const sending = run.upload((signal) => inspectSnapshot(projectId, stepId, frame, signal));
+      if (!sending) return notSent(previewId);
+      const diagnosis = await sending;
       if (controller.signal.aborted) { previews.update(previewId, { phase: "failed", detail: "Request cancelled" }); return { overallStatus: "error", failure: "aborted", message: "Cancelled" }; }
       if (!current()) { previews.update(previewId, { phase: "stale", detail: "The step changed while the request ran — this result was discarded." }); return stale; }
       const workflow = isWorkflowInspection(diagnosis, stepId) ? diagnosis : null;
@@ -1334,9 +1426,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       showPanelView("result");
       return { overallStatus: "error", failure, message: errorMessage(cause) };
     } finally {
-      coordinatorRef.current.release(lease);
-      if (autoAbort.current === controller) autoAbort.current = null;
-      if (autoOwnedAbort.current === controller) autoOwnedAbort.current = null;
+      settle();
     }
   }
   /** "Inspect Now": one explicit request through the same guarded controller. */
@@ -1488,8 +1578,15 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     const code = pairingCode && validPairingCode(pairingCode) ? pairingCode : newPairingCode();
     if (code !== pairingCode) setPairingCode(code);
     if (!view.step_id) return { ok: false, reason: "Current step is unknown" };
+    const stepId = view.step_id;
+    const issuedSpec = specRef.current;
+    extTracker.invalidate(); // a new request supersedes any earlier one immediately
     try {
-      await requestExternalCapture(projectId, view.step_id, code, mode);
+      const requestId = await requestExternalCapture(projectId, stepId, code, mode);
+      if (!alive.current || viewRef.current.step_id !== stepId || specRef.current !== issuedSpec)
+        return { ok: false, reason: "The step changed while the external capture was requested; nothing is awaited." };
+      extTracker.begin({ requestId, projectId, stepId, code, spec: issuedSpec });
+      pairingRef.current = code;
       setExtPending(true);
       setAutoStatus(`Camera unavailable in immersive AR (${why}) Connect an external camera: open this project page on the MacBook/iPhone, enter pairing code ${code}, and start the external camera companion. The result will appear here — you stay in AR.`);
       setStatus("External camera capture requested. Stay in AR; the result will appear in the panel.");
@@ -1510,7 +1607,12 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         let monitor = monitorRef.current;
         if (!monitor?.live) {
           monitor = new MonitorCamera();
+          companionCameraRef.current = monitor; // owner known before the first await
           await monitor.start(cameraSource === "external" && camDeviceId ? camDeviceId : undefined);
+          if (!alive.current || companionCameraRef.current !== monitor) {
+            monitor.stop(); // page left or companion stopped while the camera opened
+            return;
+          }
           monitorRef.current = monitor;
         }
         const validated = monitor.captureValidated();
@@ -1528,10 +1630,10 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     }
   }
   /** Bridge from the long-lived controller to the inspection pipeline of the LATEST render. */
-  async function runControllerInspection(intent: "inspect" | "verify", frame: SelectedFrame, stepId: string): Promise<InspectOutcome> {
+  async function runControllerInspection(intent: "inspect" | "verify", frame: SelectedFrame, stepId: string, guard: () => boolean): Promise<InspectOutcome> {
     const source = `${cameraSource === "external" ? "external" : "hololens"} camera${monitorRef.current?.deviceLabel ? ` (${monitorRef.current.deviceLabel})` : ""}`;
     const d = await performInARInspection(intent, frame.snapshot, stepId, {
-      cameraSource: source, frameFresh: true, selection: frame.reason, roiPx: frame.roiPx, origin: "auto",
+      cameraSource: source, frameFresh: true, selection: frame.reason, roiPx: frame.roiPx, origin: "auto", mayUpload: guard,
     });
     if (d.stale) return { kind: "stale" };
     if (d.overallStatus === "error") return { kind: "error", failure: d.failure ?? "backend", message: d.message ?? "Inspection failed" };
@@ -1548,6 +1650,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     inspectRef.current = runControllerInspection;
     advanceRef.current = advanceIfVerified;
     extPendingRef.current = extPending;
+    pairingRef.current = pairingCode;
+    specRef.current = spec;
   });
 
   async function startAutonomous() {
@@ -1588,6 +1692,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     setAutoPaused(false);
     syncAutoLabel();
     setAutoStatus("RESUMED.");
+    // A verification that arrived while paused advances only now (server progress is re-checked).
+    if (m.state === "verified") void advanceIfVerified();
   }
   /** Final step verified: stop paid calls and release the camera, keep the hologram and history. */
   function finishAutonomous() {
@@ -1601,6 +1707,11 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
    */
   function stopAutonomous(message?: string) {
     runner.stop(message);
+    // Stop also ends waiting for an external capture: a late result is dropped.
+    if (extTracker.current) {
+      extTracker.invalidate();
+      setExtPending(false);
+    }
     machineRef.current?.stop();
     machineRef.current = null;
     controllerRef.current = null;
@@ -1734,7 +1845,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         </button>
         {active && (
           <>
-            <button className="button secondary" onClick={() => runtime.current?.reset()}>Re-anchor tabletop</button>
+            <button className="button secondary" onClick={() => reanchorField()}>Re-anchor tabletop</button>
             <button className="button secondary" onClick={() => runtime.current?.recenterPanel()}>Recenter panel</button>
             <button className="button secondary" onClick={() => runtime.current?.resetPanelSize()}>Reset panel size</button>
             <button className="button danger ar-exit-large" onClick={() => void exitAR()}>Exit AR</button>
@@ -1945,7 +2056,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
           {autoOn && <button className="button danger" onClick={() => stopAutonomous()}>Stop Autonomous Assembly</button>}
           <button className="button secondary" disabled={!autoOn || cameraSource === "manual"} onClick={() => void runAutoTrigger()}>Inspect Now</button>
           <button className="button secondary" disabled={!active} onClick={() => runtime.current?.confirmOrigin()}>Confirm Assembly Field</button>
-          <button className="button secondary" disabled={!active} onClick={() => runtime.current?.reset()}>Re-anchor Assembly Field</button>
+          <button className="button secondary" disabled={!active} onClick={() => reanchorField()}>Re-anchor Assembly Field</button>
         </div>
         <label>
           Camera pairing code{" "}
@@ -2123,7 +2234,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       {!placement && (
         <>
           <p>No usable 3D model or dimensions for this step. Nothing is drawn as an exact block.</p>
-          <button className="button secondary" disabled={!step?.required_blocks.length} onClick={proxy}>
+          {/* Only after this step's scene settled: a late scene load would otherwise replace the chosen box. */}
+          <button className="button secondary" disabled={!step?.required_blocks.length || loadedFor !== placementKey} onClick={proxy}>
             Use 10 cm alignment box (approximate)
           </button>
         </>

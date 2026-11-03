@@ -33,3 +33,35 @@ export class InspectionCoordinator {
     this.token++;
   }
 }
+
+/**
+ * One prepared inspection upload ("run"). Its AbortController exists before
+ * the first `await`, so Stop/Pause/Re-anchor can cancel it while the frame is
+ * still being fingerprinted or prepared. Callers check `open` after EVERY
+ * asynchronous preparation step and once more directly before the upload;
+ * a closed run never starts an upload. A request that already reached the
+ * backend is not withdrawn — its late result is simply not used.
+ */
+export class UploadRun {
+  readonly controller = new AbortController();
+  /** Set when the upload really started (for diagnostics and tests). */
+  uploadStarted = false;
+  constructor(private stillValid: () => boolean = () => true) {}
+
+  get signal(): AbortSignal {
+    return this.controller.signal;
+  }
+  /** Still allowed to proceed: not aborted, not superseded, not stopped/paused. */
+  get open(): boolean {
+    return !this.controller.signal.aborted && this.stillValid();
+  }
+  abort() {
+    this.controller.abort();
+  }
+  /** Start the upload only if the run is still open (the final pre-upload check). */
+  upload<T>(send: (signal: AbortSignal) => Promise<T>): Promise<T> | null {
+    if (!this.open) return null;
+    this.uploadStarted = true;
+    return send(this.controller.signal);
+  }
+}

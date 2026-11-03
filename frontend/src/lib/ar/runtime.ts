@@ -417,6 +417,16 @@ export class SpatialSession {
   }
   get anchorState() { return this.anchorTracker.state; }
   get isAnchored() { return this.anchorTracker.isAnchored; }
+  /** The last XR frame had a viewer pose (head tracking available). */
+  get viewerTracked() { return !this.ended && this.tracking; }
+  /** Changes on every Re-anchor / new placement: prepared automatic captures of an older epoch are invalid. */
+  get anchorEpoch() { return this.epoch; }
+  /**
+   * Automatic inspection allowed right now: a trustworthy anchor AND a current
+   * viewer pose. `isAnchored` alone is not enough (the anchor is held during
+   * head-tracking loss, but no frame of the field can then be trusted).
+   */
+  get autoInspectionReady() { return !this.ended && this.anchorTracker.isAnchored && this.tracking; }
   setFieldSize(widthM: number, depthM: number) {
     this.fieldConfig = { widthM, depthM };
     this.rebuildField();
