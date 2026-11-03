@@ -164,6 +164,54 @@ test("failed completion load leaves XR alive and reports unavailable; late load 
   const scene=new THREE.Group(); scene.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial()));
   resolve({scene,animations:[]}); await Promise.resolve(); assert.equal(runtime.mascot.transform.parent,null);
 });
+test("completion mascot stands BEHIND the confirmed field; Re-anchor keeps it hidden, then behind the NEW field; Restart and XR end remove it", async () => {
+  const { runtime } = await setup(); confirmField(runtime);
+  const clip = (name) => new THREE.AnimationClip(name, 0.5, []);
+  runtime.mascot.load = async () => {
+    const scene = new THREE.Group();
+    scene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshBasicMaterial()));
+    return { scene, animations: [clip("Walking"), clip("Wave"), clip("Dance"), clip("Idle")] };
+  };
+  const done = { placement: placement(), text: "Final", detail: "", completion: true, progress: { position: 2, total: 2, currentVerified: true } };
+  runtime.update(done);
+  runtime.showCompletion(); for (let i = 0; i < 5; i++) await Promise.resolve();
+  let t = 10;
+  const run = (seconds, x = 0) => { for (let i = 0; i < seconds * 20; i++) runtime.frame((t += 50), frame(x)); };
+  const fieldLocal = () => {
+    runtime.origin.updateMatrixWorld(true);
+    return runtime.origin.worldToLocal(runtime.mascot.transform.getWorldPosition(new THREE.Vector3()));
+  };
+  run(3);
+  assert.equal(runtime.mascot.transform.parent, runtime.origin, "child of the confirmed field origin (not camera, not panel)");
+  assert.ok(runtime.mascot.transform.visible);
+  const local = fieldLocal();
+  assert.ok(Math.abs(local.z + 0.45) < 1e-6 && Math.abs(local.x) < 1e-6 && Math.abs(local.y) < 1e-6, `behind the field: ${local.toArray()}`);
+  assert.ok(!runtime.panel.children.includes(runtime.mascot.transform));
+  const fieldBefore = runtime.origin.matrix.clone();
+  const worldBefore = runtime.mascot.transform.getWorldPosition(new THREE.Vector3());
+  // Re-anchor: the mascot stays loaded but is hidden while the field is unconfirmed …
+  runtime.reset();
+  run(0.5, 0.5);
+  assert.ok(runtime.mascot.model, "kept through Re-anchor");
+  assert.equal(runtime.mascot.transform.visible, false, "hidden until the field is confirmed again");
+  // … and appears behind the NEWLY confirmed field (moved with the field transform).
+  runtime.confirming = true; run(0.5, 0.5);
+  assert.ok(runtime.mascot.transform.visible);
+  assert.notDeepEqual(runtime.origin.matrix.elements, fieldBefore.elements, "a different field pose");
+  const after = fieldLocal();
+  assert.ok(Math.abs(after.z + 0.45) < 1e-6 && Math.abs(after.x) < 1e-6, `behind the new field: ${after.toArray()}`);
+  assert.ok(runtime.mascot.transform.getWorldPosition(new THREE.Vector3()).distanceTo(worldBefore) > 0.1, "moved with the field");
+  // A different field size recomputes the distance (never on the field).
+  runtime.setFieldSize(0.8, 1.0);
+  assert.ok(Math.abs(fieldLocal().z + 0.64) < 1e-6, "deep field → further back");
+  // Restart Assembly (completion off) removes model and animations; nothing else changes.
+  const pose = runtime.origin.matrix.clone();
+  runtime.update({ ...done, completion: false });
+  assert.equal(runtime.mascot.mixer, null);
+  assert.equal(runtime.mascot.transform.parent, null);
+  assert.deepEqual(runtime.origin.matrix.elements, pose.elements);
+  await runtime.end();
+});
 class Session extends EventTarget {
   constructor() {
     super();

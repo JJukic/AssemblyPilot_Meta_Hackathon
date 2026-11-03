@@ -342,6 +342,7 @@ export class SpatialSession {
     const p = this.info.progress;
     if (this.ended || !this.selected || !p?.currentVerified || p.position !== p.total) return;
     this.viewMode = "guide";
+    this.mascot.setField(this.fieldConfig); // behind THIS field (size), relative to its confirmed origin
     void this.mascot.start();
   }
   clearCompletion() {
@@ -521,6 +522,7 @@ export class SpatialSession {
   setFieldSize(widthM: number, depthM: number) {
     this.fieldConfig = { widthM, depthM };
     this.rebuildField();
+    this.mascot.setField(this.fieldConfig);
   }
   get fieldSize() { return { ...this.fieldConfig }; }
   /** Visible tabletop assembly field: boundary + translucent plane + front tick.
@@ -1227,7 +1229,8 @@ export class SpatialSession {
   };
   /** Explicit re-anchor (panel/voice/2D button). The ONLY path that discards a placement. */
   reset() {
-    this.clearCompletion();
+    // The completion mascot stays (it belongs to the finished assembly, not to the anchor);
+    // it is hidden until the field is confirmed again and is then placed behind the NEW field.
     this.epoch++;
     this.anchor?.delete();
     this.anchor = null;
@@ -1740,6 +1743,7 @@ export class SpatialSession {
         this.selected = true;
         this.fixed.copy(this.candidate);
         this.relayout(); // placement controls give way to the guided flow; yaw is kept
+        this.mascot.setField(this.fieldConfig); // re-anchor: behind the newly confirmed field
         this.anchorTracker.confirm(this.candidate.elements, !frame.createAnchor);
         const epoch = ++this.epoch;
         this.message =
