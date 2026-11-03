@@ -32,9 +32,12 @@ test("Ready → Checking → Correct + 'Next Step'", () => {
   assert.deepEqual(ids(ready), ["verify:Check Step"]);
   assert.equal(ready.marker, MARKER.target);
   const checking = deriveGuide({ ...base, checking: true });
-  assert.equal(checking.label, "Checking…");
+  assert.equal(checking.label, "Capturing image…", "capturing locally is not yet a Meta inspection");
   assert.deepEqual(checking.buttons, [], "no actions while checking");
-  assert.equal(deriveGuide({ ...base, summary: sum("inspecting", null) }).state, "checking");
+  const meta = deriveGuide({ ...base, checking: true, summary: sum("inspecting", null) });
+  assert.equal(meta.state, "checking");
+  assert.equal(meta.label, "Inspecting by Meta…");
+  assert.deepEqual(meta.buttons, []);
   const ok = deriveGuide({ ...base, serverVerified: true });
   assert.equal(ok.label, "Correct");
   assert.equal(ok.message, "Step correct.");

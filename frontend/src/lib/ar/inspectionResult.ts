@@ -329,7 +329,7 @@ export function resultHeadline(
 ): { text: string; tone: ResultTone } | null {
   if (!summary) return null;
   if (summary.kind === "inspecting")
-    return { text: "Inspecting with Meta AI…", tone: "inspecting" };
+    return { text: "Inspecting by Meta…", tone: "inspecting" };
   if (summary.kind === "error")
     return { text: "Inspection Failed", tone: "error" };
   // Overall (all mandatory gates) wins over the semantic-only status. For
@@ -366,7 +366,7 @@ export function resultLines(
     return lines;
   }
   if (summary.kind === "inspecting") {
-    lines.push("Capturing and inspecting a fresh camera frame…");
+    lines.push("Hold still — the result appears here.");
     return lines;
   }
   lines.push(
@@ -388,15 +388,12 @@ export function resultLines(
     lines.push(`Observed: ${overall.observedPrint ?? "not read"}`);
     if (overall.printAction) lines.push(`Suggested action: ${overall.printAction}`);
   }
+  // Transport/frame metadata (model, attempts, latency, resolution, source, freshness) stays in the
+  // existing "Inspection diagnostics" details on the page — not in the AR result view.
   const trace = summary.trace;
-  if (trace?.metaCalled) {
-    lines.push(`Meta called: YES (${trace.metaModel ?? "model unknown"} · ${trace.metaAttempts ?? "?"} attempt(s)${trace.metaLatencyMs !== null && trace.metaLatencyMs !== undefined ? ` · ${(trace.metaLatencyMs / 1000).toFixed(1)} s` : ""})`);
-    lines.push(`Frame: ${trace.width ?? "?"}x${trace.height ?? "?"} · fresh ${trace.frameFresh ? "YES" : "unknown"} · via ${trace.cameraSource ?? "camera"}`);
-  } else if (trace) {
-    lines.push("Meta called: NO — no successful Meta assessment for this result.");
-  }
+  if (trace && !trace.metaCalled) lines.push("Note: no successful Meta assessment for this result.");
   if (trace?.uncertainReason && (summary.state === "uncertain" || overall?.kind === "uncertain"))
-    lines.push(`Uncertain cause (${trace.uncertainCause ?? "unknown"}): ${trace.uncertainReason}`);
+    lines.push(`Why uncertain: ${trace.uncertainReason}`);
   if (overall?.faceStatus === "incorrect") lines.push("Problem: Wrong face/orientation for this step.");
   if (overall?.geometryStatus === "incorrect") lines.push("Problem: Geometric check failed for this step.");
   if (!errorsOnly && summary.explanation) lines.push(summary.explanation);

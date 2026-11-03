@@ -84,7 +84,7 @@ function world(over = {}) {
     onStatus: (s) => env.statuses.push(s),
     now: () => env.t,
   };
-  const config = { minIntervalMs: 20_000, verifyDelayMs: 5_000, maxAutoPerStep: 4, maxPerSession: 12, uncertainRetryMs: 5_000, ...over };
+  const config = { minIntervalMs: 20_000, verifyDelayMs: 5_000, maxAutoPerStep: 4, maxPerSession: 12, ...over };
   return { w, env, camera, selectFrame, inspect, owned, controllerDeps, config };
 }
 
@@ -179,7 +179,7 @@ test("P1#1 ARWorkspace contract: run + AbortController before the first await, r
 
 /* ================================ P1 #2 ================================= */
 test("P1#2 Pause during a running inspection: a late UNCERTAIN keeps 'paused'; no requests until Resume", async () => {
-  const h = controllerHarness({ minIntervalMs: 1_000, uncertainRetryMs: 1_000 });
+  const h = controllerHarness({ minIntervalMs: 1_000 });
   h.env.respond = { kind: "inspection", status: "uncertain" };
   await h.change();
   h.env.responseGate = deferred(); // request reached the backend, answer pending
@@ -201,7 +201,10 @@ test("P1#2 Pause during a running inspection: a late UNCERTAIN keeps 'paused'; n
   h.c.resume();
   assert.equal(h.c.machine.state, "uncertain", "resume continues from the late verdict");
   await h.tick(80);
-  assert.ok(h.env.calls.length >= 2, "requests continue only after Resume");
+  assert.equal(h.env.calls.length, 1, "uncertain stays a hold after Resume (no automatic re-check)");
+  assert.equal(last(h.env).code, "uncertain_hold");
+  await h.c.inspectNow(); // explicit Check Again after Resume
+  assert.equal(h.env.calls.length, 2, "requests continue only after Resume + Check Again");
 });
 
 test("P1#2 Pause: a late VERIFIED never advances while paused; Resume advances exactly once", async () => {

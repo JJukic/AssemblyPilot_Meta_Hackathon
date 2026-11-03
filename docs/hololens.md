@@ -563,6 +563,14 @@ workspace:
   additional view and the next action, paginated with "More text" (nothing
   critical is truncated). The expected reference remains visible beside the
   result; the tabletop hologram and anchor do not move when switching modes.
+  Layout: a status banner (green correct/verified, red incorrect/error, yellow
+  uncertain, cyan `Inspecting by Meta…`), labelled result rows (Problem /
+  Expected / Observed / Fix / Why uncertain) on the left, and the inspected
+  image on the right (408×344 px, aspect preserved). Frame time, resolution,
+  source, freshness, model, attempts and latency are not drawn in the panel —
+  they stay in the page's *Inspection diagnostics* details and the Camera view.
+  The first contextual button is the main action (solid, wider); navigation,
+  panel and voice controls are drawn quieter.
 - **Voice.** New deterministic commands (frontend/backend parity-tested):
   "Show result", "Show errors", "Read result", "Read correction",
   "Back to instructions" (German: Ergebnis anzeigen, Fehler anzeigen,
@@ -1037,75 +1045,68 @@ voice input; user-entered names and AI-generated text are shown unchanged.
    baseplate, confirm, walk around (field must not rotate), use Re-anchor, rotate
    differently and confirm again.
 
-## Autonomous Check Step / Check Again loop (scheduled re-checks)
+## Autonomous Check Step / Check Again (uncertain hold, incorrect reassessment)
 
-### Root cause of "stuck after uncertain"
+### Uncertain is a hold — Check Again is explicit
 
-`AutoController.step()` (`frontend/src/lib/ar/autoController.ts`, section 5) only
-started an inspection on a detected physical change (`report.kind === "change"`),
-an armed initial assessment or an explicit request. After `uncertain` the machine
-sat in the `uncertain` state (`autonomous.ts`, `onInspectResult`) and the status said
-"ANOTHER VIEW NEEDED" while the scene stayed unchanged, so no further check ever ran.
-The same applied after a verification that came back `uncertain`/`still_incorrect`.
+An earlier version re-checked `uncertain` automatically (5 s timer, then change or new
+viewpoint). That produced repeated paid Meta requests from an unchanged, still
+ambiguous view. Now:
 
-### What changed (no new timer, no new pipeline)
+- After an `uncertain` inspection **or** verification, `AutonomousMachine.awaitingUserCheck`
+  is true and `scheduledRetry()` returns `await_user`. `AutoController.step()` returns
+  before any trigger: **no timer, no change/new-view trigger, no automatic request**.
+  The panel keeps the uncertain result and shows `UNCERTAIN — CHECK AGAIN`.
+- Only an explicit **Check Again** (panel button or voice; in Autonomous also
+  *Inspect Now*) starts exactly one new frame selection and one inspection; while it
+  runs the panel shows `Inspecting by Meta…`, then the new result. If Meta says
+  `correct`, the usual separate verification frame follows. Another `uncertain` → hold again.
+- **Confirm Position** stays the visible manual fallback (user-confirmed, never AI-verified).
+- The hold ends only with a new non-uncertain verdict, a step change or Stop. Check Again
+  still respects single flight, budgets, Pause, tracking/anchor and the step guard.
 
-- `AutonomousMachine.scheduledRetry()` derives the next check from the last **visual
-  verdict** (kept across infrastructure errors):
-  - `uncertain` → Check Step `uncertainRetryMs` (5 s) after the result;
-  - `incorrect` → the correction is normally detected as a change; otherwise one
-    reassessment `correctionReassessMs` (60 s) later;
-  - Meta asked for another viewpoint (`needsView`) → **no timed retry**; a clearly new,
-    steady viewpoint triggers it (`ChangeDetector.requestNewView`).
-- The earliest time is `max(result + delay, cooldown/back-off, deferral)`. The existing
-  `minIntervalMs` (20 s between automatic requests) is **unchanged**, so with the
-  defaults an uncertain retry runs about 20 s after the previous request was sent.
-  Lowering `minIntervalMs` is a config change, not part of this commit.
-- At most `maxTimedRetries` (2) consecutive scheduled checks without a new view or
-  change; after that the panel asks for another view / the correction.
-- The existing 500 ms runner tick evaluates the plan. A due check still needs a steady
-  view of the field, a **fresh frame newer than the last one sent**, the per-step (4)
-  and per-session (12) budgets, single flight and — in AR — an anchored field in view.
+### Incorrect: one bounded reassessment (unchanged)
+
+- `incorrect` → the correction is normally detected as a change; otherwise one
+  reassessment `correctionReassessMs` (60 s) later, at most `maxTimedRetries` (2) times,
+  never earlier than the cooldown/back-off (`minIntervalMs`, 20 s).
+- A due check still needs a steady view of the field, a **fresh frame newer than the last
+  one sent**, the per-step (4) and per-session (12) budgets, single flight and — in AR — an
+  anchored field in view. A rejected burst spends nothing and defers the next burst 2 s.
 - `correct` → Check Again (`/api/verify`) with a separate fresh frame after
-  `verifyDelayMs` (5 s), as before. `verified` (backend) → advance exactly once.
-  Verification `uncertain`/`still_incorrect` → a new Check Step (never a second verify).
-- A rejected burst for a scheduled check spends nothing and defers the next burst 2 s.
+  `verifyDelayMs` (5 s). `verified` (backend) → advance exactly once.
 
 ### Panel states
 
-`CHECKING STEP WITH META AI…`, `CHECKING STEP AGAIN WITH META AI…`,
-`UNCERTAIN — NEXT CHECK IN n S` (only when the check is scheduled and permitted),
-`UNCERTAIN — RETRYING WHEN READY` (due, waiting for a steady view),
-`ANOTHER CAMERA VIEW REQUIRED`, `CORRECTION REQUIRED` (with "rechecked in n s" while a
-reassessment is scheduled), `CORRECT — PREPARING VERIFICATION`, `CHECK AGAIN — VERIFYING`,
-`VERIFIED — ADVANCING`, `AUTOMATIC INSPECTION LIMIT REACHED`, `LOOK AT THE FIELD`,
-`TRACKING LOST`, `CAMERA ERROR`, `PAUSED`, `AUTONOMOUS OFF`. No countdown is shown while
-waiting for another viewpoint, camera recovery, tracking or with an exhausted budget.
+`Inspecting by Meta…` (request running), `UNCERTAIN — CHECK AGAIN` (hold),
+`CORRECTION REQUIRED` (with "rechecked in n s" while a reassessment is scheduled),
+`CORRECT — PREPARING VERIFICATION`, `VERIFIED — ADVANCING`,
+`AUTOMATIC INSPECTION LIMIT REACHED`, `LOOK AT THE FIELD`, `TRACKING LOST`,
+`CAMERA ERROR`, `PAUSED`, `AUTONOMOUS OFF`. No countdown is ever shown for uncertain.
 
 ### Safety
 
-Pause/Stop/step change/session end behave as before: paused ticks return before any
-decision, Stop bumps the run epoch (late results are ignored), a step change resets the
-verdict so an old retry never fires on the new step, camera stalls and tracking loss
-return early, nothing touches the XR session, the anchor, the holograms or the panel.
+Pause/Stop/Re-anchor/step change/session end behave as before: paused ticks return
+before any decision, Stop bumps the run epoch (late results are ignored), Re-anchor
+discards a prepared capture, a step change resets the verdict (and the hold) so nothing
+from the old step fires on the new one.
 
 ### Tests (mocked camera and Meta — no real calls, not a HoloLens validation)
 
-`unit/auto-retry.test.cjs` (14): uncertain→uncertain→correct→verified without a further
-change; ≈5 s retry when the cooldown allows; incorrect→correction→correct→verified;
-bounded incorrect reassessment; correct→uncertain verification→new inspection;
-another-viewpoint wait; bounded uncertain retries; budget exhaustion; rejected frame
-(fresh frame, no spend, deferral); pause during countdown; Stop during an in-flight
-request; camera stall + tracking loss and recovery; step change during an outstanding
-inspection; field out of view. `unit/panel-manipulation.test.cjs`: panel manipulation
-leaves the autonomous inputs (anchor state, field in view, field transform) unchanged.
+`unit/auto-retry.test.cjs` (15): uncertain hold (no timer, no change trigger, no request
+for 2 min); Check Again = exactly one burst + one request, repeated until correct →
+verified → one advance; Check Again refused while one runs; uncertain verification → hold;
+another-viewpoint request still waits for Check Again; budget; Pause/Resume during the hold;
+Stop in flight; camera stall + tracking loss block Check Again; Re-anchor during a Check
+Again frame selection; late result after a step change; incorrect reassessment (bounded,
+rejected frame, field out of view). `unit/result-panel.test.cjs`: result view layout.
 
 ### HoloLens checks still to do by hand
 
-1. Start Autonomous, place a block so Meta answers `uncertain`; without touching it the
-   panel must count down and re-check with a new frame.
-2. Ask for another viewpoint (cover the print): no countdown until you move closer.
-3. Correct placement → `CORRECT — PREPARING VERIFICATION` → `CHECK AGAIN — VERIFYING`
-   → `VERIFIED — ADVANCING`, exactly one step forward.
-4. Pause and Stop during the countdown and during `CHECKING STEP…`.
+1. Start Autonomous, place a block so Meta answers `uncertain`; wait ≥ 1 min without and
+   with moving the brick: no new request, the panel keeps `UNCERTAIN — CHECK AGAIN`.
+2. Air-tap **Check Again**: one `Inspecting by Meta…`, then the new result.
+3. Correct placement → `CORRECT — PREPARING VERIFICATION` → `VERIFIED — ADVANCING`,
+   exactly one step forward.
+4. Pause, Stop and Re-anchor while Check Again runs: no late request or result.
 5. Move/rotate the panel while Autonomous runs — field and holograms stay put.

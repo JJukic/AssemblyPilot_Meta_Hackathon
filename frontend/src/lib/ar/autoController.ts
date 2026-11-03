@@ -85,7 +85,7 @@ export type AutoStatusCode =
   | "monitoring" | "change_detected" | "waiting_view" | "quality_insufficient" | "cooldown"
   | "selecting" | "inspecting" | "correction_required" | "another_view" | "awaiting_verification"
   | "verifying" | "verified" | "complete" | "paused" | "budget" | "error" | "busy_elsewhere"
-  | "retry_scheduled";
+  | "uncertain_hold";
 
 export interface AutoStatus {
   code: AutoStatusCode;
@@ -293,6 +293,14 @@ export class AutoController {
         : "A manual inspection holds this step; automatic requests wait for it.");
       return "Busy elsewhere";
     }
+    // Uncertain is a hold: no timer, no change trigger, no automatic request.
+    // Only an explicit Check Again / Inspect Now (manual) continues.
+    if (!manual && m.awaitingUserCheck) {
+      const plan = m.scheduledRetry();
+      this.emit("uncertain_hold", "UNCERTAIN — CHECK AGAIN",
+        plan.kind === "await_user" ? plan.reason : "Select Check Again for a new check, or Confirm Position.");
+      return "Waiting for Check Again";
+    }
     // 4) Separate fresh verification after a correct inspection.
     if (m.nextIntent === "verify") {
       if (!this.detector.stable && !manual) {
@@ -317,7 +325,7 @@ export class AutoController {
     const plan = m.scheduledRetry();
     if (plan.kind === "wait_view") this.detector.requestNewView(); // a clearly new viewpoint qualifies
     const changed = report.kind === "change" || (report.pending && this.detector.stable);
-    const timed = !manual && !changed && !initial && (plan.kind === "retry" || plan.kind === "reassess") &&
+    const timed = !manual && !changed && !initial && plan.kind === "reassess" &&
       now >= plan.at && this.detector.stable && this.detector.hasBaseline;
     if (manual || changed || initial || timed) {
       m.changeDetected();
@@ -424,8 +432,8 @@ export class AutoController {
     const intent = trigger.intent === "verify" ? "verify" : "inspect";
     this.lastSentClock = selection.frame.clock;
     this.emit(intent === "verify" ? "verifying" : "inspecting",
-      intent === "verify" ? "CHECK AGAIN — VERIFYING" : timed ? "CHECKING STEP AGAIN WITH META AI…" : "CHECKING STEP WITH META AI…",
-      intent === "verify" ? "Real verification request with a separate fresh frame in progress." : "Real inspection request in progress — keep the assembly still.");
+      "Inspecting by Meta…",
+      intent === "verify" ? "Verifying with a separate fresh frame — keep the assembly still." : timed ? "Reassessing the assembly — keep it still." : "Keep the assembly still.");
     if (!guard()) {
       // Final pre-request check (synchronous path): release the reserved slot, send nothing.
       m.onInspectResult(projectId, stepId, "error", "aborted");
@@ -466,11 +474,10 @@ export class AutoController {
         await this.deps.advance(stepId);
         return "Verified";
       }
-      this.emit(outcome.status === "still_incorrect" ? "correction_required" : "another_view",
-        outcome.status === "still_incorrect" ? "CORRECTION REQUIRED" : "ANOTHER VIEW NEEDED",
-        outcome.status === "still_incorrect"
-          ? "The verification frame shows a difference from the expected step. Follow the correction in the panel."
-          : "The verification frame did not show the required evidence. A new Check Step follows automatically.");
+      if (outcome.status === "still_incorrect")
+        this.emit("correction_required", "CORRECTION REQUIRED", "The verification frame shows a difference from the expected step. Follow the correction in the panel.");
+      else
+        this.emit("uncertain_hold", "UNCERTAIN — CHECK AGAIN", "The verification frame did not show the required evidence. Select Check Again for a new check, or Confirm Position.");
       return outcome.status;
     }
     m.onInspectResult(projectId, stepId, outcome.status, undefined, this.deps.now(), !!outcome.needsView);
@@ -481,9 +488,9 @@ export class AutoController {
     else if (outcome.status === "incorrect")
       this.emit("correction_required", "CORRECTION REQUIRED", "The physical assembly differs from the expected step. See the panel; your fix is detected automatically.");
     else if (outcome.needsView)
-      this.emit("another_view", "ANOTHER CAMERA VIEW REQUIRED", "Required evidence is not visible. Follow the requested view (move closer / show the printed side); the check follows automatically.");
+      this.emit("uncertain_hold", "UNCERTAIN — CHECK AGAIN", "Required evidence is not visible. Follow the requested view (move closer / show the printed side), then select Check Again.");
     else
-      this.emit("retry_scheduled", "UNCERTAIN — RETRYING WHEN READY", "Meta could not decide from this frame. A new Check Step with a fresh frame follows automatically.");
+      this.emit("uncertain_hold", "UNCERTAIN — CHECK AGAIN", "Meta could not decide from this frame. Select Check Again for a new check, or Confirm Position.");
     return outcome.status;
   }
 
@@ -497,10 +504,13 @@ export class AutoController {
   /** Truthful waiting status for a scheduled re-check (countdown only when it can really run). */
   private emitRetry(plan: Exclude<RetryPlan, { kind: "none" }>, now: number, fieldInView: boolean | null) {
     const m = this.machine;
-    const incorrect = m.lastVerdict === "incorrect";
     const failed = m.state === "inspection_failed" && m.lastFailure ? `Last request failed (${m.lastFailure}, not a visual judgment). ` : "";
+    if (plan.kind === "await_user") {
+      this.emit("uncertain_hold", "UNCERTAIN — CHECK AGAIN", failed + plan.reason);
+      return;
+    }
     if (plan.kind === "wait_view") {
-      this.emit(incorrect ? "correction_required" : "another_view", incorrect ? "CORRECTION REQUIRED" : "ANOTHER CAMERA VIEW REQUIRED", failed + plan.reason);
+      this.emit("correction_required", "CORRECTION REQUIRED", failed + plan.reason);
       return;
     }
     const remaining = m.remaining;
@@ -513,21 +523,19 @@ export class AutoController {
       this.emit("waiting_view", "LOOK AT THE FIELD", `${failed}Look at the assembly field — the next check needs a view of the construction.`);
       return;
     }
-    const headline = incorrect ? "CORRECTION REQUIRED" : "UNCERTAIN — RETRYING WHEN READY";
+    // Only an incorrect verdict is reassessed on a timer (uncertain waits for Check Again).
     if (now < plan.at) {
       const s = Math.ceil((plan.at - now) / 1000);
-      this.emit(incorrect ? "correction_required" : "retry_scheduled", incorrect ? headline : `UNCERTAIN — NEXT CHECK IN ${s} S`,
-        incorrect
-          ? `${failed}Fix the assembly as shown; the correction is detected automatically. Otherwise it is rechecked in ${s} s.`
-          : `${failed}Next check in ${s} seconds with a fresh frame.`);
+      this.emit("correction_required", "CORRECTION REQUIRED",
+        `${failed}Fix the assembly as shown; the correction is detected automatically. Otherwise it is rechecked in ${s} s.`);
       return;
     }
-    this.emit(incorrect ? "correction_required" : "retry_scheduled", headline,
+    this.emit("correction_required", "CORRECTION REQUIRED",
       `${failed}Hold your head still on the field — the next check runs as soon as the view is steady.`);
   }
 
   private emit(code: AutoStatusCode, headline: string, detail: string) {
-    if (!["monitoring", "change_detected", "correction_required", "another_view", "retry_scheduled"].includes(code)) this.metrics = "";
+    if (!["monitoring", "change_detected", "correction_required", "another_view"].includes(code)) this.metrics = "";
     this.status = this.compose(code, headline, detail);
     this.deps.onStatus(this.status);
   }

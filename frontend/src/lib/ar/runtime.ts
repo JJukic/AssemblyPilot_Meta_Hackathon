@@ -102,6 +102,8 @@ export interface PanelButton {
   danger?: boolean;
   /** Large contextual action of the guided flow (Check Step / Next Step / …). */
   primary?: boolean;
+  /** The single main action (first contextual button): widest and most prominent. */
+  main?: boolean;
 }
 /** Top of the button area: tapping the panel ABOVE this confirms the field origin. */
 export const PANEL_BUTTONS_TOP = 484;
@@ -180,8 +182,10 @@ export function layoutButtons(
     ? SECONDARY.flatMap((b) => (b[0] === "auto" ? [b, ["auto-stop", "■ Stop Autonomous", 1.2] as [Action, string, number]] : [b]))
     : SECONDARY;
   return [
+    // The first contextual action is the main one (e.g. Check Again before Confirm Position).
     ...(top.length
-      ? row(top.map((p) => [p.id, p.label] as [Action, string]), PRIMARY_Y, PRIMARY_H).map((b) => ({ ...b, primary: true }))
+      ? row(top.map((p, i) => [p.id, p.label, top.length > 1 && i === 0 ? 1.4 : 1] as [Action, string, number]), PRIMARY_Y, PRIMARY_H)
+          .map((b, i) => ({ ...b, primary: true, main: i === 0 }))
       : []),
     ...row(secondary, SECONDARY_Y, SECONDARY_H, true),
     ...row(TEXT_ROW, TEXT_Y, TEXT_H, false, TEXT_ROW_W),
@@ -245,6 +249,40 @@ const TONE_COLOR: Record<IndicatorTone, string> = {
   warn: "#ffd166",
   error: "#ff9d9d",
 };
+
+/** Result banner colours: success, mistake/error, warning, active check (HoloLens-bright). */
+const RESULT_TONE: Record<string, string> = {
+  correct: "#2ee66b", verified: "#2ee66b", incorrect: "#ff4d4d", error: "#ff4d4d", uncertain: "#ffd23f", inspecting: "#38d9ff",
+};
+
+/**
+ * Result view geometry (panel px). With an image the text column is on the
+ * left and the inspected image fills the right side of the content area,
+ * clear of the page indicator line and the button rows.
+ */
+export function resultLayout(withImage: boolean) {
+  const text = { x: 20, w: withImage ? 560 : 984 };
+  return {
+    banner: { x: 20, y: 74, w: text.w, h: 56 },
+    text,
+    headlineChars: withImage ? 34 : 60,
+    lineChars: withImage ? 48 : 82,
+    image: { x: 596, y: 74, w: 408, h: 344 },
+  };
+}
+
+const ROW_LABEL = /^(Problem|Expected|Observed|Fix|Suggested action|Next|Why uncertain|Step verified|Error|Note|Correction plan|Issue \d+(?: \([^)]*\))?|Additional view needed(?: \([^)]*\))?):\s*(.*)$/;
+
+/** Wrap result lines for the panel; a leading "Label:" is kept apart so it can be highlighted. */
+export function resultRows(lines: string[], maxChars: number): { label: string | null; text: string }[] {
+  return lines.flatMap((line) => {
+    const m = ROW_LABEL.exec(line);
+    if (!m) return wrapText(line, maxChars).map((text) => ({ label: null, text }));
+    const label = m[1];
+    const parts = wrapText(`${label}: ${m[2]}`, maxChars);
+    return parts.map((text, i) => (i === 0 ? { label, text: text.slice(label.length + 1).trimStart() } : { label: null, text }));
+  });
+}
 
 type RefImage = {
   width: number;
@@ -584,7 +622,7 @@ export class SpatialSession {
     return this.buttons;
   }
   /** Page `lines` for a view, clamp the stored page, and draw the page indicator. */
-  private page(c: CanvasRenderingContext2D, view: PanelView, lines: string[], perPage: number) {
+  private page<T>(c: CanvasRenderingContext2D, view: PanelView, lines: T[], perPage: number): T[] {
     const pages = paginate(lines, Math.max(2, perPage));
     this.pageCounts[view] = pages.length;
     this.pages[view] = Math.max(0, Math.min(this.pages[view], pages.length - 1));
@@ -706,38 +744,44 @@ export class SpatialSession {
       c.fillText("EXPECTED RESULT", box.x + 10, box.y + box.h - 10);
     }
   }
-  /** Meta result: wrapped headline and every line, paginated; capture or reference on the right. */
+  /** Meta result: status banner + grouped, paginated result text on the left; the inspected image (or reference) on the right. */
   private drawResultView(c: CanvasRenderingContext2D, info: Guidance, hasRef: boolean) {
-    const toneColor: Record<string, string> = {
-      correct: "#6dffa8", verified: "#6dffa8", incorrect: "#ff9d9d", uncertain: "#ffd166", error: "#ff9d9d", inspecting: "#7df3ff",
-    };
     const side = !!this.captureResult || hasRef;
-    let y = 108;
-    c.fillStyle = toneColor[info.resultTone ?? ""] ?? "#ffffff";
+    const L = resultLayout(side);
+    const tone = RESULT_TONE[info.resultTone ?? ""] ?? RESULT_TONE.error;
+    // 1) Status banner (tone fill, dark text: the same pattern as the guided state bar).
+    const head = wrapText(info.resultHeadline ?? "", L.headlineChars);
+    const bannerH = Math.max(L.banner.h, 20 + head.length * 32);
+    c.fillStyle = tone;
+    c.fillRect(L.banner.x, L.banner.y, L.banner.w, bannerH);
+    c.fillStyle = "#04121c";
     c.font = "bold 28px sans-serif";
-    for (const line of wrapText(info.resultHeadline ?? "", side ? 36 : 60)) {
-      c.fillText(line, 20, y);
-      y += 34;
-    }
-    y += 6;
-    const lines = (info.resultLines ?? []).flatMap((line) => wrapText(line, side ? 50 : 82));
-    const pageLines = this.page(c, "result", lines, Math.floor((CONTENT_BOTTOM - 26 - y) / 28) + 1);
-    c.font = "22px sans-serif";
-    c.fillStyle = "#eafcff";
-    pageLines.forEach((line, i) => c.fillText(line, 20, y + i * 28));
-    const box = { x: 664, y: 104, w: 340, h: 270 };
+    head.forEach((line, i) => c.fillText(line, L.banner.x + 14, L.banner.y + 38 + i * 32));
+    // 2) Result text: labelled lines (Problem / Expected / Observed / Fix …) with the label highlighted.
+    const y = L.banner.y + bannerH + 34;
+    const rows = resultRows(info.resultLines ?? [], L.lineChars);
+    const pageRows = this.page(c, "result", rows, Math.floor((CONTENT_BOTTOM - 26 - y) / 28) + 1);
+    pageRows.forEach((row, i) => {
+      let x = L.text.x;
+      if (row.label) {
+        c.font = "bold 22px sans-serif";
+        c.fillStyle = "#83e8eb";
+        const label = `${row.label}:`;
+        c.fillText(label, x, y + i * 28);
+        x += c.measureText(`${label} `).width;
+      }
+      c.font = "22px sans-serif";
+      c.fillStyle = "#eafcff";
+      c.fillText(row.text, x, y + i * 28);
+    });
+    // 3) Inspected image (aspect preserved, never stretched) or the expected reference.
+    const box = L.image;
     if (this.captureResult) {
-      c.fillStyle = "#83e8eb";
-      c.font = "bold 19px sans-serif";
-      c.fillText(`CAPTURED FRAME ${this.captureResult.time}${this.captureResult.sent ? " (sent)" : " (not sent)"}`, box.x + 8, box.y - 8);
       this.drawCapture(c, this.captureResult, box);
     } else if (hasRef) {
       c.strokeStyle = "#38d9ff";
       c.lineWidth = 3;
       c.strokeRect(box.x, box.y, box.w, box.h);
-      c.fillStyle = "#83e8eb";
-      c.font = "bold 19px sans-serif";
-      c.fillText("EXPECTED REFERENCE", box.x + 8, box.y - 8);
       if (this.showReference && this.refImage) {
         const fit = fitRect(this.refImage.width, this.refImage.height, box.w - 8, box.h - 8);
         try {
@@ -748,6 +792,11 @@ export class SpatialSession {
           c.fillText("Reference failed to load", box.x + 14, box.y + 60);
         }
       }
+      c.fillStyle = "rgba(4,16,26,.82)";
+      c.fillRect(box.x + 4, box.y + box.h - 34, box.w - 8, 30);
+      c.fillStyle = "#83e8eb";
+      c.font = "bold 18px sans-serif";
+      c.fillText("Expected result", box.x + 12, box.y + box.h - 12);
     }
   }
   /** Exact inspection capture, its status and the live autonomous line (paginated column). */
@@ -994,18 +1043,22 @@ export class SpatialSession {
       const isRef = b.id === "reference";
       const hovered = this.hoveredButton?.id === b.id;
       const pressed = this.pressedButton === b.id;
-      const primaryFill = b.id === "next" ? "#1d7a3e" : b.id === "confirm" ? "#7a5a12" : "#1d5f8a";
+      // Hierarchy: main action = solid fill; second contextual action = outlined;
+      // the fixed rows (navigation, panel, voice) are quieter so the main action stands out.
+      const primaryFill = b.main ? (b.id === "next" ? "#1d7a3e" : b.id === "confirm" ? "#7a5a12" : "#1f6fa8") : b.id === "confirm" ? "#3a2f0e" : "#123a52";
       const pageView: PanelView = this.viewMode === "result" && !info.resultHeadline ? "guide" : this.viewMode;
       const inert =
         (b.id === "page-prev" && this.pages[pageView] <= 0) ||
         (b.id === "page" && this.pages[pageView] >= this.pageCounts[pageView] - 1);
       c.globalAlpha = inert && !hovered ? 0.45 : 1;
-      c.fillStyle = pressed ? "#ffffff" : hovered ? "#2f9ec7" : b.danger ? "#8b1e2d" : b.id === "auto-stop" ? "#6d2633" : b.primary ? primaryFill : isRef && !this.showReference ? "#33505f" : "#1b4a66";
+      c.fillStyle = pressed ? "#ffffff" : hovered ? "#2f9ec7" : b.danger ? "#5a1a26" : b.id === "auto-stop" ? "#6d2633" : b.primary ? primaryFill : isRef && !this.showReference ? "#33505f" : "#10344a";
       c.fillRect(b.x, b.y, b.w, b.h);
-      c.strokeStyle = pressed ? "#ffffff" : hovered ? "#ffffff" : b.danger ? "#ff8fa3" : "#7df3ff";
-      c.lineWidth = hovered || pressed ? 6 : 3;
+      c.strokeStyle = pressed || hovered ? "#ffffff"
+        : b.primary ? (b.main ? "#bff6ff" : b.id === "confirm" ? "#ffd23f" : "#7df3ff")
+        : b.danger ? "#d0707f" : "#3f8fab";
+      c.lineWidth = hovered || pressed ? 6 : b.main ? 4 : b.primary ? 3 : 2;
       c.strokeRect(b.x, b.y, b.w, b.h);
-      c.fillStyle = pressed ? "#04202f" : "#ffffff";
+      c.fillStyle = pressed ? "#04202f" : b.primary ? (b.id === "confirm" && !b.main ? "#ffe9a6" : "#ffffff") : "#d6f3fb";
       const rawLabel =
         b.id === "auto"
           ? (info.autoButton ?? b.label)
@@ -1026,7 +1079,7 @@ export class SpatialSession {
             : b.label;
       const label = this.hoveredButton?.id === b.id ? rawLabel.toUpperCase() : rawLabel;
       // Largest font that fits the button (labels are never cut).
-      let size = b.primary ? 38 : 24;
+      let size = b.main ? 38 : b.primary ? 32 : 22;
       c.font = `bold ${size}px sans-serif`;
       let w = c.measureText(label).width;
       while (w > b.w - 14 && size > 15) {

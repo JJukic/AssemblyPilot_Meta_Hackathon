@@ -92,8 +92,12 @@ export function deriveGuide(input: GuideInput): GuideView {
       state: "placing", label: "Place field", tone: "info", marker: MARKER.target, ghostTint: null,
       message: "Rotate the field to match your baseplate, then select Confirm Assembly Field.", buttons: [],
     };
-  if (input.checking || input.summary?.kind === "inspecting")
-    return { state: "checking", label: "Checking…", message: "Hold still — checking the image.", tone: "info", marker: MARKER.target, ghostTint: null, buttons: [] };
+  // The image is with Meta only once the in-progress summary exists (set right before the upload);
+  // before that the check is still capturing / validating the frame locally.
+  if (input.summary?.kind === "inspecting")
+    return { state: "checking", label: "Inspecting by Meta…", message: "Hold still — the result appears here.", tone: "info", marker: MARKER.target, ghostTint: null, buttons: [] };
+  if (input.checking)
+    return { state: "checking", label: "Capturing image…", message: "Hold still — capturing a fresh image.", tone: "info", marker: MARKER.target, ghostTint: null, buttons: [] };
   if (input.checkError)
     return { state: "error", label: "Check unavailable", message: input.checkError, tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
   const s = input.summary;
@@ -109,7 +113,7 @@ export function deriveGuide(input: GuideInput): GuideView {
     case "incorrect":
       return { state: "retry", label: "Try again", message: "Adjust the brick.", tone: "bad", marker: MARKER.wrong, ghostTint: MARKER.wrong, buttons: [RECHECK] };
     case "uncertain":
-      return { state: "partial", label: "Position uncertain", message: "Position unclear — adjust the brick or confirm its position.", tone: "warn", marker: MARKER.partial, ghostTint: MARKER.partial, buttons: [RECHECK, CONFIRM] };
+      return { state: "partial", label: "Position uncertain", message: "Meta could not decide. Select Check Again, or Confirm Position if the brick is placed correctly.", tone: "warn", marker: MARKER.partial, ghostTint: MARKER.partial, buttons: [RECHECK, CONFIRM] };
     default:
       return { state: "error", label: "Check unavailable", message: "No valid result — check again or confirm the position.", tone: "warn", marker: MARKER.partial, ghostTint: null, buttons: [RECHECK, CONFIRM] };
   }

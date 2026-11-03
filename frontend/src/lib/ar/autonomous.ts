@@ -16,8 +16,11 @@
  * inspections, per-step and per-session caps, and exponential backoff
  * after failures. Every state has an exit (resume, recovery, stop).
  *
+ * Uncertain is a HOLD, never a loop: after an uncertain verdict no
+ * automatic request is made (no timer, no change trigger) until the user
+ * explicitly selects Check Again (a manual request) or Confirm Position.
+ *
  * Scheduled re-checks (no physical change required, see `scheduledRetry`):
- *   uncertain  → new Check Step `uncertainRetryMs` after the result
  *   incorrect  → one bounded reassessment `correctionReassessMs` later
  *                (a detected correction normally triggers it sooner)
  * At most `maxTimedRetries` consecutive scheduled checks; after that (or
@@ -80,8 +83,6 @@ export interface AutoConfig {
   maxPerSession: number;
   /** Consecutive failures before monitoring stops in "error" (needs Resume). */
   maxConsecutiveFailures: number;
-  /** Uncertain result → next Check Step this long after the result (subject to cooldown). */
-  uncertainRetryMs: number;
   /** Incorrect result without a detected correction → one reassessment after this long. */
   correctionReassessMs: number;
   /** Consecutive scheduled (timer-based) checks without a new view or change. */
@@ -94,7 +95,6 @@ export const DEFAULT_AUTO: AutoConfig = {
   maxAutoPerStep: 4,
   maxPerSession: 12,
   maxConsecutiveFailures: 3,
-  uncertainRetryMs: 5_000,
   correctionReassessMs: 60_000,
   maxTimedRetries: 2,
 };
@@ -102,9 +102,11 @@ export const DEFAULT_AUTO: AutoConfig = {
 export type RetryPlan =
   | { kind: "none" }
   /** A scheduled Check Step; `at` already includes cooldown/back-off. */
-  | { kind: "retry" | "reassess"; at: number; reason: string }
+  | { kind: "reassess"; at: number; reason: string }
   /** No timed retry allowed: a new viewpoint or a physical change is required. */
-  | { kind: "wait_view"; reason: string };
+  | { kind: "wait_view"; reason: string }
+  /** Uncertain: nothing automatic — only an explicit Check Again (manual request) continues. */
+  | { kind: "await_user"; reason: string };
 
 const TRIGGERABLE: AutoState[] = [
   "monitoring", "change_detected", "waiting_for_stability", "waiting_for_view", "selecting_frame",
@@ -147,6 +149,14 @@ export class AutonomousMachine {
 
   get busy() {
     return this.outstanding;
+  }
+  /**
+   * The last visual verdict of this step is uncertain: automatic requests are
+   * held until an explicit Check Again (manual trigger) produces a new verdict.
+   */
+  get awaitingUserCheck() {
+    return this.lastVerdict === "uncertain" && !this.outstanding &&
+      !["idle", "completed", "verified", "advancing_step"].includes(this.state);
   }
   get limits() {
     return { ...this.config };
@@ -307,20 +317,19 @@ export class AutonomousMachine {
       return { kind: "none" };
     const verdict = this.lastVerdict;
     if (verdict !== "uncertain" && verdict !== "incorrect") return { kind: "none" };
-    if (verdict === "uncertain" && this.needsView)
-      return { kind: "wait_view", reason: "Another camera view required — look from the requested side; the check follows automatically." };
+    if (verdict === "uncertain")
+      return { kind: "await_user", reason: this.needsView
+        ? "Look from the requested side, then select Check Again. Nothing is checked automatically."
+        : "Select Check Again for a new check, or Confirm Position. Nothing is checked automatically." };
     if (this.timedRetries >= this.config.maxTimedRetries)
-      return { kind: "wait_view", reason: verdict === "uncertain"
-        ? "Still uncertain from this view — move closer or change the viewpoint; the check follows automatically."
-        : "Fix the assembly as shown; the corrected assembly is detected automatically." };
+      return { kind: "wait_view", reason: "Fix the assembly as shown; the corrected assembly is detected automatically." };
     const cooldown = this.lastRequestAt > 0
       ? this.lastRequestAt + this.config.minIntervalMs * 2 ** Math.max(0, this.consecutiveFailures - 1)
       : 0;
-    const delay = verdict === "uncertain" ? this.config.uncertainRetryMs : this.config.correctionReassessMs;
     return {
-      kind: verdict === "uncertain" ? "retry" : "reassess",
-      at: Math.max(this.resultAt + delay, cooldown, this.retryNotBefore),
-      reason: verdict === "uncertain" ? "Uncertain — retrying with a new frame" : "Reassessing the assembly",
+      kind: "reassess",
+      at: Math.max(this.resultAt + this.config.correctionReassessMs, cooldown, this.retryNotBefore),
+      reason: "Reassessing the assembly",
     };
   }
   /** A scheduled check found no usable frame: try again a little later (nothing spent). */
