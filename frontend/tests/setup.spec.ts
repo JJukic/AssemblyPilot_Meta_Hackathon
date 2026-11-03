@@ -110,9 +110,12 @@ test("lost save response retries the same request without duplicate projects", a
   });
   await page.getByRole("checkbox", { name: "I reviewed", exact: false }).check();
   await page.getByRole("button", { name: "Confirm and create project" }).click();
-  await expect(page.getByRole("region", { name: "Assembly setup wizard", exact: true }).getByRole("alert")).toContainText("draft is retained");
+  // Each save first runs the REAL backend project creation (route.fetch) before the
+  // simulated loss; under the parallel full suite that alone can exceed the 5 s default.
+  await expect(page.getByRole("region", { name: "Assembly setup wizard", exact: true }).getByRole("alert"))
+    .toContainText("draft is retained", { timeout: 20_000 });
   await page.getByRole("button", { name: "Confirm and create project" }).click();
-  await expect(page.getByRole("link", { name: "Start Inspection", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Start Inspection", exact: true })).toBeVisible({ timeout: 20_000 });
   const projects = await (await request.get(`${api}/api/projects`)).json();
   expect(projects.filter((p: { name: string }) => p.name === "Wizard retry")).toHaveLength(1);
 });

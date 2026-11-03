@@ -71,14 +71,39 @@ test("a correct inspection alone is never 'Correct' (fresh verification still ne
   assert.deepEqual(ids(confirmed), ["next:Next Step ▶"]);
 });
 
-test("field not placed shows a placement hint; last step completes without a next button", () => {
+test("field not placed shows a placement hint; verified last step offers Finish (never Next Step)", () => {
   const placing = deriveGuide({ ...base, anchored: false });
   assert.equal(placing.state, "placing");
   assert.deepEqual(placing.buttons, []);
   assert.equal(deriveGuide({ ...base, anchored: null }).state, "ready", "2D page needs no field");
   const last = deriveGuide({ ...base, serverVerified: true, isLastStep: true });
   assert.equal(last.state, "complete");
-  assert.deepEqual(last.buttons, []);
+  assert.deepEqual(ids(last), ["finish:Finish"]);
+});
+
+test("Next Step before the last step; Finish only on the verified last step; Assembly complete after Finish", () => {
+  // Not the last step: verified → Next Step, never Finish.
+  assert.deepEqual(ids(deriveGuide({ ...base, serverVerified: true, isLastStep: false })), ["next:Next Step ▶"]);
+  assert.deepEqual(ids(deriveGuide({ ...base, serverVerified: true, isLastStep: false, finished: true })), ["next:Next Step ▶"],
+    "a stale finished flag never adds Finish before the last step");
+  // Last step, NOT yet verified by the server: no Finish in any result state.
+  for (const kind of ["correct", "incorrect", "uncertain", null]) {
+    const g = deriveGuide({ ...base, isLastStep: true, summary: kind ? sum("inspection", kind) : null });
+    assert.ok(!g.buttons.some((b) => b.id === "finish"), `no Finish for ${kind ?? "no result"}`);
+  }
+  assert.ok(!deriveGuide({ ...base, isLastStep: true, checking: true }).buttons.length, "no Finish while checking");
+  assert.ok(!deriveGuide({ ...base, isLastStep: true, summary: sum("verification", "verified") }).buttons.some((b) => b.id === "finish"),
+    "a verified response alone is not enough: Finish waits for the saved server progress");
+  assert.ok(!deriveGuide({ ...base, isLastStep: true, manuallyConfirmed: true }).buttons.some((b) => b.id === "finish"),
+    "Confirm Position (user-confirmed) never completes the assembly");
+  // Verified last step → Finish; after Finish → Assembly complete, no further actions.
+  const ready = deriveGuide({ ...base, serverVerified: true, isLastStep: true });
+  assert.equal(ready.label, "Final step correct");
+  assert.match(ready.message, /Finish/);
+  const done = deriveGuide({ ...base, serverVerified: true, isLastStep: true, finished: true });
+  assert.equal(done.label, "Assembly complete");
+  assert.equal(done.tone, "ok");
+  assert.deepEqual(done.buttons, []);
 });
 
 test("a check that could not run (camera unavailable) shows an error with the visible fallback, not the old result", () => {

@@ -117,6 +117,7 @@ test("guided demo: Check → falsch → Check again → korrekt → Next step �
   await expect(state(page)).toHaveText("Correct", { timeout: 30000 });
   await expect(card(page)).toContainText("Step correct.");
   expect(calls).toEqual(["inspect:incorrect", "inspect:correct", "verify"]);
+  await expect(card(page).getByRole("button", { name: "Finish" })).toHaveCount(0); // not the last step
 
   await card(page).getByRole("button", { name: "Next Step" }).click();
   await expect(card(page)).toContainText("Step 2 of 2", { timeout: 15000 });
@@ -147,4 +148,64 @@ test("AR page: secondary sections are collapsed by default and open with one cli
   await page.getByText("Placement tools & 2D preview", { exact: true }).click();
   await expect(page.getByRole("img", { name: "2D intended placement" })).toBeVisible();
   await expect(page.getByRole("img", { name: "2D height view (front)" })).toBeVisible();
+});
+
+test("last step: Next Step is replaced by Finish only after backend verification; Finish completes the assembly", async ({ page, request }) => {
+  test.setTimeout(90000);
+  const a = await demo(request);
+  const [s1, s2] = a.steps;
+  // Open the project on the LAST step (shared cursor), as after Next Step on a real device.
+  const view = await (await request.get(`${E2E_API}/api/projects/${a.project.id}/ar-view`)).json();
+  expect((await request.put(`${E2E_API}/api/projects/${a.project.id}/ar-view`, { data: { step_id: s2.id, revision: view.revision } })).ok()).toBe(true);
+  await fakeCamera(page);
+  let next: "uncertain" | "correct" = "uncertain";
+  let n = 0;
+  let verifiedOnServer = false;
+  const calls: string[] = [];
+  await page.route("**/api/inspect", async (r) => {
+    const stepId = String(r.request().postDataBuffer()?.toString("latin1").match(/name="step_id"\r\n\r\n([^\r]+)/)?.[1]);
+    calls.push(`inspect:${next}`);
+    return r.fulfill({ json: workflow(stepId, a.spec(stepId), ++n, next) });
+  });
+  await page.route("**/api/verify", async (r) => {
+    const body = r.request().postDataBuffer()?.toString("latin1") ?? "";
+    const stepId = String(body.match(/name="step_id"\r\n\r\n([^\r]+)/)?.[1]);
+    const previous = String(body.match(/name="previous_inspection_id"\r\n\r\n([^\r]+)/)?.[1]);
+    calls.push("verify");
+    verifiedOnServer = true; // the mocked backend now reports this step as verified
+    const inspection = { ...workflow(stepId, a.spec(stepId), ++n, "correct"), state: "verified" };
+    return r.fulfill({ json: { verification_id: `ver-${n}`, previous_inspection_id: previous, status: "verified", inspection, issue_assessments: [] } });
+  });
+  // Server progress stays authoritative: only the last step, and only after its verification.
+  await page.route(`**/api/projects/${a.project.id}/progress`, async (r) => {
+    const real = await (await r.fetch()).json();
+    return r.fulfill({ json: real.map((row: { step_id: string; status: string }) =>
+      row.step_id === s2.id && verifiedOnServer ? { ...row, status: "verified", verified_at: new Date().toISOString() } : row) });
+  });
+
+  await page.goto(`/ar?project=${a.project.id}`);
+  await expect(card(page)).toContainText("Step 2 of 2");
+  await expect(state(page)).toHaveText("Ready");
+  await expect(card(page).getByRole("button", { name: "Finish" })).toHaveCount(0);
+
+  // Uncertain on the last step: Check Again + Confirm Position, never Finish; nothing is sent automatically.
+  await card(page).getByRole("button", { name: "Check Step", exact: true }).click();
+  await expect(state(page)).toHaveText("Position uncertain", { timeout: 20000 });
+  await expect(card(page).getByRole("button", { name: "Finish" })).toHaveCount(0);
+  await page.waitForTimeout(3000);
+  expect(calls).toEqual(["inspect:uncertain"]);
+
+  next = "correct";
+  await card(page).getByRole("button", { name: "Check Again" }).click();
+  await expect(state(page)).toHaveText("Final step correct", { timeout: 30000 });
+  expect(calls).toEqual(["inspect:uncertain", "inspect:correct", "verify"]);
+  await expect(card(page).getByRole("button", { name: "Next Step" })).toHaveCount(0);
+  await card(page).getByRole("button", { name: "Finish" }).click();
+  await expect(state(page)).toHaveText("Assembly complete", { timeout: 15000 });
+  await expect(card(page)).toContainText("Step 2 of 2", { timeout: 1000 });
+  await expect(card(page).getByRole("button", { name: "Finish" })).toHaveCount(0);
+  // Finish moved nothing and wrote nothing: still the last step, step 1 untouched on the real backend.
+  const real = await (await request.get(`${E2E_API}/api/projects/${a.project.id}/progress`)).json();
+  expect(real.find((p: { step_id: string }) => p.step_id === s1.id).status).not.toBe("verified");
+  expect((await (await request.get(`${E2E_API}/api/projects/${a.project.id}/ar-view`)).json()).step_id).toBe(s2.id);
 });

@@ -448,7 +448,7 @@ a.brand, a.button { text-decoration: none; }
 .guided-outcome { margin: 0 0 0.75rem; font-size: 0.95rem; color: #bfe9f0; }
 .guided-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
 .guided-button { min-height: 64px; min-width: 200px; font-size: 1.25rem; font-weight: 700; }
-.guided-next { background: #1d7a3e; color: #fff; }
+.guided-next, .guided-finish { background: #1d7a3e; color: #fff; }
 .guided-verify { background: #1d5f8a; color: #fff; }
 .guided-confirm { background: #7a5a12; color: #fff; }
 .ar-workspace { max-width: 960px; margin-inline: auto; }

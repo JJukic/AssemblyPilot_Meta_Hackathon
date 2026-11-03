@@ -41,7 +41,8 @@ export type Action =
   | "field-left-1"
   | "field-right-1"
   | "field-right-5"
-  | "field-rotate-reset";
+  | "field-rotate-reset"
+  | "finish";
 export interface Guidance {
   /** Legacy single target (used when `hologram` is absent). */
   placement: Placement | null;
@@ -50,6 +51,8 @@ export interface Guidance {
   text: string;
   detail: string;
   stepLabel?: string;
+  /** Assembly progress for the segmented bar under the title (position is 1-based). */
+  progress?: { position: number; total: number; currentVerified: boolean };
   title?: string;
   instruction?: string;
   blockLabel?: string;
@@ -269,6 +272,34 @@ export function resultLayout(withImage: boolean) {
     lineChars: withImage ? 48 : 82,
     image: { x: 596, y: 74, w: 408, h: 344 },
   };
+}
+
+/**
+ * Guided view geometry: instruction column on the left, the instruction
+ * photo on the right (moderately larger than before: 388×340 instead of
+ * 358×300), clear of the page indicator line and the buttons.
+ */
+export function guideLayout(withPhoto: boolean) {
+  const textW = withPhoto ? 580 : 984;
+  return {
+    banner: { x: 20, y: 74, w: textW, h: 56 },
+    textW,
+    instructionChars: withPhoto ? 33 : 56,
+    messageChars: withPhoto ? 42 : 72,
+    detailChars: withPhoto ? 48 : 82,
+    photo: { x: 616, y: 74, w: 388, h: 340 },
+    /** Caption strip at the bottom of the photo box (the image never draws under it). */
+    captionH: 34,
+  };
+}
+
+/** Segments of the assembly progress bar: done, current (verified or not), upcoming. */
+export function progressSegments(p: { position: number; total: number; currentVerified: boolean }) {
+  const total = Math.max(1, Math.min(60, Math.floor(p.total) || 1));
+  return Array.from({ length: total }, (_, i) => {
+    const n = i + 1;
+    return n < p.position ? "done" : n === p.position ? (p.currentVerified ? "done" : "current") : "todo";
+  }) as ("done" | "current" | "todo")[];
 }
 
 const ROW_LABEL = /^(Problem|Expected|Observed|Fix|Suggested action|Next|Why uncertain|Step verified|Error|Note|Correction plan|Issue \d+(?: \([^)]*\))?|Additional view needed(?: \([^)]*\))?):\s*(.*)$/;
@@ -643,6 +674,16 @@ export class SpatialSession {
     c.font = "bold 26px sans-serif";
     const stepLabel = info.stepLabel ?? info.text.split("—")[0]?.trim() ?? "";
     c.fillText(stepLabel.slice(0, 20), 20, 42);
+    if (info.progress) {
+      // Assembly progress (visual only; the bar stays part of the drag handle).
+      const segs = progressSegments(info.progress);
+      const x0 = 20, w = PANEL_W - ROTATE_FROM_RIGHT - 40, gap = 4;
+      const sw = (w - gap * (segs.length - 1)) / segs.length;
+      segs.forEach((kind, i) => {
+        c.fillStyle = kind === "done" ? "#2ee66b" : kind === "current" ? "#7df3ff" : "rgba(125,243,255,.22)";
+        c.fillRect(x0 + i * (sw + gap), DRAG_BAR_H - 10, Math.max(2, sw), 5);
+      });
+    }
     if (this.indicator.label) {
       c.fillStyle = TONE_COLOR[this.indicator.tone];
       c.font = "bold 20px sans-serif";
@@ -696,31 +737,33 @@ export class SpatialSession {
   private drawGuide(c: CanvasRenderingContext2D, info: Guidance) {
     const toneColor = GUIDE_TONE[info.guideTone ?? "ready"];
     const showRef = !!info.hasReference && this.showReference && !!this.refImage;
-    const left = showRef ? 610 : 984;
+    const G = guideLayout(showRef);
+    // 1) State banner (same pattern as the result banner).
     c.fillStyle = toneColor;
-    c.fillRect(20, 74, left, 56);
+    c.fillRect(G.banner.x, G.banner.y, G.banner.w, G.banner.h);
     c.fillStyle = "#04121c";
     c.font = "bold 32px sans-serif";
-    c.fillText((info.guideLabel ?? "Ready").toUpperCase().slice(0, showRef ? 30 : 52), 34, 113);
+    c.fillText((info.guideLabel ?? "Ready").toUpperCase().slice(0, showRef ? 29 : 52), 34, 113);
+    // 2) What to do now (large), then the short state message.
     let y = 166;
     c.fillStyle = "#ffffff";
     c.font = "bold 30px sans-serif";
-    for (const line of wrapText(info.shortInstruction ?? info.instruction ?? info.text, showRef ? 34 : 56)) {
+    for (const line of wrapText(info.shortInstruction ?? info.instruction ?? info.text, G.instructionChars)) {
       c.fillText(line, 20, y);
       y += 36;
     }
     if (info.guideMessage) {
       c.fillStyle = toneColor;
       c.font = "bold 24px sans-serif";
-      for (const line of wrapText(info.guideMessage, showRef ? 44 : 72)) {
+      for (const line of wrapText(info.guideMessage, G.messageChars)) {
         c.fillText(line, 20, y);
         y += 30;
       }
     }
-    // Full step text + required blocks, paginated with More Text / Previous Text.
+    // 3) Full step text + required blocks, paginated with More Text / Previous Text.
     const details = [
-      ...(info.instruction ? wrapText(`Instructions: ${info.instruction}`, showRef ? 50 : 82) : []),
-      ...(info.blockLabel ? wrapText(`Bricks: ${info.blockLabel}`, showRef ? 50 : 82) : []),
+      ...(info.instruction ? wrapText(`Instructions: ${info.instruction}`, G.detailChars) : []),
+      ...(info.blockLabel ? wrapText(`Bricks: ${info.blockLabel}`, G.detailChars) : []),
     ];
     y += 10;
     c.fillStyle = "#eafcff";
@@ -728,12 +771,13 @@ export class SpatialSession {
     c.fillStyle = "#eafcff";
     c.font = "22px sans-serif";
     pageLines.forEach((line, i) => c.fillText(line, 20, y + i * 28));
+    // 4) Instruction photo: aspect preserved, never cropped, caption strip below the image.
     if (showRef && this.refImage) {
-      const box = { x: 646, y: 74, w: 358, h: 300 };
+      const box = G.photo;
       c.strokeStyle = "#38d9ff";
       c.lineWidth = 3;
       c.strokeRect(box.x, box.y, box.w, box.h);
-      const fit = fitRect(this.refImage.width, this.refImage.height, box.w - 8, box.h - 36);
+      const fit = fitRect(this.refImage.width, this.refImage.height, box.w - 8, box.h - 8 - G.captionH);
       try {
         c.drawImage(this.refImage as unknown as CanvasImageSource, box.x + 4 + fit.x, box.y + 4 + fit.y, fit.w, fit.h);
       } catch {
@@ -741,7 +785,7 @@ export class SpatialSession {
       }
       c.fillStyle = "#83e8eb";
       c.font = "bold 18px sans-serif";
-      c.fillText("EXPECTED RESULT", box.x + 10, box.y + box.h - 10);
+      c.fillText("Expected result", box.x + 12, box.y + box.h - 12);
     }
   }
   /** Meta result: status banner + grouped, paginated result text on the left; the inspected image (or reference) on the right. */
@@ -1020,7 +1064,7 @@ export class SpatialSession {
       c.fillStyle = "#bffaff";
       [
         "Use the large buttons: point with your hand ray and air tap.",
-        "Check Step · Check Again · Confirm Position · Next Step",
+        "Check Step · Check Again · Confirm Position · Next Step · Finish",
         "More Text / Previous Text page through long text.",
         "Move Panel: pinch the top bar and drag; push or pull your hand",
         "to move it farther or closer. Rotate Panel: pinch the rotate",
@@ -1045,7 +1089,7 @@ export class SpatialSession {
       const pressed = this.pressedButton === b.id;
       // Hierarchy: main action = solid fill; second contextual action = outlined;
       // the fixed rows (navigation, panel, voice) are quieter so the main action stands out.
-      const primaryFill = b.main ? (b.id === "next" ? "#1d7a3e" : b.id === "confirm" ? "#7a5a12" : "#1f6fa8") : b.id === "confirm" ? "#3a2f0e" : "#123a52";
+      const primaryFill = b.main ? (b.id === "next" || b.id === "finish" ? "#1d7a3e" : b.id === "confirm" ? "#7a5a12" : "#1f6fa8") : b.id === "confirm" ? "#3a2f0e" : "#123a52";
       const pageView: PanelView = this.viewMode === "result" && !info.resultHeadline ? "guide" : this.viewMode;
       const inert =
         (b.id === "page-prev" && this.pages[pageView] <= 0) ||

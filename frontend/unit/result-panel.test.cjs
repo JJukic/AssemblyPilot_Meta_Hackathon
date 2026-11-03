@@ -38,7 +38,7 @@ global.document = { createElement: () => ({ width: 0, height: 0, getContext: () 
   measureText: (t) => ({ width: String(t).length * 11 }), beginPath() {}, arc() {}, stroke() {}, fill() {},
 }) }) };
 global.XRRigidTransform = class { constructor(p, o) { this.position = p; this.orientation = o; } };
-const { SpatialSession, resultLayout, resultRows, layoutButtons, PANEL_BUTTONS_TOP } = require("../src/lib/ar/runtime.ts");
+const { SpatialSession, resultLayout, resultRows, guideLayout, progressSegments, layoutButtons, PANEL_BUTTONS_TOP } = require("../src/lib/ar/runtime.ts");
 const { resultLines, resultHeadline } = require("../src/lib/ar/inspectionResult.ts");
 const { captureView } = require("../src/lib/ar/capturePreview.ts");
 const { deriveGuide } = require("../src/lib/ar/guidedFlow.ts");
@@ -212,4 +212,75 @@ test("in-progress Meta inspection is shown as 'Inspecting by Meta…' in the pan
   assert.doesNotMatch(drawn(), /Inspecting by Meta…/);
   assert.match(drawn(), /Uncertain — Another View Needed/);
   await runtime.end();
+});
+
+test("instruction photo: moderately larger, aspect preserved, never under its caption, text column clear", async () => {
+  const G = guideLayout(true);
+  const old = { w: 358, h: 300 };
+  const ratio = (G.photo.w * G.photo.h) / (old.w * old.h);
+  assert.ok(ratio >= 1.15 && ratio <= 1.4, `moderate enlargement (×${ratio.toFixed(2)})`);
+  assert.ok(G.photo.x >= G.banner.x + G.textW + 12, "clear of the instruction column");
+  assert.ok(G.photo.y + G.photo.h <= 448 - 24 && G.photo.x + G.photo.w <= 1024 - 16, "inside the content area, above the buttons");
+  const runtime = await setup();
+  runtime.update({ placement: placement(), text: "Step 3 — Place", stepLabel: "Step 3 of 4", detail: "", hasReference: true,
+    instruction: "Place the yellow 2×4 brick ".repeat(40), shortInstruction: "Place the yellow 2×4 brick on the green marker.",
+    guideLabel: "Ready", guideMessage: "Place the brick, then select Check Step.", primary: [{ id: "verify", label: "Check Step" }] });
+  runtime.setShowReference(true);
+  for (const [w, h] of [[1600, 900], [900, 1600], [1024, 768]]) {
+    ops.images = [];
+    ops.texts = [];
+    runtime.setReferenceImage({ width: w, height: h, close() {} });
+    runtime.setViewMode("guide");
+    const img = ops.images.at(-1);
+    assert.ok(img, `photo drawn for ${w}×${h}`);
+    assert.ok(Math.abs(img.w / img.h - w / h) < 0.02, `aspect kept for ${w}×${h}`);
+    assert.ok(img.x >= G.photo.x && img.x + img.w <= G.photo.x + G.photo.w, "horizontally inside the box");
+    assert.ok(img.y >= G.photo.y && img.y + img.h <= G.photo.y + G.photo.h - G.captionH, "never under the caption");
+    assert.ok(img.w === G.photo.w - 8 || img.h === G.photo.h - 8 - G.captionH, "fills the box on one axis (fully visible)");
+    const left = ops.texts.filter((o) => o.y > 74 && o.y < PANEL_BUTTONS_TOP && o.x < G.photo.x && !/^Text page/.test(o.t));
+    for (const o of left) assert.ok(o.x + o.t.length * 11 <= G.photo.x + 4, `"${o.t}" left of the photo`);
+    assert.ok(ops.texts.some((o) => o.t === "Expected result"), "caption");
+  }
+  assert.ok(runtime.textPage.count > 1, "long instructions paginate beside the photo");
+  await runtime.end();
+});
+
+test("progress bar segments: done / current / upcoming, current turns done once verified", () => {
+  assert.deepEqual(progressSegments({ position: 3, total: 4, currentVerified: false }), ["done", "done", "current", "todo"]);
+  assert.deepEqual(progressSegments({ position: 4, total: 4, currentVerified: true }), ["done", "done", "done", "done"]);
+  assert.equal(progressSegments({ position: 1, total: 500, currentVerified: false }).length, 60, "bounded for very long builds");
+});
+
+test("Finish: drawn as the main green action on the verified last step; Assembly complete afterwards", async () => {
+  const runtime = await setup();
+  const g = deriveGuide({ anchored: true, checking: false, serverVerified: true, manuallyConfirmed: false, isLastStep: true, summary: null });
+  ops.texts = [];
+  runtime.update({ placement: placement(), text: "Step 4", stepLabel: "Step 4 of 4", detail: "", guideLabel: g.label, guideMessage: g.message,
+    guideTone: g.tone, primary: g.buttons, progress: { position: 4, total: 4, currentVerified: true } });
+  runtime.setViewMode("guide");
+  assert.match(drawn(), /Finish/);
+  assert.doesNotMatch(drawn(), /Next Step/);
+  const finish = layoutButtons(g.buttons).find((b) => b.id === "finish");
+  assert.ok(finish && finish.primary && finish.main && finish.w >= 400 && finish.h >= 96, "large main action");
+  const doneView = deriveGuide({ anchored: true, checking: false, serverVerified: true, manuallyConfirmed: false, isLastStep: true, finished: true, summary: null });
+  ops.texts = [];
+  runtime.update({ placement: placement(), text: "Step 4", stepLabel: "Step 4 of 4", detail: "", guideLabel: doneView.label,
+    guideMessage: doneView.message, guideTone: doneView.tone, primary: doneView.buttons });
+  runtime.setViewMode("guide");
+  assert.match(drawn(), /ASSEMBLY COMPLETE/);
+  assert.doesNotMatch(drawn(), /\bFinish\b/, "no Finish button after completion");
+  await runtime.end();
+});
+
+test("Finish handler contract: last step only, re-reads server progress, never moves the cursor or writes progress", () => {
+  const src = fs.readFileSync(require.resolve("../src/components/ar/ARWorkspace.tsx"), "utf8");
+  const fn = src.slice(src.indexOf("async function finishAssembly"), src.indexOf("/** Visible manual fallback (Confirm Position)"));
+  assert.ok(fn.length > 100, "finishAssembly exists");
+  assert.match(fn, /index !== project\.steps\.length - 1/, "rejected unless on the last step");
+  assert.match(fn, /await getProgress\(projectId\)/, "server progress is re-read");
+  assert.match(fn, /status !== "verified"[\s\S]*not verified yet/, "requires backend verification of the last step");
+  assert.match(fn, /viewRef\.current\.step_id !== stepId/, "a step change meanwhile finishes nothing");
+  assert.match(fn, /coordinatorRef\.current\.busy/, "not while an inspection runs");
+  assert.doesNotMatch(fn, /navigate\(|setView\(|moveCursor\(|verifySnapshot\(|inspectSnapshot\(/, "no step move, no new Meta call");
+  assert.match(src, /case "finish":\s*return finishAssembly\(\);/, "the panel/2D Finish button dispatches it");
 });

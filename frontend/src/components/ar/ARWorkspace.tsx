@@ -164,6 +164,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
   const [checkingStep, setCheckingStep] = useState(false);
   const checkingRef = useRef(false);
   const [manualConfirm, setManualConfirm] = useState<{ stepId: string; at: string } | null>(null);
+  // Finish: bound to the verified last step it was confirmed for (never a separate progress state).
+  const [finishedFor, setFinishedFor] = useState<string | null>(null);
   const [lastGuideOutcome, setLastGuideOutcome] = useState("");
   // In-AR voice: explicit two-tap consent inside the panel and a visible last error.
   const [voiceConsentPending, setVoiceConsentPending] = useState(false);
@@ -290,13 +292,14 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       serverVerified: verified && online,
       manuallyConfirmed,
       isLastStep,
+      finished: finishedFor !== null && finishedFor === view.step_id,
       checkError: stepCheckError,
       summary: stepSummary,
     });
     return active && anchorUi === "tracking_lost"
       ? { ...base, label: "Tracking lost", message: "Field tracking is uncertain — select Re-anchor.", tone: "warn" }
       : base;
-  }, [active, anchorUi, checkingStep, verified, online, manuallyConfirmed, isLastStep, stepCheckError, stepSummary]);
+  }, [active, anchorUi, checkingStep, verified, online, manuallyConfirmed, isLastStep, finishedFor, view.step_id, stepCheckError, stepSummary]);
   const shortText = step
     ? shortInstruction(step.required_blocks.map((b) => ({ color: b.block.color, name: b.block.name, quantity: b.required_quantity })), !!placement)
     : "Loading project…";
@@ -532,6 +535,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       voiceButton,
       autoActive: autoOn && autoStateLabel !== "completed",
       stepLabel: step ? `Step ${step.position} of ${totalSteps}` : "No step",
+      progress: step ? { position: step.position, total: totalSteps, currentVerified: verified && online } : undefined,
       guideLabel: guide.label,
       guideMessage: guide.message,
       guideTone: guide.tone,
@@ -769,7 +773,7 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
       : { ...outcome, detail: `${outcome.detail ?? ""} (first inspection — no previous inspection yet)` };
   }
   /** 2D guided card: same actions as the AR panel buttons (no voice). */
-  async function runGuideAction(id: "verify" | "next" | "confirm" | "previous") {
+  async function runGuideAction(id: "verify" | "next" | "confirm" | "finish" | "previous") {
     const outcome = await handleAction(id);
     // Check results are shown by the status itself; only other failed actions get an extra line.
     if (alive.current) setLastGuideOutcome(id === "verify" || outcome.ok ? "" : outcome.reason ?? "Aktion fehlgeschlagen");
@@ -794,6 +798,8 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
         return checkStep();
       case "confirm":
         return confirmPosition();
+      case "finish":
+        return finishAssembly();
       case "exit":
         await exitAR();
         return { ok: true, detail: "XR session ended; microphone stopped" };
@@ -1557,6 +1563,32 @@ export function ARWorkspace({ projectId }: { projectId: string }) {
     } finally {
       checkingRef.current = false;
       if (alive.current) setCheckingStep(false);
+    }
+  }
+  /**
+   * Finish (last step only): re-reads SERVER progress and completes the existing
+   * flow only when the last step is verified there. Never moves the cursor, never
+   * marks anything verified, never skips a step; Autonomous is completed as usual.
+   */
+  async function finishAssembly(): Promise<ExecutionOutcome> {
+    const stepId = viewRef.current.step_id;
+    if (!project || !stepId) return { ok: false, reason: "Project is still loading" };
+    const index = project.steps.findIndex((s) => s.id === stepId);
+    if (index < 0 || index !== project.steps.length - 1)
+      return { ok: false, reason: "Finish is only available on the last step — use Next Step" };
+    if (coordinatorRef.current.busy) return { ok: false, reason: "Inspection running — wait for the result" };
+    try {
+      const progress = await getProgress(projectId);
+      if (viewRef.current.step_id !== stepId) return { ok: false, reason: "The step changed meanwhile; nothing was finished" };
+      if (progress.find((r) => r.step_id === stepId)?.status !== "verified")
+        return { ok: false, reason: "The last step is not verified yet — select Check Again" };
+      const done = project.steps.filter((s) => progress.find((r) => r.step_id === s.id)?.status === "verified").length;
+      setFinishedFor(stepId);
+      if (runner.active) finishAutonomous();
+      setStatus(`Assembly complete — ${done} of ${project.steps.length} steps verified by the backend.`);
+      return { ok: true, detail: `Assembly complete — ${done} of ${project.steps.length} steps verified` };
+    } catch (cause) {
+      return { ok: false, reason: `Progress unavailable: ${errorMessage(cause)}` };
     }
   }
   /** Visible manual fallback (Confirm Position): user-confirmed, never AI/backend-verified. */

@@ -571,6 +571,18 @@ workspace:
   they stay in the page's *Inspection diagnostics* details and the Camera view.
   The first contextual button is the main action (solid, wider); navigation,
   panel and voice controls are drawn quieter.
+- **Guided view.** State banner, the short instruction, the state message and
+  the paginated full instruction on the left; the instruction photo on the
+  right (388×340 px instead of 358×300, aspect preserved, never under its
+  "Expected result" caption). A segmented progress bar under the title shows
+  done / current / upcoming steps next to "Step n of N".
+- **Finish.** Before the last step a verified step offers **Next Step**. On the
+  last step, once the backend progress says it is verified, the panel shows
+  "Final step correct" with **Finish** (a verified response alone, Confirm
+  Position or any other state never shows it). Finish re-reads server
+  progress, requires the last step to be verified, never moves the cursor,
+  writes nothing and makes no Meta call; it completes a running Autonomous
+  run as before and shows **Assembly complete** with no further actions.
 - **Voice.** New deterministic commands (frontend/backend parity-tested):
   "Show result", "Show errors", "Read result", "Read correction",
   "Back to instructions" (German: Ergebnis anzeigen, Fehler anzeigen,
