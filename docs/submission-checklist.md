@@ -1,10 +1,43 @@
 # Submission checklist
 
-Checked on 2026-11-04 against the public event page and the Official Rules.
+Organizer rules checked on 2026-11-04 against the public event page and the Official Rules.
+Repository status updated on 2026-11-05.
 
 **Deadline: November 4, 2026, 9:00 PM ET.** On that date ET is EST (UTC−5), so this is
 November 5, 2026, 02:00 UTC, or 03:00 CET. Dates may change at Meta's discretion; changes are
 posted on the event page.
+
+## Status by area
+
+| Status | Meaning |
+| --- | --- |
+| **Done** | Implemented in this repository |
+| **Checked locally** | Run on the owner's machine, with the evidence in [Submission readiness](submission-readiness.md) |
+| **Open** | Must happen before submitting |
+| **Later** | Planned, not needed for this submission |
+| **Video only** | Shown in the demo video, not provided for the jury to run |
+
+| Item | Status | Note |
+| --- | --- | --- |
+| GitHub link | Done | <https://github.com/JJukic/AssemblyPilot_Meta_Hackathon>, public. This work must still reach the default branch, or the form must name the branch |
+| README | Done | Links to the report, quickstart and this list |
+| Technical Report | Done | Checked against the code |
+| Installation with uv and pip | Checked locally | Fresh clone, macOS arm64 |
+| `requirements.txt` | Checked locally | Generated from `uv.lock`, with hashes |
+| CI status | Open | Check the run for this branch on GitHub |
+| License | Done | Apache-2.0 for the source; asset questions remain below |
+| Secrets | Checked locally | Tracked files and history searched; `make check-repo` runs in CI |
+| Automated tests, lint, build | Checked locally | Without a key; live Meta requests never run in CI |
+| Local browser demo, without a key | Checked locally | Start and health check only; checks show "Check unavailable" |
+| Local browser demo, with a key | Open | Needs your own key and a real run |
+| HoloLens over Caddy | Open | The proxy was checked earlier; a current device run is not recorded |
+| HoloLens recording | Video only | Real Mixed Reality Capture, local only |
+| Meta model explanation | Done | README, report and video |
+| Future vision | Video only | Marked "Future vision, not implemented" in the video; cooking is not in the code |
+| Demo video | Open | Rendered locally at 166.9 s; **not uploaded** |
+| Actual video link | Open | **None yet.** Do not add one until it exists |
+| Submission form | Open | Must be filled in and sent by the owner |
+| Cloud deployment | Later | [Requirements](local-deployment.md#later-cloud-deployment) only, nothing implemented |
 
 ## Sources
 
@@ -45,15 +78,15 @@ Weights come from OR and apply to submitted projects. EP also has shorter track 
 | Impact, including fit with a problem statement | 30% | [README](../README.md#problem-audience-and-value) | **Owner** | Choose a theme: EP lists "Build for Your World" and "Push the Frontier". Real-world evidence is limited to a toy-brick demonstration |
 | Use of Meta AI tooling | 25% | Muse with strict schema, SAM localization, closed verification loop: [report](technical-report.md) | Done | Show it in the video |
 | Technical depth and execution | 20% | [Report](technical-report.md), tests in [readiness](submission-readiness.md) | Done | None |
-| Demo: working demo, holds up live, video quality | 25% | **No video exists** | **Blocked** | [Demo plan](demo-plan.md) |
+| Demo: working demo, holds up live, video quality | 25% | Rendered locally, **not uploaded** | **Blocked** | Upload it and add the link to the form ([demo plan](demo-plan.md)) |
 
 ## Not confirmed by any readable source
 
 | Field | Source to check | Status |
 | --- | --- | --- |
 | Project title, tagline and description limits | SP | Not verified |
-| Repository URL required, and whether it must be public | SP, DP | Not verified. **The repository is currently private**, so a jury cannot open it without access |
-| Demo video required, length, format, host | SP, DP | Not verified. OR judges "the quality of the demo video". Treat it as required: until a video exists, the submission is **incomplete** |
+| Repository URL required, and whether it must be public | SP, DP | Not verified. The repository is public (checked on 2026-11-05) |
+| Demo video required, length, format, host | SP, DP | Not verified. OR judges "the quality of the demo video". Treat it as required: until a video link exists, the submission is **incomplete** |
 | Images, team fields, track selection, problem statement | SP | Not verified |
 | Live presentation for finalists (Nov 9 closing ceremony) | EP, DP | EP says "live finals"; details are not verified |
 
