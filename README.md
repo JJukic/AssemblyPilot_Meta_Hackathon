@@ -1,322 +1,415 @@
 # AssemblyPilot
 
-**Visual Assembly Intelligence** — a Meta AI Developer Hackathon project for a visual LEGO assembly assistant.
+**Visual Assembly Intelligence** — a Meta AI Developer Hackathon project: an assistant
+that guides a person through a LEGO-style assembly, step by step, and checks each step
+from a camera image using Meta-hosted models. It runs in a desktop or mobile browser and
+as a WebXR experience on HoloLens 2.
 
-Phase 5 adds **Try AssemblyPilot with Your Own Blocks**: describe a build, select
-or photograph blocks, review editable Meta-generated or manual steps, confirm rules,
-and launch the real camera workspace. Simple text checks need no dimensions or
-calibration. Advanced tools remain available through the existing editors.
-See the [jury setup guide and manual acceptance checklist](docs/jury-setup.md).
+- **Muse Spark** (`muse-spark-1.3`) decides whether a step is `correct`, `incorrect` or
+  `uncertain`.
+- **SAM 3.1** (`sam-3.1`) is an optional add-on that localizes visible objects with masks,
+  boxes and outlines. It never overrides Muse.
+- **OpenCV** (local, no AI) provides optional measured gates for geometry and printed faces.
 
-Phase 4.1E adds **Meta-first printed-text and logo recognition** to the printed-face
-registry, contour overlays and independent Canny debug tools in PR #9. Configure
-expected text without a reference photo, inspect it in the existing Muse call, and
-review recognition separately from physical direction and geometric placement.
-See [setup, contracts and manual experiment](docs/print-recognition.md).
-It preserves Phase 4.1B’s **perspective-aware stud-offset check** on top of the
-OpenCV ChArUco calibration and merged Phase 4 correction workflow. Muse Spark remains
-the semantic inspection model, with optional Meta SAM 3.1 localization and fallback
-overlays. Select a registered project and step, capture a frame, and choose **Inspect
-with Meta AI**. The backend combines the frame with registered specifications and
-photographs, calls Meta, and validates the diagnosis. Overlays appear only on the
-exact analyzed snapshot; uncertain results request a specific additional view.
+The full design, data flow and rationale are in the
+[Technical Report](docs/technical-report.md).
 
-All inference goes exclusively to Meta Model API. No automatic uploads, continuous analysis, autonomous physical correction or local GPU models are implemented. Verification runs only after an explicit fresh camera capture. Camera capture, SQLite and registry features still work without an API key.
+## Goal and hackathon context
 
-## Architecture
+Physical assembly errors are often found late, and a written manual cannot see what is
+on the table. AssemblyPilot's goal is a closed loop: show the intended step, look at the
+real build, explain what is wrong, and only accept a step after a separate fresh image
+confirms it. The project was built for the Meta AI Developer Hackathon, so all inference
+goes exclusively to the Meta Model API. There is no fallback provider and there are no
+local model weights for inspection.
+
+## Feature scope
+
+Status terms used here and in the Technical Report:
+
+| Term | Meaning |
+| --- | --- |
+| **Implemented** | In the code on `main`, on by default or available without extra setup |
+| **Optional** | Implemented and configurable; the app works without it |
+| **Not implemented** | Deliberately absent from the code |
+| **Planned** | Not done yet, intended later |
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Block library, projects, ordered steps, reference photos | Implemented | SQLite and local files; no API key needed |
+| Setup wizard (`/setup`) | Implemented | Meta plan generation is an explicit, optional click; manual setup needs no key |
+| Browser camera capture | Implemented | `getUserMedia`; localhost or HTTPS only |
+| Muse Spark inspection and fresh-image verification | Implemented | Requires `MODEL_API_KEY` |
+| Correction plan and Active Vision guidance | Implemented | Built deterministically from the validated diagnosis |
+| Spatial AR (`/ar?project=<id>`) with WebXR, guided panel and hologram | Implemented | Falls back to a labelled 2D preview on unsupported devices |
+| Guided buttons: Check Step, Check Again, Confirm Position, Next Step, Finish, Restart Assembly | Implemented | See [Assembly workflow](#assembly-workflow) |
+| Completion hologram (Meta mascot) after Finish | Implemented | Loaded only by Finish; failures never affect the workflow |
+| SAM 3.1 localization | Optional | `SAM_ENABLED`, on by default; only runs for `incorrect` diagnoses |
+| Explicit object search with SAM (`POST /api/vision/objects`) | Optional | User-triggered, independent of the verdict |
+| ChArUco calibration, stud geometry, printed-face and print rules | Optional | Only active for steps that configure them |
+| Contour overlays, Canny edge debug | Optional | Visual aids; no verdict impact |
+| Autonomous Assembly | Optional | Explicit Start; local change detection, budgeted Meta requests |
+| External camera companion (`/api/ar-camera`) | Optional | Second browser supplies the frame for HoloLens |
+| Local voice commands (Whisper on the Mac) | Optional | Needs a local Whisper engine; audio never goes to Meta |
+| Authentication, public deployment, rate limits on inspection | Not implemented | Trusted local network only |
+| Local GPU models, non-Meta inference providers | Not implemented | |
+| Autonomous physical correction, 3D metrology, native HoloLens app | Not implemented | A Unity/OpenXR path is only described in [docs/hololens.md](docs/hololens.md) |
+| Final HoloLens demo recording, local browser demo recording | Planned | See [Demo-Videos – folgt später](#demo-videos--folgt-später) |
+| Real-photo accuracy benchmark, completed HoloLens acceptance checklists | Planned | Tooling exists; results do not |
+
+## Repository layout
 
 ```text
-frontend/    Next.js App Router, strict TypeScript, React, Tailwind, Lucide
-backend/     FastAPI, SQLModel/SQLAlchemy, SQLite, Pillow, async httpx Meta-only inspection
-data/        Shared configurable assembly JSON (data/assemblies/demo-lego.json)
-docs/        Architecture, registry/inspection APIs and validation notes
-.github/     Lint, build, Python tests and synthetic-camera browser tests
+backend/    FastAPI app (app/main.py), SQLModel/SQLite, Pillow, OpenCV, httpx, Meta clients, tests
+frontend/   Next.js App Router, React, TypeScript, Tailwind, three.js/WebXR, unit + Playwright tests
+data/       Shared practice assembly (data/assemblies/demo-lego.json)
+deploy/     Caddyfile.hololens: private-LAN HTTPS proxy template
+docs/       Technical report, API contracts, HoloLens guide, validation records
+.github/    CI workflow
+Makefile    install, dev-backend, dev-frontend, test, lint, build, test-browser
 ```
 
-The browser keeps live video and JPEG snapshots in memory. It polls the backend health endpoint every 10 seconds; camera preview does not depend on backend availability. The frontend loads custom projects from SQLite through the API, with the shared demo definition as a fallback. Python validates uploaded images entirely independently of any model provider. See [architecture](docs/architecture.md).
+Entry points: `backend/app/main.py` (`app.main:app`) and
+`frontend/src/app/(workspace)/page.tsx` (route `/`). Other routes: `/setup`, `/blocks`,
+`/projects`, `/projects/[projectId]`, `/ar`, `/settings`.
 
 ## Prerequisites
 
-- Node.js 22+ (Node 24 recommended; `.node-version`)
-- Python 3.12+ (3.12 pinned for development)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) for locked Python dependency installation
-- A current Chrome, Edge, Firefox or Safari browser; a webcam for physical camera testing
+- Node.js 22+ (`package.json` engines; `.node-version` pins 24)
+- Python 3.12+ (`backend/.python-version` pins 3.12)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- A current Chrome, Edge, Firefox or Safari; a webcam for real camera testing
+- For live inspection: a Meta Model API key from the
+  [Meta Model API dashboard](https://dev.meta.ai/)
+- For HoloLens: Caddy on the serving machine and HoloLens 2 on the same trusted LAN
 
-## Install
-
-From the repository root:
+## Installation and setup
 
 ```sh
 make install
-# Optional local configuration (do not overwrite existing files):
+# Optional local configuration; -n never overwrites existing files:
 cp -n backend/.env.example backend/.env
 cp -n frontend/.env.example frontend/.env.local
 ```
 
-`npm ci` uses `frontend/package-lock.json`; `uv sync --frozen` uses `backend/uv.lock`. No API key is needed to install, start or run automated tests. Live inspection requires a backend Meta API key. If your sandbox disallows the default cache directories, set `npm_config_cache` and `UV_CACHE_DIR` to writable paths.
+No API key is needed to install, start or run the automated tests. Live inspection needs
+`MODEL_API_KEY` in `backend/.env`. Never put it in frontend configuration, source code or
+a command argument.
 
-## Run
+### Dependency sources
 
-Use two terminals from the repository root:
+| Part | Manifest | Lock file | Install |
+| --- | --- | --- | --- |
+| Backend | `backend/pyproject.toml` | `backend/uv.lock` | `uv sync --frozen` |
+| Frontend | `frontend/package.json` | `frontend/package-lock.json` | `npm ci` |
+
+`pyproject.toml` with `uv.lock` is the primary and only Python dependency source. The
+project deliberately has no `requirements.txt`: nothing references one, and a second list
+could contradict the lock file. All `make` targets and CI use `uv sync --frozen` or
+`uv run --frozen`.
+
+## Environment variables
+
+`backend/.env` is resolved from `backend/` regardless of the shell directory. Process
+environment variables override it, and other file names such as `.env.backend` are not
+loaded automatically. Restart the backend after changes. `NEXT_PUBLIC_*` values are public
+and baked in at build time.
+
+**Frontend** (`frontend/.env.local`)
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend origin as seen by the browser; empty string means same origin (HoloLens build) |
+
+**Backend: Meta Model API** (`backend/.env`)
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MODEL_API_KEY` | unset | The one Meta key, used for both Muse and SAM. There is no separate SAM key |
+| `META_API_BASE_URL` | `https://api.meta.ai/v1` | Only this HTTPS host and path are accepted |
+| `META_VISION_MODEL` | `muse-spark-1.3` | Muse model ID |
+| `META_REQUEST_TIMEOUT` | `60` | Seconds for the whole Muse operation including retries; max 180 |
+| `META_MAX_REFERENCE_IMAGES` | `8` | Reference photos per request, plus the current snapshot; 0–20 |
+| `META_MAX_REQUEST_BYTES` | `10485760` | Serialized request limit including base64 |
+| `INSPECTION_MAX_DIMENSION` | `1280` | Longest image edge sent to Meta; 256–1600 |
+
+**Backend: SAM 3.1** (optional)
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SAM_ENABLED` | `true` | `false` keeps Muse-only inspection |
+| `META_SAM_MODEL` | `sam-3.1` | Fixed: any other value fails settings validation |
+| `SAM_REQUEST_TIMEOUT` | `60` | Seconds per SAM operation including retries and decoding; max 60 |
+| `SAM_MAX_CONCEPTS_PER_INSPECTION` | `2` | SAM operations per inspection; 0–2 |
+
+**Backend: application**
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `FRONTEND_ORIGIN` | `http://localhost:3000` | Exact CORS origin; `*` is rejected |
+| `DATABASE_URL` | `sqlite:///./data/assemblypilot.db` | Relative to `backend/` |
+| `UPLOAD_DIR` | `./data/uploads` | Reference photos, relative to `backend/` |
+| `CALIBRATION_DIR` | `./data/calibrations` | Versioned calibration JSON, relative to `backend/` |
+| `MAX_UPLOAD_BYTES` | `8388608` | Upload limit |
+| `MAX_IMAGE_PIXELS` | `20000000` | Decoded pixel limit |
+| `MAX_IMAGE_DIMENSION` | `8192` | Maximum input edge |
+| `MIN_IMAGE_DIMENSION` | `32` | Minimum input edge |
+| `RESIZE_MAX_DIMENSION` | `1600` | Longest stored reference edge; never upscales |
+| `INSPECTION_SESSION_CAPACITY` | `64` | In-memory inspection sessions; 1–256 |
+| `INSPECTION_SESSION_TTL_SECONDS` | `1800` | Session lifetime; 60–7200 |
+| `FACE_CANNY_SIGMA` | `0.33` | Adaptive Canny spread for printed faces; 0.1–0.6 |
+
+**Backend: local voice** (optional)
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `VOICE_WHISPER_COMMAND` | empty | Empty auto-detects `whisper-cli`, `main`, then `whisper` |
+| `VOICE_WHISPER_MODEL` | `tiny` | Model name for the `whisper` CLI |
+| `VOICE_WHISPER_MODEL_PATH` | empty | Model file for whisper.cpp |
+| `VOICE_MAX_AUDIO_BYTES` | `1000000` | Clip size limit |
+| `VOICE_MAX_DURATION_SECONDS` | `8` | Clip duration limit |
+| `VOICE_SESSION_TTL_SECONDS` | `600` | Voice session lifetime |
+| `VOICE_RATE_LIMIT_PER_MINUTE` | `30` | Per-session limit |
+| `VOICE_MAX_SESSIONS` | `256` | Concurrent sessions |
+| `VOICE_TRANSCRIBE_TIMEOUT_SECONDS` | `60` | Transcription deadline |
+
+## Start the backend
 
 ```sh
 make dev-backend
+```
+
+This runs `uv run --frozen uvicorn app.main:app --reload --host 127.0.0.1 --port 8000` in
+`backend/`. Health check: `curl --fail http://localhost:8000/health`. Interactive API
+schema: `http://localhost:8000/docs`.
+
+The first start creates missing tables in `backend/data/assemblypilot.db` and the upload
+directory. Existing data is never reset or seeded. Use a single backend worker:
+inspection sessions, voice sessions and the camera bridge live in process memory.
+
+## Start the frontend
+
+```sh
 make dev-frontend
 ```
 
-Open `http://localhost:3000` on your development machine. Backend: `http://localhost:8000`; interactive API schema: `/docs`.
+Open `http://localhost:3000`. Production build: `make build`, then
+`cd frontend && npm run start`. Both `npm run dev` and `npm run start` bind to `0.0.0.0`,
+so use them only on a trusted machine or network. The dashboard's backend status comes from
+a health poll every 10 seconds; the camera works even when the backend is down.
 
-Production build locally: `make build`, then `cd frontend && npm run start` (keep the backend running separately). The dev/start scripts bind the frontend to all interfaces for development. This is not a hardened public deployment; keep it on a trusted local machine/network.
+## Local browser demo
 
-## Configuration
+1. Start backend and frontend, with `MODEL_API_KEY` set in `backend/.env`.
+2. Create content in one of these ways:
+   - Open `/setup` and follow the five-step wizard
+     ([guide and acceptance checklist](docs/jury-setup.md)).
+   - Or use `/blocks` and `/projects`.
+   - Or run the two-step demo project, which prints JSON with the project ID and AR path:
+     `cd backend && uv run --frozen python scripts/create_ar_demo.py`
+3. Add a photo of the correctly assembled step. Without one, spatial judgments are
+   deliberately conservative.
+4. **Workspace flow** at `/`: select the project and step, **Start camera**, **Capture**,
+   **Inspect with Meta AI**. After `incorrect`, correct the build, choose **I've corrected
+   it**, then **Capture & Verify**.
+5. **Guided flow** at `/ar?project=<id>`: without an XR session the page shows the same
+   guided card and panel actions as HoloLens, using the local browser camera.
 
-| Variable | Location | Default / purpose |
-| --- | --- | --- |
-| `NEXT_PUBLIC_API_URL` | `frontend/.env.local` | `http://localhost:8000`; browser-reachable backend origin |
-| `FRONTEND_ORIGIN` | `backend/.env` | `http://localhost:3000`; exact CORS origin, no wildcard |
-| `DATABASE_URL` | `backend/.env` | `sqlite:///./data/assemblypilot.db`; relative paths resolve from `backend/` |
-| `UPLOAD_DIR` | `backend/.env` | `./data/uploads`; normalized JPEG references, relative to `backend/` |
-| `MODEL_API_KEY` | `backend/.env` | Required only for live inspection; never put this in frontend configuration |
-| `META_API_BASE_URL` | `backend/.env` | `https://api.meta.ai/v1`; only this HTTPS host and base path are allowed |
-| `META_VISION_MODEL` | `backend/.env` | `muse-spark-1.3`; verified in official Meta documentation |
-| `META_REQUEST_TIMEOUT` | `backend/.env` | 60 seconds for the entire network operation, including retries; maximum 180 |
-| `INSPECTION_MAX_DIMENSION` | `backend/.env` | 1280 pixels for frames and reference copies sent to Meta |
-| `META_MAX_REFERENCE_IMAGES` | `backend/.env` | 8 references plus the current snapshot |
-| `META_MAX_REQUEST_BYTES` | `backend/.env` | 10 MiB total serialized JSON, including base64 |
-| `MAX_UPLOAD_BYTES` | `backend/.env` | 8 MiB |
-| `MAX_IMAGE_PIXELS` | `backend/.env` | 20 million decoded pixels |
-| `MAX_IMAGE_DIMENSION` | `backend/.env` | 8192 pixels on either input edge |
-| `MIN_IMAGE_DIMENSION` | `backend/.env` | 32 pixels on each input edge |
-| `RESIZE_MAX_DIMENSION` | `backend/.env` | 1600 pixels on the output's longest edge; never upscale |
+The five-step practice assembly from `data/assemblies/demo-lego.json` has no registered
+SQLite context and therefore offers no AI inspection. Calibration and edge debugging are
+under **Settings** (`/settings`).
 
-The backend resolves `.env`, relative SQLite paths and relative upload paths from `backend/`, independently of the shell working directory. Restart the backend after configuration changes. `NEXT_PUBLIC_*` values are public and embedded at frontend build time: restart development or rebuild production after changing them. For remote access, both origins must match the addresses your browser actually uses; a phone's `localhost` is the phone itself. Camera access outside localhost requires HTTPS.
+Captures stay in browser memory until you explicitly inspect them or save them as
+reference photos.
 
-## Test the camera
+## Assembly workflow
 
-1. Open the dashboard on localhost or HTTPS. Click **Start camera** and allow permission.
-2. After permission is granted, select an available camera. Continuity Camera is selectable only if macOS and your browser expose the iPhone as a video device; it is not guaranteed.
-3. Confirm the live preview, click **Capture**, and check the JPEG snapshot and dimensions.
-4. Click **Stop camera** and confirm your hardware's camera indicator turns off. Start it again.
-5. Switch sources, deny permission, and disconnect/reconnect a camera to check recovery.
-6. Stop the backend: the camera should remain usable while backend status becomes Disconnected (within the poll/timeout window).
+A step's verdict starts with Muse Spark. Optional OpenCV and print gates can only make it
+stricter, never better. Only the backend can record a step as `verified`.
 
-Captures are not saved to disk or uploaded automatically. Refreshing the page clears them. The latest capture remains visible when the camera is stopped. Permission prompts may stay visible after Stop; a late successful permission response is discarded and its tracks stopped.
+| Result | What the user sees | Buttons | What happens next |
+| --- | --- | --- | --- |
+| `correct` (first image) | "Check Step" continues automatically | none while running | About 2 seconds later a **separate, fresh** frame goes to `POST /api/verify` |
+| Verified by backend | "Correct" | Next Step, or Finish on the last step | Progress is stored in SQLite |
+| `correct`, verification still missing | "Almost correct" | Check Again | Check Again starts a new inspection and verification |
+| `incorrect` | "Try again" with the issue and suggested fix | Check Again | Adjust the build; Check Again uses a fresh image |
+| `uncertain` | "Position uncertain" with the requested view | Check Again, Confirm Position | **Nothing is sent** until the user selects Check Again |
+| Check could not run | "Check unavailable" | Check Again, Confirm Position | An infrastructure failure is never shown as a verdict |
 
-## Create blocks and assembly projects
+- **Check Again** captures exactly one new frame and starts one new inspection. Old images
+  are never reused: the backend rejects a repeated snapshot during verification.
+- **Confirm Position** is a local, user-confirmed fallback. It is labelled "not AI
+  verified", writes nothing to the backend and cannot enable Finish.
+- **Finish** appears only on the last step after backend verification. It re-reads server
+  progress, then shows "Assembly complete" and the completion hologram. It starts no
+  camera and no Meta request.
+- **Restart Assembly** appears after Finish. It creates a new server run
+  (`POST /api/projects/{id}/assembly-runs`), which makes all steps unverified and returns
+  to Step 1. Nothing is deleted, and no camera or Meta action starts.
 
-1. Start both services and open **Block library** (`/blocks`). Choose **Add block**, enter its name, category, color, shape, optional dimensions and positive default quantity, then save.
-2. In the saved block editor, choose **Take reference photo**, then **Start camera** and allow camera access. Select a camera, place the individual block in view, choose **Capture**, review the preview and choose **Save as reference**. You can capture again before saving or cancel without uploading. Alternatively, choose **Upload reference photo** for an existing JPEG, PNG or WebP. Photos are validated, oriented, resized and saved as metadata-free JPEGs. You can add multiple photos or delete an individual photo with confirmation. The first photo is marked **Used for inspection**; delete it to use the next photo. Arbitrary category names are supported.
-3. Open **Projects** (`/projects`) and create a project. Open it, choose **Add step**, write the title/instruction, select registered blocks and enter each required quantity, then save. An optional **Geometric constraint** configures the signed longitudinal offset between one supported target and reference 2×4 block; steps without one remain `not measured`. In **Edit step**, the **Reference photographs** section lets you upload, capture, select or delete that step's photos. Use **Take reference photo → Start camera → Capture → Save as reference** for a new capture. Choose **Use for inspection** on a photo to make it the active reference. The selection survives reloads and backend restarts; other photos remain stored. Closing the step editor also closes its camera.
-4. Use the up/down buttons to reorder steps. Edit or delete steps as needed; positions stay contiguous. A block can be assigned once per step and reused by any number of projects.
-5. Choose **Open in workspace**, or select the project in the dashboard's **Assembly project** selector. The ordered instructions, expected quantities and selected step photo appear alongside the camera controls. The same selected photo is sent as the assembled-step reference for inspection. Without an explicit selection, the oldest available photo is used. Deleting the selected photo falls back to the oldest remaining photo. Manual navigation never claims AI verification.
+## HoloLens 2 test on the local network
 
-Saving a block or step and saving its photos are separate operations: if a photo fails to save, its camera preview remains available for retry. Capturing a camera frame does **not** save or upload it. Only **Save as reference** or an explicit file upload persists a reference image. Saving, canceling, leaving the page or switching the reference target releases the reference camera. The workspace camera captures a separate current view; **Inspect with Meta AI** sends it with the relevant saved reference photos through FastAPI.
+**Check this first:** WebXR and the camera require a secure context, so HoloLens needs
+HTTPS. The API has no authentication, so keep both servers on loopback and expose only
+the TLS proxy, restricted by firewall to trusted devices. Do not use public tunnels or
+port forwarding, and do not expose port 8000.
 
-## SQLite and image storage
+### Caddy HTTPS configuration
 
-The first backend startup creates missing tables in `backend/data/assemblypilot.db` and the `backend/data/uploads/` directory. Data survives restarts. Existing tables/data are never reset or seeded automatically. Initialization uses SQLModel `create_all`, not a migration framework; future schema changes require an explicit migration and backup plan.
+The template is `deploy/Caddyfile.hololens`. It binds to a private IP, uses Caddy's
+internal CA (`tls internal`), sets `Permissions-Policy` for XR and camera, forwards
+`/api/*` and `/health` to `127.0.0.1:8000` and everything else to `127.0.0.1:3000`.
 
-The core tables are `building_blocks`, `assembly_projects`, `assembly_steps`, `assembly_step_blocks` and `reference_images`. Additive tables include `step_reference_selections`, `step_progress` and `step_spatial_constraints`; startup creates missing tables without rebuilding existing tables or changing existing photos. SQLite foreign keys are enabled on every connection. Reference images have exactly one concrete foreign-key owner (`block_id` or `step_id`), not an unchecked polymorphic ID. API responses expose `/api/media/{id}` URLs, never storage paths.
+1. In a copy of the file (or the file itself, without committing it), replace **both**
+   `192.168.1.50` occurrences with the serving machine's private LAN IP.
+2. Build the frontend with an **empty** API base, so requests use the same HTTPS origin,
+   and start it on loopback:
 
-Deletion policy:
+   ```sh
+   cd frontend
+   NEXT_PUBLIC_API_URL='' npm run build
+   npx next start --hostname 127.0.0.1 --port 3000
+   ```
 
-- A block used by any step returns HTTP 409 and is retained with its photos.
-- Deleting an unreferenced block removes only its own image records/files.
-- Deleting a step removes its assignments/photos and renumbers remaining steps.
-- Deleting a project removes its steps, assignments and step photos, **but never reusable blocks or block photos**.
-- Individual reference photos can be deleted independently.
+3. Start the backend in a second terminal:
 
-Related database mutations commit atomically. SQLite writers are serialized with `BEGIN IMMEDIATE`, and order updates use collision-free temporary positions inside the transaction. Uploaded files are removed if the transaction fails. Deletion removes files only after the database commit. Filesystem/database operations cannot be one atomic transaction: a process crash or filesystem cleanup failure may leave an unreachable orphan file; cleanup errors are logged. Do not delete files belonging to live records. Back up the database **and** upload directory with the backend stopped before moving/removing local data.
+   ```sh
+   cd backend
+   uv run --frozen uvicorn app.main:app --host 127.0.0.1 --port 8000
+   ```
 
-Default data paths, database files and uploads are ignored by Git. If configuring a different upload directory inside the checkout, add that path to `.gitignore` before using it. Do not commit personal reference photos or API credentials. This is an unauthenticated local MVP: keep the backend bound to loopback, and do not expose it publicly.
+4. Start Caddy in a third terminal, with the OS privileges needed to bind port 443:
 
-## Demo assembly and reference photos
+   ```sh
+   caddy run --config deploy/Caddyfile.hololens --adapter caddyfile
+   ```
 
-Edit `data/assemblies/demo-lego.json` to configure the five-step example. Parts and colors are suggestions; no specific LEGO set is required. Navigation marks only the **current step**, never completion or AI verification.
+5. Install **only the public** root certificate on each client:
+   `pki/authorities/local/root.crt` in Caddy's data directory. Never distribute its
+   private key. On HoloLens follow
+   [Microsoft's certificate manager guide](https://learn.microsoft.com/en-us/hololens/certificate-manager).
+   Do not bypass certificate warnings.
 
-Add your real reference photos under `frontend/public/references/` and set a step's `reference_image` to a path such as `/references/step-1.jpg`. Null or broken image paths show an explicit placeholder. No construction photos are fabricated. Restart/rebuild after changing assembly data in production.
+### On the headset
 
-## Configure and use Meta inspection
+1. Open `https://<your-private-ip>/ar?project=<project-id>` in HoloLens Edge.
+2. Select **Enter immersive AR**, rotate the assembly field to match the baseplate and
+   select **Confirm Assembly Field**.
+3. Place the brick and select **Check Step** with a hand ray and Air Tap.
+4. The default camera source is the HoloLens camera, probed while XR stays active. If no
+   advancing frames arrive, the panel shows a pairing code. Open the same project page on
+   a Mac or iPhone, enter the code and select **Act as external camera companion**. That
+   device captures and inspects, and only a validated text summary returns to HoloLens.
 
-Create an API key in the [Meta Model API dashboard](https://dev.meta.ai/) (API keys → Create API key). In the existing `backend/.env`, set `MODEL_API_KEY` securely; do not paste it into source code, the frontend or logs. Keep the other defaults from `.env.example`:
+Use the same HTTPS URL on all devices so they share state. Details, coordinate
+conventions, voice setup and manual checklists are in [docs/hololens.md](docs/hololens.md).
 
-```env
-META_API_BASE_URL=https://api.meta.ai/v1
-META_VISION_MODEL=muse-spark-1.3
-META_REQUEST_TIMEOUT=60
-```
-
-Environment variables override `.env`. Restart the backend after changes. For cloud development, securely configure `MODEL_API_KEY` for this environment and allow `api.meta.ai` (inference) and `dev.meta.ai` (documentation); a saved setting may need propagation before the running backend receives it.
-
-Register your blocks, project and steps as above. A block photo describes an individual component; upload a **correctly assembled step photograph** to describe the intended arrangement. Without that photograph, spatial judgments are deliberately conservative. Capture a frame and choose **Inspect with Meta AI**. Results show `correct`, `incorrect` or `uncertain`, visible components/counts, issues, explanation and next action. Confidence can be null and is never a calibrated probability. Changing the frame, project or step clears the current displayed result. Completed diagnoses remain in the session history with capture/inspection timestamps, exact analyzed snapshot and measured Meta request latency. History survives client-side page navigation and is cleared by refresh, closing the tab, or **Clear history**; nothing is written to browser storage or SQLite. An in-flight upstream request may still incur cost even if the browser discards its answer.
-
-Each issue includes expected versus observed evidence and a suggested fix. Missing parts are never assigned a box; visible misplaced/wrong-color/wrong-orientation/unexpected parts can have a box only when localization is reliable. Boxes are not drawn on live video or the newest capture. When **Another view needed** appears, keep the build unchanged, follow the camera-angle instruction, capture a new frame and explicitly inspect again. There is no automatic camera movement or repeated inference.
-
-The practice JSON demo has no registered SQLite context and does not offer AI inspection. Hidden connections, occluded parts, exact measurements and guaranteed physical correctness cannot be established from a single view. Do not treat a suggested fix as verified: capture a new frame after changing the build.
-
-## API
-
-```sh
-curl --fail http://localhost:8000/health
-curl --fail-with-body -F 'image=@/path/to/photo.jpg' \
-  -F 'project_id=YOUR_PROJECT_ID' -F 'step_id=YOUR_STEP_ID' \
-  http://localhost:8000/api/inspect
-```
-
-`GET /health` retains the Phase 1 contract (`status: ok`, `service: assemblypilot-backend`, `version: 0.1.0`). The API application metadata is version 0.3.1.
-
-`POST /api/inspect` returns validated diagnostic JSON on success. Missing Meta configuration returns 503; provider failures never produce a diagnosis. For compatibility, image-only requests still validate the image and return 501 with dimensions and guidance to supply both IDs. Both IDs plus the image are required for actual inspection.
-
-JPEG/PNG/WebP bytes are validated regardless of file extension, EXIF-oriented, proportionately resized and converted to metadata-free JPEG in memory. Corrupt/too-small images return 422; oversized images return 413; unsupported/animated formats return 415. Multipart parsing can spool before validation; public deployment would require authentication, request-body and rate limits. Keep this unauthenticated MVP on a trusted local machine.
-
-See [inspection API and verified Meta protocol](docs/inspection-api.md) and [registry API](docs/registry-api.md) for schemas, errors and limits.
-
-### Explicit live smoke test
-
-This command sends a potentially billable request to Meta. Use a real photograph and actual IDs from your local registry; it is never run by CI:
-
-```sh
-cd backend
-uv run --frozen python smoke_inspection.py \
-  --project-id YOUR_PROJECT_ID --step-id YOUR_STEP_ID \
-  --image /absolute/path/to/your-assembly-photo.jpg
-```
-
-It loads the backend environment, resolves the registered context and references, prints the validated diagnosis and duration, and exits 0 on success or nonzero on failure. Without a key it prints `SKIPPED` and exits 77. No sample result is substituted. See [validation results](docs/validation.md) for whether a live request was actually performed.
-
-## Calibrate the camera and assess perspective
-
-Open **Settings** beside **Projects**, then **Camera Calibration & Precision
-Capture** in the Camera section. Download the default ChArUco board (140 × 100 mm), print at actual size, measure both edges, and
-capture 12–20 varied views. Enter the measured dimensions and fixed camera
-configuration, then **Calibrate & save profile**. Calibration uses OpenCV 4.14.0,
-requires no AI key, and saves versioned JSON under `backend/data/calibrations`.
-
-In **Precision Capture**, choose the profile, confirm the unchanged configuration and explicitly capture a board-visible
-frame. Review focus, board visibility and perspective guidance, then choose
-**Use this capture for AI inspection** to continue the existing Muse/SAM workflow.
-Overlays stay on the analyzed snapshot. A step with an explicit supported 2×4
-constraint can then report a height-aware relative stud offset, deviation and
-uncertainty. Missing calibration or incomplete features return no numeric claim.
-Keep lens, resolution, focus, crop, zoom and
-stabilization fixed; hidden Continuity Camera changes may require recalibration.
-
-See [calibration APIs](docs/calibration.md) and [supported geometric verification,
-coordinate frames, fusion policy and the unperformed physical experiment](docs/geometric-verification.md).
-
-## Correct and verify an assembly step
-
-After an incorrect diagnosis, read **Correction Required** and the suggested fix.
-Physically adjust the assembly, choose **I've corrected it**, then **Capture & Verify**.
-This captures a new live frame and asks Muse to independently assess the whole step
-and every outstanding earlier finding. No success is inferred from the acknowledgement.
-
-Results are **Step Verified**, **Correction Still Required**, or **Another View Needed**.
-Only accepted verification persists `verified` progress in SQLite. Initial `correct`
-diagnoses and manual navigation do not. **Continue to Next Step** requires a click and
-appears only when a next step exists. Editing specifications or reference photographs
-invalidates previous verification. Overlays always use the newly analyzed snapshot.
-
-The planner reuses the diagnosis without another model call: one initial Muse operation
-and one per explicit verification, each with the existing bounded transport retries.
-Sessions retain metadata/findings for up to 30 minutes (64 records by default), without
-camera bytes. They expire on backend restart; progress persists. Use one backend worker.
-
-See [workflow architecture, API and real Four-Block Color Tower test](docs/verification.md).
-The optional two-photo API replay is:
+## Tests
 
 ```sh
-cd backend
-uv run --frozen python smoke_verification.py --run-live \
-  --project-id YOUR_PROJECT_ID --step-id YOUR_STEP_4_ID \
-  --before /absolute/path/to/before.jpg --after /absolute/path/to/after.jpg
-```
-
-Use actual photographs and a running backend with the Meta key. This is potentially
-billable and changes progress metadata; it never runs in CI. Without opt-in/inputs it
-exits 77. Real Phase 4 verification in this cloud remains unverified despite the user's
-confirmation that their local Muse integration works.
-
-## Optional SAM segmentation
-
-After Muse reports a visible discrepancy, the backend can call Meta-hosted `sam-3.1`
-through `POST https://api.meta.ai/v1/responses`, using the exact same normalized JPEG.
-The official Python parser decodes masks; validated instance geometry and transparent
-PNG overlays are returned with snapshot identity and separate timings. **Show Segmentation**
-toggles masks, and **Show original / Show annotated** compares the analyzed snapshot.
-Missing parts have no mask; ambiguous candidates are never selected arbitrarily.
-Failures preserve the Muse diagnosis and available Muse boxes.
-
-Backend defaults: `META_SAM_MODEL=sam-3.1`, `SAM_ENABLED=true`,
-`SAM_REQUEST_TIMEOUT=60`, `SAM_MAX_CONCEPTS_PER_INSPECTION=2`. Set
-`SAM_ENABLED=false` to retain Muse-only inspection. Up to two localization operations
-can add latency and billable requests; each has bounded transient retries. No local
-weights or GPU are required. The parser worker requires Linux/macOS resource limits.
-
-Explicit live test with your real photograph (never CI):
-
-```sh
-cd backend
-uv run --frozen python smoke_segmentation.py --image /absolute/path/to/your-photo.jpg \
-  --output data/sam-smoke/annotated.png
-```
-
-It uses `green building block`, reports real instance count/latency, and saves an
-annotated output without overwriting files. Missing credentials exit 77; errors exit 1.
-`backend/.env.backend` is not loaded automatically: use `uv run --env-file .env.backend`
-if that is your local configuration file. See [SAM protocol, limits and routing](docs/segmentation.md)
-and [actual validation status](docs/validation.md). Real inference is not yet verified
-in this cloud environment.
-
-## Real-image benchmark
-
-No user photographs or labelled test cases are bundled. See [the benchmark guide](docs/benchmark.md) to evaluate 1–10 real, labelled photographs against your registered project and reference images. The runner is opt-in, uses Meta only, records validated diagnoses and latency, and reports errors without inventing scores. It does not run in CI.
-
-## HoloLens spatial guidance (Phase 6)
-
-Project steps can optionally carry confirmed metric AR placements. **Spatial AR**
-checks the current browser and requests a real immersive WebXR session on a user
-gesture, with optional surface detection/anchors and explicit manual alignment.
-Unsupported devices show a labelled 2D preview. Viewing holograms never verifies a
-physical build. HoloLens hardware is currently offline and has **not** been validated.
-See [private HTTPS setup, coordinate conventions, native fallback and hardware checklist](docs/hololens.md).
-
-## Checks
-
-```sh
-make test          # Python tests + strict TypeScript + mocked XR logic tests
 make lint          # Ruff + ESLint (warnings fail)
+make test          # pytest, strict TypeScript check, frontend unit tests
 make build         # Next.js production build
-cd frontend && npx playwright install chromium
-cd .. && make test-browser
+cd frontend && npx playwright install chromium   # first run only
+cd .. && make test-browser                       # Next.js build + Playwright
 ```
 
-Browser tests start a real FastAPI service with an isolated temporary SQLite database and upload directory. They refuse to reuse an existing backend on port 8000: stop your development backend before running them. `make test-browser` builds with the local test API URL. Browser inspection cases use test-only mocked responses to verify explicit uploads, loading, diagnosis display, errors, Active Vision, exact-snapshot semantic and geometric overlays, fusion precedence, session history and stale-result clearing. The registry browser workflow tests block/project/step CRUD, photo upload, reordering, deletion conflicts, and custom-project camera capture. The original tests exercise dashboard rendering, five-step navigation, backend statuses, synthetic camera capture, source restart, track cleanup, permission denial, disconnection and mobile layout. They use Chromium's **synthetic** camera; they do not establish physical webcam, iPhone or measurement compatibility. If Chromium is already installed, use `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium make test-browser` instead of downloading a browser. On Linux, Playwright may need system libraries (`npx playwright install --with-deps chromium`). CI runs without Meta credentials.
+There is no Markdown lint or documentation check in this repository.
 
-The executed cloud validation results and remaining hardware limitations are recorded in [docs/validation.md](docs/validation.md).
+- CI (`.github/workflows/ci.yml`) runs on every push and pull request with no Meta
+  credentials: Ruff and pytest in the backend job; ESLint, type check, unit tests, build
+  and Playwright in the frontend job.
+- Playwright starts a disposable API with a temporary database, and refuses to reuse a
+  server on port 8000. Stop your development backend first. `make test-browser` overwrites
+  `frontend/.next`, so rebuild afterwards if you need the HoloLens build.
+- Browser tests use a **synthetic** Chromium camera and mocked Meta results. Tests mock XR
+  poses and GPU rendering. They do not prove physical camera, HoloLens or recognition
+  quality.
 
-## Current limitations and next steps
+Live checks are opt-in, potentially billable and never run in CI. Without credentials or
+opt-in they exit 77:
 
-- Single-view diagnosis is fallible, especially with occlusion, similar colors/parts, poor lighting or no assembled-step reference. Boxes are optional and validated geometrically, not visually verified. Localization and verification quality need real-image evaluation.
-- Model confidence is an uncalibrated estimate or null. A `correct` result is not a physical safety or connection guarantee.
-- No autonomous correction loop, 3D metrology, image generation or hardware-validated smart-glasses support. Optional SAM localization runs on each new diagnosis/verification snapshot and never changes the Muse assessment. Real camera, correction and geometry quality still need evaluation.
-- Reference photos must be supplied by the user; navigation remains manual. The selected step photo (or oldest photo if no choice was saved) and first photo per assigned block are included, up to the configured reference cap; omitted counts are included in the prompt.
-- Registry limitations remain: no pagination, general multi-user conflict resolution, a versioned migration framework or cloud sync. Full-field edits use last-write-wins semantics.
-- Physical webcam/iPhone compatibility needs local hardware validation. Offline transport tests establish request/response handling, not model recognition quality or your account's live access.
+```sh
+cd backend
+uv run --frozen python smoke_inspection.py --project-id ID --step-id ID --image /abs/photo.jpg
+uv run --frozen python smoke_segmentation.py --image /abs/photo.jpg --output data/sam-smoke/annotated.png
+uv run --frozen python smoke_verification.py --run-live --project-id ID --step-id ID --before /abs/a.jpg --after /abs/b.jpg
+```
 
-## Printed-face verification (Phase 4.1C)
+For a labelled real-image evaluation, see [docs/benchmark.md](docs/benchmark.md).
 
-Register distinct physical faces and cropped photographs in the block library, then
-select a required face and board direction in the step editor. OpenCV matches the
-reference plane; calibrated pose must support its physical direction before a face
-passes. Muse identity alone cannot verify direction. See [face verification](docs/face-verification.md)
-for API/storage details, thresholds, limitations and the pending real tower experiment.
+## Current development status
 
-Optional [inspection contour overlays](docs/contour-overlays.md) add independently selectable SAM
-boundaries, raw ROI Canny edges and verified reference feature pairs on their
-exact snapshots. New contours are disabled by default and make no additional AI calls.
+- All listed features are merged on `main`. The latest merged work is the completion
+  hologram and header branding (PRs #12 and #13).
+- Automated results and manual records are kept in
+  [docs/validation.md](docs/validation.md) and the
+  [Technical Report](docs/technical-report.md#test-strategy).
+- `docs/hololens.md` records owner observations on a real HoloLens 2: immersive WebXR
+  works, the microphone is reachable, browser speech recognition is not usable, and a
+  live camera image works in the 2D workspace. The manual acceptance checklists there,
+  including simultaneous camera and WebXR use, are still open.
+- The repository contains no recorded real-photo benchmark. The owner reports working
+  live Muse inference locally. The live SAM path and the correction loop have no recorded
+  real-image result in the repository.
 
-Under **Settings → Debugging**, [Independent Edge Detection Debug Mode](docs/edge-debug.md)
-analyzes the captured camera JPEG without AI or matching prerequisites. It adds direct rectangular ROI selection,
-manual Gaussian/Canny controls, a full-resolution edge image and an optional raw
-overlay while preserving existing inspection results.
+## Demo-Videos – folgt später
+
+> **TODO — no demo videos exist yet.** This section is a placeholder. It contains no video
+> links, file names or results on purpose.
+
+- [ ] TODO: Record the final HoloLens demo live with Mixed Reality Capture, then add it here.
+- [ ] TODO: Record the local browser demo with the Mac's screen recording, then add it here.
+- [ ] TODO: Note the date and commit each video shows.
+
+## Known limitations
+
+- **Security:** no authentication and no inspection rate limits. Use only on a trusted
+  machine or private network.
+- **Visual judgment is fallible:** a single view cannot prove hidden connections, exact
+  measurements or stability. Confidence is an uncalibrated model estimate or null.
+- **Assembled-step photo:** without one, spatial results stay conservative.
+- **SAM coverage:** the automatic pass runs only for `incorrect` diagnoses, for at most two
+  operations. No mask does not mean the build is correct.
+- **`MODEL_API_KEY`:** one key serves Muse and SAM, so without it no inspection runs at all.
+- **HoloLens:** behavior depends on the installed Edge build. Anchors last for one session,
+  so the field must be confirmed again after re-entering AR. Simultaneous camera and WebXR
+  use is a device result, not a guarantee, and the companion path exists for this reason.
+- **Navigation is not verification:** moving between steps verifies nothing, and Finish
+  checks only the last step on the server. It reports how many steps were verified.
+- **Confirm Position on the last step** cannot complete the assembly; Finish requires
+  backend verification.
+- **Single process:** sessions and the camera bridge expire on backend restart. Progress in
+  SQLite remains.
+- **Persistence:** SQLModel `create_all` only, with no migration framework. Back up the
+  database and upload directory together with the backend stopped.
+- **Registry:** no pagination, cloud sync or multi-user conflict handling; edits are
+  last-write-wins.
+
+## Data and privacy
+
+Keep personal photos, `.env` files and API keys out of Git; default data paths are ignored.
+Images are sent to Meta only on an explicit inspection, or by Autonomous Assembly after you
+start it. API responses expose `/api/media/{id}` URLs, never file paths. Deleting a project
+keeps reusable blocks and their photos; deleting a block that a step uses returns 409.
+
+## Documentation
+
+| Document | Content |
+| --- | --- |
+| [Technical Report](docs/technical-report.md) | Architecture, data flow, decisions, security, testing, limits |
+| [HoloLens guide](docs/hololens.md) | XR setup, coordinates, voice, autonomy, device checklists |
+| [Jury setup](docs/jury-setup.md) | Setup wizard and acceptance checklist |
+| [Inspection API](docs/inspection-api.md), [Registry API](docs/registry-api.md) | Schemas, errors, limits |
+| [Verification](docs/verification.md) | Workflow states and correction loop |
+| [Segmentation](docs/segmentation.md) | SAM protocol, routing and limits |
+| [Calibration](docs/calibration.md), [Geometry](docs/geometric-verification.md) | ChArUco, stud offsets |
+| [Faces](docs/face-verification.md), [Print recognition](docs/print-recognition.md) | Printed-face and text rules |
+| [Contours](docs/contour-overlays.md), [Edge debug](docs/edge-debug.md) | Visual diagnostics |
+| [Completion hologram](docs/completion-mascot.md) | Mascot behavior and checks |
+| [Architecture notes](docs/architecture.md), [Benchmark](docs/benchmark.md) | Module-level detail, evaluation runner |
+| [Validation log](docs/validation.md) | Dated records of executed checks |
+
+## License
+
+Apache License 2.0; see [LICENSE](LICENSE).

@@ -1,4 +1,8 @@
-# AssemblyPilot architecture — Phase 4.1C
+# AssemblyPilot architecture notes
+
+Module-level notes collected through Phase 4.1E. For the current system overview,
+including Spatial AR, Autonomous Assembly and the guided flow, see the
+[Technical Report](technical-report.md).
 
 ## Components
 
