@@ -1,7 +1,15 @@
 # AssemblyPilot hackathon demo
 
-Remotion project for the AssemblyPilot demo video: 1920×1080, 30 fps. Nothing here is
-published or uploaded.
+Remotion project for the AssemblyPilot demo video: 1920×1080, 30 fps. It is separate from the
+application. The final render is 166.9 seconds, and the limit is 180 seconds.
+
+Recordings, audio and renders stay local and are not in Git:
+
+| Files | Location |
+| --- | --- |
+| Raw recordings | `public/footage/hololens/`, `public/footage/browser/` |
+| Voice-over, music and UI sounds | `public/audio/` |
+| Renders | `out/` |
 
 ## Setup
 

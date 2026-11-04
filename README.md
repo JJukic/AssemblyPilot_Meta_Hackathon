@@ -6,8 +6,14 @@ models. It runs in a desktop or mobile browser and as a WebXR experience on Holo
 
 Built for the Meta Global AI Developer Hackathon.
 
-> **Demo video — coming soon.** No demo video exists yet; see
-> [Demo video — coming soon](#demo-video--coming-soon).
+> **Runs locally.** The app is started on your own machine for the hackathon. There is no
+> public production deployment. See [Local deployment](docs/local-deployment.md).
+
+| Start here | |
+| --- | --- |
+| [Jury quickstart](docs/jury-quickstart.md) | Fresh clone to your first checked step |
+| [Technical Report](docs/technical-report.md) | Architecture, decisions, security, tests, limits |
+| [Submission checklist](docs/submission-checklist.md) | What is done, checked and still open |
 
 ## Problem, audience and value
 
@@ -21,6 +27,21 @@ Built for the Meta Global AI Developer Hackathon.
   wrong, and accept a step only after a separate fresh image confirms it. When the model
   cannot tell, the app says so and waits for the user.
 
+## Solution
+
+You register what should be built: blocks, ordered steps and reference photos. For each step,
+AssemblyPilot shows the target, captures the real build, judges it and guides the correction.
+A step counts only after a separate fresh image is confirmed by the backend. The same workflow
+runs in a browser and, as a WebXR hologram with a floating panel, on HoloLens 2.
+
+## Meta hackathon context
+
+The project was built for the Meta Global AI Developer Hackathon and uses Meta-hosted models
+through the Meta Model API. Muse Spark evaluates the physical assembly, and SAM 3.1 localizes
+what is wrong. The rest of the system is an **orchestrated AI workflow** around those two
+models: it binds each result to the exact step and image, and it does not guess when the
+evidence is unclear. The code contains no autonomous agents in the strict sense.
+
 ## What Meta's models contribute
 
 All inference goes to the Meta Model API. There is no fallback provider and there are no
@@ -29,7 +50,7 @@ local model weights for inspection.
 | Component | Role |
 | --- | --- |
 | **Muse Spark** (`muse-spark-1.3`) | Semantic judgement of a step: `correct`, `incorrect` or `uncertain`, with issues and evidence as strict JSON. Also the optional assembly plan in the setup wizard |
-| **SAM 3.1** (`sam-3.1`) | Optional segmentation and localization: masks, boxes and outlines. It never overrides Muse |
+| **SAM 3.1** (`sam-3.1`) | Optional segmentation and localization: masks, boxes and outlines. It does not decide correctness on its own |
 | OpenCV (local, not Meta) | Optional measured gates for geometry and printed faces. They can only make a result stricter |
 
 The final workflow decision is made by the backend from the Muse result and any configured
@@ -38,20 +59,43 @@ local gates. See the [Technical Report](docs/technical-report.md) for the exact 
 ## Architecture overview
 
 ```mermaid
-flowchart LR
-    CAM["Camera<br/>browser, HoloLens or companion"] --> FE["Next.js frontend<br/>React, three.js WebXR"]
-    FE -->|"HTTP, or HTTPS via Caddy on HoloLens"| API["FastAPI backend"]
-    API --> ORCH["AssemblyOrchestrator"]
-    ORCH -->|"chat/completions"| MUSE["Muse Spark"]
-    ORCH -->|"responses, only for incorrect"| SAM["SAM 3.1"]
-    ORCH --> CV["Local OpenCV gates"]
+flowchart TD
+    CAM["HoloLens 2 or browser camera"] --> FE["Next.js / React / WebXR frontend"]
+    FE -->|"HTTP, or HTTPS through Caddy on HoloLens"| API["FastAPI backend"]
+    API --> ORCH["Assembly Orchestrator"]
+    ORCH --> LOCAL["Local image and geometry checks<br/>optional OpenCV gates"]
+    ORCH --> MUSE["Muse Spark<br/>semantic assembly verification"]
+    ORCH -.->|"optional, only for incorrect"| SAM["SAM 3.1<br/>object localization"]
     ORCH --> DB[("SQLite and local files")]
-    ORCH -->|"validated result and progress"| FE
+    LOCAL --> RESULT["Validated inspection result"]
+    MUSE --> RESULT
+    SAM -.-> RESULT
+    RESULT --> PANELS["Browser panel and HoloLens panel"]
 ```
 
 Full component and sequence diagrams, endpoints, storage and state transitions are in the
 [Technical Report](docs/technical-report.md). New here? Start with the
 [Jury quickstart](docs/jury-quickstart.md).
+
+## Built with
+
+![AssemblyPilot built with: Mixed Reality, WebXR, Meta Model API, Muse Spark, SAM 3.1, Next.js and React, FastAPI, HTTPS, Project Registry, Remotion, Open Source and CI](docs/assets/stack/assemblypilot-built-with.svg)
+
+| Tile | Part | Used for |
+| --- | --- | --- |
+| <img src="docs/assets/stack/mixed-reality.svg" width="96" alt="Mixed Reality pictogram"> | Mixed Reality | HoloLens 2 headset view through WebXR |
+| <img src="docs/assets/stack/webxr.svg" width="96" alt="WebXR pictogram"> | WebXR | WebXR session and three.js hologram |
+| <img src="docs/assets/stack/meta-model-api.svg" width="96" alt="Meta Model API pictogram"> | Meta Model API | Hosted inference, called only by the backend |
+| <img src="docs/assets/stack/muse-spark.svg" width="96" alt="Muse Spark pictogram"> | Muse Spark | Evaluates the assembly state |
+| <img src="docs/assets/stack/sam.svg" width="96" alt="SAM 3.1 pictogram"> | SAM 3.1 | Optional object localization and segmentation |
+| <img src="docs/assets/stack/nextjs-react.svg" width="96" alt="Next.js / React pictogram"> | Next.js / React | Web workspace, setup wizard and AR page |
+| <img src="docs/assets/stack/fastapi.svg" width="96" alt="FastAPI pictogram"> | FastAPI | Python API and Assembly Orchestrator |
+| <img src="docs/assets/stack/https.svg" width="96" alt="HTTPS pictogram"> | HTTPS | Caddy with an internal CA on the private network |
+| <img src="docs/assets/stack/project-registry.svg" width="96" alt="Project Registry pictogram"> | Project Registry | SQLite and local reference photos |
+| <img src="docs/assets/stack/remotion.svg" width="96" alt="Remotion pictogram"> | Remotion | Separate demo video project |
+| <img src="docs/assets/stack/open-source-ci.svg" width="96" alt="Open Source / CI pictogram"> | Open Source / CI | Apache-2.0 source and GitHub Actions checks |
+
+The pictograms are generic drawings made for this repository, not product logos.
 
 ## Feature scope
 
@@ -84,7 +128,8 @@ Status terms used here and in the Technical Report:
 | Authentication, public deployment, rate limits on inspection | Not implemented | Trusted local network only |
 | Local GPU models, non-Meta inference providers | Not implemented | |
 | Autonomous physical correction, 3D metrology, native HoloLens app | Not implemented | A Unity/OpenXR path is only described in [docs/hololens.md](docs/hololens.md) |
-| Final HoloLens demo recording, local browser demo recording | Planned | See [Demo video — coming soon](#demo-video--coming-soon) |
+| Demo video | Separate | Rendered locally, not linked here yet. See [Remotion demo](#remotion-demo) |
+| Public or cloud deployment | Planned | A future option only. See [Local deployment](docs/local-deployment.md#later-cloud-deployment) |
 | Real-photo accuracy benchmark, completed HoloLens acceptance checklists | Planned | Tooling exists; results do not |
 
 ## Repository layout
@@ -93,10 +138,12 @@ Status terms used here and in the Technical Report:
 backend/    FastAPI app (app/main.py), SQLModel/SQLite, Pillow, OpenCV, httpx, Meta clients, tests
 frontend/   Next.js App Router, React, TypeScript, Tailwind, three.js/WebXR, unit + Playwright tests
 data/       Shared practice assembly (data/assemblies/demo-lego.json)
+demo/       Separate Remotion project for the demo video
 deploy/     Caddyfile.hololens: private-LAN HTTPS proxy template
-docs/       Technical report, API contracts, HoloLens guide, validation records
+docs/       Technical report, API contracts, HoloLens guide, validation records, stack tiles
+scripts/    Repository checks
 .github/    CI workflow
-Makefile    install, dev-backend, dev-frontend, test, lint, build, test-browser, requirements, check-requirements
+Makefile    install, dev-backend, dev-frontend, test, lint, build, test-browser, requirements, check-requirements, check-repo
 ```
 
 Entry points: `backend/app/main.py` (`app.main:app`) and
@@ -123,6 +170,17 @@ Whisper are installed separately.
 Live inference additionally needs your own Meta Model API key with access to the models
 (see [Without and with an API key](#without-and-with-an-api-key)). A key is created in the
 [Meta Model API dashboard](https://dev.meta.ai/).
+
+## Main commands
+
+```text
+make install        Installs the backend with uv and the frontend with npm ci
+make dev-backend    Starts FastAPI on 127.0.0.1:8000
+make dev-frontend   Starts Next.js on port 3000
+make test           Runs pytest, the type check and frontend unit tests
+make lint           Runs Ruff and ESLint
+make build          Builds the frontend for production
+```
 
 ## From clone to running application
 
@@ -245,6 +303,11 @@ Without a key the app never fabricates a verdict. The only mocked results are in
 automated tests, and `backend/browser_test_server.py` must not be used for a demo.
 
 Never put the key in frontend configuration, source code or a command argument.
+
+- `MODEL_API_KEY` is read only by the backend. It never reaches the browser.
+- The API starts without a key, and all automated tests run offline without one.
+- Real Muse or SAM requests need your own valid Meta key.
+- No key is stored in GitHub. `backend/.env` is ignored by Git.
 
 ## Environment variables
 
@@ -501,10 +564,31 @@ For a labelled real-image evaluation, see [docs/benchmark.md](docs/benchmark.md)
   live Muse inference locally; this is an owner report, not a repository record. The live SAM path and the correction loop have no recorded
   real-image result in the repository.
 
-## Demo video — coming soon
+## Remotion demo
 
-> No demo video exists yet. This section contains no links or results on purpose. The
-> planned recordings are listed in the [demo plan](docs/demo-plan.md).
+The demo video is made separately in [`demo/remotion/`](demo/remotion/README.md) and has no
+effect on the application. The final render is 166.9 seconds, within the 180 second limit.
+**The video is not published yet**, so this repository has no link to it. The link goes into
+the submission form once it exists.
+
+Raw recordings, audio and renders stay local and are not in Git:
+
+| Files | Location |
+| --- | --- |
+| Raw recordings | `demo/remotion/public/footage/` |
+| Voice-over, music and UI sounds | `demo/remotion/public/audio/` |
+| Renders | `demo/remotion/out/` |
+
+```sh
+cd demo/remotion
+npm ci
+npm run typecheck
+npm run render:preview   # out/preview.mp4
+npm run render           # out/assemblypilot-hackathon-demo.mp4, 1920×1080, 30 fps
+```
+
+A fresh clone cannot render the video without those local files. See the
+[demo plan](docs/demo-plan.md).
 
 ## Known limitations
 
@@ -530,6 +614,19 @@ For a labelled real-image evaluation, see [docs/benchmark.md](docs/benchmark.md)
 - **Registry:** no pagination, cloud sync or multi-user conflict handling; edits are
   last-write-wins.
 
+## Security notes
+
+- The API has **no authentication**. Run it only on a trusted machine or private network.
+- Keep the backend on loopback, and never open or forward port 8000.
+- HoloLens needs Caddy and HTTPS on a shared private network. Do not use router port
+  forwarding, a public tunnel or public DNS.
+- The HoloLens Device Portal is separate from the application and must never be public.
+- Do not commit keys, certificates, private keys, databases, uploads or personal photos.
+  `make check-repo` and CI check tracked files for common mistakes.
+- Distribute only Caddy's public root certificate, never its private key.
+
+The details are in the [Technical Report](docs/technical-report.md#security-and-network-model).
+
 ## Data and privacy
 
 **Images sent to Meta:** the current snapshot, reference photos for the step (block and
@@ -549,9 +646,10 @@ keeps reusable blocks and their photos; deleting a block that a step uses return
 | Document | Content |
 | --- | --- |
 | [Jury quickstart](docs/jury-quickstart.md) | Fresh clone to your first checked step |
+| [Local deployment](docs/local-deployment.md) | Local and HoloLens operation, later cloud option |
 | [Technical Report](docs/technical-report.md) | Architecture, data flow, decisions, security, testing, limits |
 | [Submission checklist](docs/submission-checklist.md), [Submission readiness](docs/submission-readiness.md) | Organizer requirements, evidence, executed checks, open blockers |
-| [Demo plan](docs/demo-plan.md) | Planned recordings |
+| [Demo plan](docs/demo-plan.md) | Demo video, recordings and render steps |
 | [Assets and licenses](docs/assets-and-licenses.md) | Dependency licenses and open asset questions |
 | [HoloLens guide](docs/hololens.md) | XR setup, coordinates, voice, autonomy, device checklists |
 | [Jury setup](docs/jury-setup.md) | Setup wizard and acceptance checklist |
@@ -569,4 +667,5 @@ keeps reusable blocks and their photos; deleting a block that a step uses return
 
 Source code: Apache License 2.0; see [LICENSE](LICENSE). The origin of some bundled images
 and models is not fully documented, and third-party components keep their own licenses;
-see [Assets and licenses](docs/assets-and-licenses.md).
+see [Assets and licenses](docs/assets-and-licenses.md). Product names belong to their owners,
+and this project is not endorsed by them. The Remotion project has its own license terms.

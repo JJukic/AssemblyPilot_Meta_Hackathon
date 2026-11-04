@@ -18,8 +18,21 @@ rights in the assets below.
 | `frontend/public/assets/Meshy_AI_brick_figure_concept.png` | `87a05927` | "Supplied concept image" (commit `5f4d8af`); the file name points to Meshy | Source of `meta-mascot.png`; not referenced by the application | **Open** |
 | `frontend/public/assets/meta-mascot.png` | `2868dd1f` | Derived from the concept image (commit `5f4d8af`) | Header brand image | **Open** |
 
-The repository contains no font files and no sample photographs. Reference photos are
-created by each user and stored in the ignored `backend/data/`.
+The repository contains no sample photographs. Reference photos are created by each user and
+stored in the ignored `backend/data/`.
+
+### Demo video project
+
+| File | Origin | Status |
+| --- | --- | --- |
+| `demo/remotion/public/fonts/` | Inter and JetBrains Mono, SIL Open Font License; license texts are alongside | Done |
+| `demo/remotion/public/architecture/` | Made for this project | Done |
+| `docs/assets/stack/` | Generic pictograms made for this project, no logos | Done |
+| Voice-over, local only | Generated with ElevenLabs, voice "Kayleigh - Poised Tech Tutorial Narrator" | **Open**: confirm that your plan allows this use |
+| Music and UI sounds, local only | Synthesized by `scripts/generate-audio.ts` | Done |
+| Recordings, local only | The owner's own recordings | **Open**: printed texts on the bricks are visible |
+
+Remotion has its own license, which may require a company license. Check it for your case.
 
 ## Open questions for the project owner
 
@@ -39,6 +52,9 @@ licenses are followed. These points need the owner's confirmation before submitt
    changing it is a separate decision. Do not show LEGO logos or sets as if endorsed.
 4. **Concept image:** the PNG is not used at runtime. Remove it from the repository if it is
    not needed for attribution. Removal does not erase it from Git history.
+5. **Video content:** the voice-over and video say "LEGO", and the footage shows the printed
+   texts "Involve Me", "Give Me Details" and "insights" on the bricks. Confirm that these may be
+   shown.
 
 Until these are answered, the assets are **not** claimed to be Apache-2.0 licensed.
 
@@ -81,8 +97,8 @@ include its license.
 - **Meta Model API:** use requires your own account and is governed by Meta's terms.
   `muse-spark-1.3` and `sam-3.1` are hosted, not distributed with this repository.
 - **Caddy, uv, Node.js, Whisper:** installed separately under their own licenses.
-- **Mixed Reality Capture, Remotion:** planned for the demo only and not part of the
-  repository. Check Remotion's license for your use before using it.
+- **Mixed Reality Capture, ElevenLabs:** used for the demo video only.
+- **Remotion:** used in `demo/remotion/`, under its own license.
 
 ## Secret and privacy audit
 

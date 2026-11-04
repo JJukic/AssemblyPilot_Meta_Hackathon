@@ -1,4 +1,4 @@
-.PHONY: install dev-backend dev-frontend test lint build test-browser requirements check-requirements
+.PHONY: install dev-backend dev-frontend test lint build test-browser requirements check-requirements check-repo
 
 install:
 	cd backend && uv sync --frozen
@@ -30,6 +30,10 @@ requirements:
 # Fails when uv.lock is stale or a requirements file no longer matches it.
 check-requirements: requirements
 	git diff --exit-code -- backend/requirements.txt backend/requirements-dev.txt
+
+# Fails when Git tracks local data, private material or a key-like value.
+check-repo:
+	bash scripts/check-tracked-files.sh
 
 # First run: cd frontend && npx playwright install chromium
 # Browser tests use a synthetic camera. They do not prove physical camera support.

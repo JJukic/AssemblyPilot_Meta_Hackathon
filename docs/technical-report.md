@@ -1,11 +1,33 @@
 # AssemblyPilot Technical Report
 
-Status: describes the code of branch `codex/hackathon-submission-ready`, whose application code
-is unchanged from `main` at commit `8bfc628` (2026-11-03). Claims are checked against the code. Where a claim rests on a record rather than on code, the source is named.
+Status: describes the code of branch `codex/hackathon-submission-ready`. Application code is
+unchanged from `main` at commit `8bfc628` (2026-11-03), apart from the `create_ar_demo.py` fix
+recorded in [Submission readiness](submission-readiness.md). Claims are checked against the
+code. Where a claim rests on a record rather than on code, the source is named.
 
 Status terms: **implemented**, **optional** (implemented and configurable), **not
 implemented**, **planned**. The [README](../README.md#feature-scope) lists every feature
 with its status. Hardware results are **owner-reported** unless a record says otherwise.
+
+## Built with
+
+![AssemblyPilot built with: Mixed Reality, WebXR, Meta Model API, Muse Spark, SAM 3.1, Next.js and React, FastAPI, HTTPS, Project Registry, Remotion, Open Source and CI](assets/stack/assemblypilot-built-with.svg)
+
+| Tile | Part | Used for |
+| --- | --- | --- |
+| <img src="assets/stack/mixed-reality.svg" width="96" alt="Mixed Reality pictogram"> | Mixed Reality | HoloLens 2 headset view through WebXR |
+| <img src="assets/stack/webxr.svg" width="96" alt="WebXR pictogram"> | WebXR | WebXR session and three.js hologram |
+| <img src="assets/stack/meta-model-api.svg" width="96" alt="Meta Model API pictogram"> | Meta Model API | Hosted inference, called only by the backend |
+| <img src="assets/stack/muse-spark.svg" width="96" alt="Muse Spark pictogram"> | Muse Spark | Evaluates the assembly state |
+| <img src="assets/stack/sam.svg" width="96" alt="SAM 3.1 pictogram"> | SAM 3.1 | Optional object localization and segmentation |
+| <img src="assets/stack/nextjs-react.svg" width="96" alt="Next.js / React pictogram"> | Next.js / React | Web workspace, setup wizard and AR page |
+| <img src="assets/stack/fastapi.svg" width="96" alt="FastAPI pictogram"> | FastAPI | Python API and Assembly Orchestrator |
+| <img src="assets/stack/https.svg" width="96" alt="HTTPS pictogram"> | HTTPS | Caddy with an internal CA on the private network |
+| <img src="assets/stack/project-registry.svg" width="96" alt="Project Registry pictogram"> | Project Registry | SQLite and local reference photos |
+| <img src="assets/stack/remotion.svg" width="96" alt="Remotion pictogram"> | Remotion | Separate demo video project |
+| <img src="assets/stack/open-source-ci.svg" width="96" alt="Open Source / CI pictogram"> | Open Source / CI | Apache-2.0 source and GitHub Actions checks |
+
+The pictograms are generic drawings made for this repository, not product logos.
 
 ## Problem
 
@@ -21,6 +43,10 @@ workflow, for three reasons:
   bound to the exact step and image they came from.
 
 ## Solution and user flow
+
+The system is an **orchestrated AI workflow** with specialized workflow roles, not a set of
+autonomous agents. The modules in `backend/app/agents/` are early, context-free helpers that
+the active routes do not use.
 
 AssemblyPilot registers what should be built (blocks, ordered steps, reference photos) and
 then runs a closed loop for each step: show the target, capture a real image, judge it,
@@ -645,7 +671,7 @@ Found by reading the implementation. They are documented, not changed here.
 | Mascot outside XR | Loaded only in an active XR session | The browser demo shows no mascot |
 | `allowedDevOrigins` | `frontend/next.config.ts` lists two fixed private IPs | Affects development mode only; use the production build for LAN tests |
 
-## Demo video — coming soon
+## Demo video
 
-No demo video exists yet, so none is linked here. The planned recordings are in the
-[demo plan](demo-plan.md).
+The video is made separately in `demo/remotion/`. It is rendered locally at 166.9 seconds and
+is not published yet, so none is linked here. See the [demo plan](demo-plan.md).

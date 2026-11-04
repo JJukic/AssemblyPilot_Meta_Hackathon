@@ -1,7 +1,8 @@
 # Jury quickstart
 
-Goal: go from a fresh clone to one real, checked assembly step in a browser, without a
-HoloLens. Plan on about 20 minutes once the tools are installed.
+Goal: go from a fresh clone to a real, checked assembly in a browser, without a HoloLens.
+Plan on about 20 minutes once the tools are installed. Everything runs on your machine, and
+there is no hosted version.
 
 This path uses your own parts and real Meta inference. There is no sample result and no
 mock mode to fall back on: without a key, checks show "Check unavailable".
@@ -23,8 +24,8 @@ The repository contains no sample photos. Taking them yourself is part of the se
 git clone https://github.com/JJukic/AssemblyPilot_Meta_Hackathon.git
 cd AssemblyPilot_Meta_Hackathon
 make install
-cp -n backend/.env.example backend/.env
-cp -n frontend/.env.example frontend/.env.local
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
 ```
 
 Open `backend/.env` in an editor and set `MODEL_API_KEY=` to your key.
@@ -34,7 +35,7 @@ make dev-backend    # terminal 1, port 8000
 make dev-frontend   # terminal 2, port 3000
 ```
 
-Check the backend in a third terminal, then open <http://localhost:3000>:
+The app is at <http://localhost:3000>. Check the backend in a third terminal:
 
 ```sh
 curl --fail http://localhost:8000/health
@@ -65,14 +66,28 @@ Details and limits are in [Jury setup](jury-setup.md).
 
 ## 3. Check a real step
 
-1. Build the step on the table, then select **Start camera** and allow camera access.
-2. Select **Capture**, then **Inspect with Meta AI**.
-3. Try a wrong build as well: swap a colour or move a part. Follow the correction, choose
-   **I've corrected it**, then **Capture & Verify** with a new image.
+1. **Choose a camera:** select it under **Camera source**, then **Start camera** and allow
+   access.
+2. **A correct step:** build it, then select **Capture** and **Inspect with Meta AI**. A
+   correct first result asks for a separate fresh image, so the step is not verified yet.
+3. **A wrong step:** swap a colour or move a part and inspect again. Follow the correction,
+   choose **I've corrected it**, then **Capture & Verify** with a new image.
 
-For the guided flow, open `/ar?project=<id>` with the project's ID. Without XR hardware the
-page shows a guided card with **Check Step**, **Check Again**, **Next Step**, **Finish** and
-**Restart Assembly**. **Finish** needs real backend verification of the last step.
+## 4. Run the guided flow
+
+Open `/ar?project=<id>` with the project's ID. Without XR hardware the page shows a guided
+card that uses your browser camera.
+
+1. **Check Step:** after a correct result, a separate fresh frame verifies the step
+   automatically. Then select **Next Step**.
+2. **`uncertain`:** show a deliberately poor view, for example with a part hidden. The result
+   stays on screen with the requested view, and nothing is sent. Change the view and select
+   **Check Again**, which takes exactly one new image.
+3. **Finish:** appears only on the last step after the backend has verified it.
+4. **Restart Assembly:** appears after Finish. It starts a new run at Step 1 and deletes
+   nothing.
+
+**Confirm Position** is a local fallback labelled "not AI verified". It cannot enable Finish.
 
 ## Camera, light and perspective
 
@@ -98,6 +113,20 @@ automated tests use mocks and need no key:
 ```sh
 make lint && make test
 ```
+
+## HoloLens variant
+
+This is optional and needs a HoloLens 2 and Caddy. WebXR and the camera require trusted HTTPS,
+so the headset connects to Caddy on your private network.
+
+1. Follow [HoloLens 2 over HTTPS](../README.md#hololens-2-over-https): build the frontend with
+   an empty API URL, start both servers on loopback, then start Caddy on your private IP.
+2. Install only Caddy's public root certificate on the headset.
+3. Open `https://<your-private-ip>/ar?project=<project-id>` in HoloLens Edge and select
+   **Enter immersive AR**.
+
+Stay on a trusted shared network. Do not forward router ports, use a public tunnel or expose
+port 8000. The Device Portal is separate from the app, and it must never have a public address.
 
 ## Optional two-step project
 

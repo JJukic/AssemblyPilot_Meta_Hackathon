@@ -1,7 +1,13 @@
 # Demo plan
 
-Status: **no recording exists.** This file is a plan, not a record. Add links here and in
-the README only after a real recording has been uploaded.
+Status: **rendered locally, not published.** Add links here and in the README only after a
+real upload exists.
+
+| Item | State |
+| --- | --- |
+| Final render | `demo/remotion/out/assemblypilot-hackathon-demo.mp4`, 166.9 s, 1920×1080, 30 fps. Local only |
+| Limit | At most 180 seconds |
+| Public video link | **None yet** |
 
 The Official Rules score Demo at 25% and name "the quality of the demo video". The rules
 text checked on 2026-11-04 states no length or format. Check the submission form for those
@@ -12,8 +18,8 @@ exists. See the [submission checklist](submission-checklist.md).
 
 | # | Recording | Tool | Shows | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Browser workflow | macOS screen recording | Setup, capture, verdict, correction | Not recorded |
-| 2 | HoloLens workflow | Mixed Reality Capture | Field, hologram, guided panel, real parts | Not recorded |
+| 1 | Browser workflow | macOS screen recording | Setup, capture, verdict, correction | Recorded, local only |
+| 2 | HoloLens workflow | Mixed Reality Capture | Field, hologram, guided panel, real parts | Recorded, local only |
 
 Record real, live inference only. Do not use `backend/browser_test_server.py` or a mocked
 result, and do not edit a verdict into a clip.
@@ -38,8 +44,10 @@ out and do not fake it.
 
 ## Editing
 
-Combine the clips later with Remotion. No Remotion project is in this repository yet, and no
-Python recording script is planned.
+The clips are combined in the separate Remotion project in `demo/remotion/`. Its
+[README](../demo/remotion/README.md) has the commands and file locations. Raw recordings, audio
+and renders stay local. `uncertain` does not occur in the recordings, so the video explains it
+as a labelled diagram.
 
 ## Before recording
 
@@ -52,7 +60,7 @@ Python recording script is planned.
 
 ## Still missing before submitting
 
-- [ ] Recording 1 and recording 2, edited into the final video.
+- [x] Recording 1 and recording 2, edited into the final video.
 - [ ] Public or unlisted video link, if the form asks for one.
 - [ ] All submission form fields, checked after signing in to the portal.
 - [ ] Date and commit shown in the video, noted in `docs/submission-readiness.md`.
