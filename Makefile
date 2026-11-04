@@ -1,4 +1,4 @@
-.PHONY: install dev-backend dev-frontend test lint build test-browser
+.PHONY: install dev-backend dev-frontend test lint build test-browser requirements check-requirements
 
 install:
 	cd backend && uv sync --frozen
@@ -21,6 +21,15 @@ lint:
 
 build:
 	cd frontend && npm run build
+
+# backend/pyproject.toml + backend/uv.lock are the source of truth; these files are generated.
+requirements:
+	cd backend && uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file requirements.txt > /dev/null
+	cd backend && uv export --locked --only-group dev --no-emit-project --format requirements-txt --output-file requirements-dev.txt > /dev/null
+
+# Fails when uv.lock is stale or a requirements file no longer matches it.
+check-requirements: requirements
+	git diff --exit-code -- backend/requirements.txt backend/requirements-dev.txt
 
 # First run: cd frontend && npx playwright install chromium
 # Browser tests use a synthetic camera. They do not prove physical camera support.
