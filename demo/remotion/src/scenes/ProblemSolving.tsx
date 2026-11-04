@@ -1,6 +1,6 @@
 import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
 import { frames, solveShots } from "../manifest";
-import { CARD, COLUMN, Grid, RightSectionHeading, SourceBadge, useEnter } from "../components/Overlays";
+import { COLUMN, Grid, Headline, plate, SourceBadge, useEnter } from "../components/Overlays";
 import { ShotSeries, Sfx } from "../components/ShotSeries";
 import { color, mono, sans } from "../theme";
 
@@ -24,14 +24,14 @@ function ProcessRail() {
   const frame = useCurrentFrame();
   const current = RAIL.reduce((found, step, index) => (frame >= startOf(step.id) ? index : found), -1);
   return (
-    <div style={{ position: "absolute", left: COLUMN.left, top: 496, width: COLUMN.width, display: "flex", flexDirection: "column", gap: 13 }}>
+    <div style={{ ...plate, position: "absolute", left: COLUMN.left, top: 492, width: COLUMN.width, padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
       {RAIL.map((step, index) => {
         const active = index === current;
         const key = step.id === "solve-again" && active;
         return (
-          <div key={step.id} style={{ display: "flex", alignItems: "center", gap: 16, opacity: index <= current ? 1 : 0.42 }}>
+          <div key={step.id} style={{ display: "flex", alignItems: "center", gap: 16, opacity: index <= current ? 1 : 0.5 }}>
             <div style={{ width: 16, height: 16, borderRadius: 8, background: index <= current ? color.cyan : "transparent", border: `2px solid ${index <= current ? color.cyan : color.muted}`, boxShadow: active ? "0 0 16px rgba(63,208,255,0.9)" : undefined }} />
-            <span style={{ fontFamily: sans, fontWeight: active ? 800 : 500, fontSize: 28, color: key ? color.cyan : active ? "#fff" : color.muted }}>{step.text}</span>
+            <span style={{ fontFamily: sans, fontWeight: active ? 800 : 500, fontSize: 26, color: key ? color.cyan : active ? "#fff" : color.muted }}>{step.text}</span>
           </div>
         );
       })}
@@ -47,8 +47,8 @@ function NewImageFlash() {
   const pill = interpolate(frame, [4, 12, 75, 90], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return (
     <>
-      <div style={{ position: "absolute", ...CARD, borderRadius: 14, background: "#fff", opacity: flash }} />
-      <div style={{ position: "absolute", top: CARD.top + CARD.height - 64, left: CARD.left + 18, padding: "7px 14px", borderRadius: 8, background: color.cyan, color: "#06101f", fontFamily: mono, fontWeight: 500, fontSize: 22, opacity: pill }}>NEW IMAGE TAKEN</div>
+      <AbsoluteFill style={{ background: "#fff", opacity: flash * 0.8 }} />
+      <div style={{ position: "absolute", top: 806, left: 96, padding: "7px 14px", borderRadius: 8, background: color.cyan, color: "#06101f", fontFamily: mono, fontWeight: 500, fontSize: 22, opacity: pill }}>NEW IMAGE TAKEN</div>
     </>
   );
 }
@@ -56,9 +56,7 @@ function NewImageFlash() {
 export function ProblemSolving() {
   return (
     <AbsoluteFill>
-      <Grid />
-      <ShotSeries shots={solveShots} split />
-      <RightSectionHeading number="05" title="PROBLEM SOLVING" />
+      <ShotSeries shots={solveShots} />
       <ProcessRail />
       <NewImageFlash />
     </AbsoluteFill>
@@ -93,8 +91,8 @@ export function StatusLegend() {
   return (
     <AbsoluteFill>
       <Grid />
-      <RightSectionHeading number="05" title="THREE RESULTS" subtitle="Only one verifies a step." />
-      <div style={{ position: "absolute", left: 90, right: 90, top: 380, display: "flex", flexDirection: "column", gap: 32 }}>
+      <Headline text="Three results. Only one verifies a step." size={56} style={{ position: "absolute", left: 90, top: 200, width: 1040, textAlign: "left" }} />
+      <div style={{ position: "absolute", left: 90, right: 96, top: 412, display: "flex", flexDirection: "column", gap: 26 }}>
         <div style={{ display: "flex", gap: 24 }}>
           <State name="correct" tone={color.green} line="Confirmed on a fresh image, then the step continues." footage="Seen in this recording" delay={12} />
           <State name="incorrect" tone={color.red} line="Explains the issue and how to fix it." footage="Seen in this recording" delay={24} />

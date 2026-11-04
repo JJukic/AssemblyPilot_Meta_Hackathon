@@ -2,6 +2,7 @@ import { AbsoluteFill, Audio, Series, getStaticFiles, interpolate, staticFile } 
 import { FadeScene } from "./components/Overlays";
 import { FPS, frames, scenes, totalFrames, type SceneId } from "./manifest";
 import { PremiumSubtitle } from "./components/PremiumSubtitle";
+import { ChapterTrack } from "./components/VideoChapterOverlay";
 import { VoiceTrack, musicLevel } from "./components/VoiceOver";
 import { ArchitectureScene } from "./scenes/ArchitectureScene";
 import { AssemblyWorkflow } from "./scenes/AssemblyWorkflow";
@@ -37,6 +38,7 @@ export function Demo() {
       </Series>
       {hasMusic && <Audio src={staticFile("audio/music.wav")} volume={(f) => musicLevel(f / FPS) * interpolate(f, [totalFrames - 45, totalFrames], [1, 0.8], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })} />}
       <VoiceTrack />
+      <ChapterTrack />
       <PremiumSubtitle />
     </AbsoluteFill>
   );

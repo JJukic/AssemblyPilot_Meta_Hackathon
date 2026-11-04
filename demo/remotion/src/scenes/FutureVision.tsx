@@ -24,7 +24,7 @@ export function FutureVision() {
         position: "absolute", top: 76, right: 116, padding: "7px 14px", borderRadius: 7, border: `1.5px solid ${GOLD}`,
         fontFamily: mono, fontWeight: 500, fontSize: 22, color: GOLD, whiteSpace: "nowrap",
       }}>FUTURE VISION · NOT IMPLEMENTED</div>
-      <RightSectionHeading number="08" title="FUTURE VISION" subtitle="Possible applications, not part of this prototype." />
+      <RightSectionHeading title="FUTURE VISION" subtitle="Possible applications, not part of this prototype." />
       <div style={{ position: "absolute", left: 90, top: 150, width: 1020, display: "flex", flexDirection: "column", gap: 44 }}>
         <Block delay={9} label="TODAY · REAL PROTOTYPE" tone={color.cyan}>
           <div style={{ display: "flex", alignItems: "center", gap: 28 }}>

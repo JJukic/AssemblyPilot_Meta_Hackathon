@@ -29,8 +29,8 @@ export type Shot = {
   note?: string;
   /** Source label. Defaults to the HoloLens label. */
   badge?: string;
-  /** Keep the left edge when the card crops the sides. */
-  alignLeft?: boolean;
+  /** Size and offset of the video, as fractions of the frame, to keep panels clear of the chapter overlay. */
+  place?: { scale: number; x: number; y: number; cut?: number };
   sfx?: Sfx;
 };
 
@@ -59,44 +59,44 @@ export const introShots: Shot[] = [
 export const problemShot: Shot = { id: "problem-hands", src: INTRO, from: 54.2, dur: 12, rate: 0.5, chrome: true, brightness: 1.45 };
 
 export const productShots: Shot[] = [
-  { id: "product-home", src: INTRO, from: 3, dur: 2.5, chrome: true, zoom: { from: 1, to: 1.12, x: 62, y: 25 }, brightness: 1.1, sfx: "whoosh" },
-  { id: "product-tabletop", src: INTRO, from: 24.3, dur: 2.5, chrome: true },
-  { id: "product-field", src: INTRO, from: 40, dur: 2.5, chrome: true },
+  { id: "product-home", src: INTRO, from: 3, dur: 2.5, place: { scale: 1.05, x: -0.35, y: -0.1 }, chrome: true, brightness: 1.1, sfx: "whoosh" },
+  { id: "product-tabletop", src: INTRO, from: 24.3, dur: 2.5, place: { scale: 0.86, x: -0.13, y: -0.135 }, chrome: true },
+  { id: "product-field", src: INTRO, from: 40, dur: 2.5, place: { scale: 1.1, x: -0.16, y: -0.04 }, chrome: true },
 ];
 
 export const workflowShots: { before: Shot[]; after: Shot[] } = {
   before: [
-    { id: "flow-target", src: SHOT_READY, from: 0, dur: 3, zoom: { from: 1.2, to: 1.45, x: 42, y: 25 }, step: "1", caption: "Target step and reference photo", sfx: "tick" },
-    { id: "flow-brick", src: INTRO, from: 55.6, dur: 3, chrome: true, step: "2", caption: "The real brick in the field of view", brightness: 1.45 },
-    { id: "flow-capture", src: SHOT_INSPECTING, from: 0, dur: 3, zoom: { from: 1.3, to: 1.5, x: 34, y: 40 }, step: "3", caption: "One exact frame is captured and sent to Meta", sfx: "tick" },
+    { id: "flow-target", src: SHOT_READY, from: 0, dur: 3, place: { scale: 1.2, x: -0.298, y: -0.032 }, step: "1", caption: "Target step and reference photo", sfx: "tick" },
+    { id: "flow-brick", src: INTRO, from: 55.6, dur: 3, place: { scale: 1.1, x: -0.12, y: -0.05 }, chrome: true, step: "2", caption: "The real brick in the field of view", brightness: 1.45 },
+    { id: "flow-capture", src: SHOT_INSPECTING, from: 0, dur: 3, place: { scale: 1.2, x: -0.262, y: -0.164 }, step: "3", caption: "One exact frame is captured and sent to Meta", sfx: "tick" },
   ],
   after: [
-    { id: "flow-next", src: STEP1, from: 6.2, dur: 3, chrome: true, zoom: { from: 1.15, to: 1.3, x: 42, y: 40 }, step: "5", caption: "The next assembly step appears", sfx: "tick" },
+    { id: "flow-next", src: STEP1, from: 6.2, dur: 3, place: { scale: 1.2, x: -0.219, y: -0.169 }, chrome: true, step: "5", caption: "The next assembly step appears", sfx: "tick" },
   ],
 };
 
-/** Zoomed so that the panels stay readable and the camera name in the dropdown stays out of frame. */
+/** Placed so that the panels stay readable and the camera name in the dropdown stays out of frame. */
 export const browserShots: Shot[] = [
-  { id: "browser-live", src: BROWSER, from: 20.4, dur: 3.8, rate: 0.45, brightness: 1, alignLeft: true, badge: "Real browser capture", zoom: { from: 1.4, to: 1.46, x: 0, y: 0 }, caption: "The same workflow in a regular browser", sfx: "whoosh" },
-  { id: "browser-parts", src: BROWSER, from: 62.5, dur: 4.2, brightness: 1, alignLeft: true, badge: "Real browser capture", zoom: { from: 1.65, to: 1.72, x: 0, y: 0 }, caption: "Your own parts, captured from a webcam" },
-  { id: "browser-verified", src: BROWSER, from: 186, dur: 3.5, rate: 0.5, brightness: 1, alignLeft: true, badge: "Real browser capture", note: "Waits cut", zoom: { from: 1.22, to: 1.26, x: 0, y: 100 }, caption: "Verified on a fresh image", sfx: "tick" },
+  { id: "browser-live", src: BROWSER, from: 20.4, dur: 3.8, place: { scale: 1.4, x: 0, y: 0, cut: 0.62 }, rate: 0.45, brightness: 1, badge: "Real browser capture", caption: "Live camera feed in the app", sfx: "whoosh" },
+  { id: "browser-parts", src: BROWSER, from: 62.5, dur: 4.2, place: { scale: 1.65, x: -0.06, y: -0.02, cut: 0.62 }, brightness: 1, badge: "Real browser capture", caption: "Your own parts, captured from a webcam" },
+  { id: "browser-verified", src: BROWSER, from: 186, dur: 3.5, place: { scale: 0.9, x: 0, y: -0.09, cut: 0.64 }, rate: 0.5, brightness: 1, badge: "Real browser capture", note: "Waits cut", caption: "Verified on a fresh image", sfx: "tick" },
 ];
 
 export const solveShots: Shot[] = [
-  { id: "solve-place", src: STEP1, from: 12.6, dur: 2.5, chrome: true, caption: "Step 2: the blue brick goes on top", brightness: 1.45 },
-  { id: "solve-inspect", src: STEP2, from: 0.5, dur: 1.5, zoom: { from: 1.3, to: 1.4, x: 40, y: 30 }, caption: "Meta inspects the captured frame", note: "Wait shortened" },
-  { id: "solve-incorrect", src: STEP2, from: 8.5, dur: 4, zoom: { from: 1.3, to: 1.36, x: 58, y: 38 }, caption: "Incorrect: wrong printed side facing forward", sfx: "alert" },
-  { id: "solve-plan", src: STEP2, from: 21, dur: 4.3, zoom: { from: 1.3, to: 1.36, x: 56, y: 38 }, caption: "Correction plan: rotate the blue block 180°" },
-  { id: "solve-fix", src: STEP3, from: 7.5, dur: 2, caption: "The user corrects the real build", brightness: 1.45 },
-  { id: "solve-again", src: STEP3, from: 13.8, dur: 2, zoom: { from: 1.15, to: 1.3, x: 55, y: 35 }, caption: "Only Check Again takes a new image", sfx: "tick" },
-  { id: "solve-verify", src: STEP4, from: 1, dur: 5.5, zoom: { from: 1.3, to: 1.4, x: 42, y: 30 }, caption: "A new verification frame goes to Meta", note: "18.2 s wait shortened" },
-  { id: "solve-verified", src: STEP4, from: 12.5, dur: 3.7, zoom: { from: 1.3, to: 1.45, x: 45, y: 38 }, caption: "Step verified: the workflow continues", sfx: "confirm" },
+  { id: "solve-place", src: STEP1, from: 12.6, dur: 2.5, place: { scale: 1.1, x: -0.12, y: -0.05 }, chrome: true, caption: "Step 2: the blue brick goes on top", brightness: 1.45 },
+  { id: "solve-inspect", src: STEP2, from: 0.5, dur: 1.5, place: { scale: 1.2, x: -0.286, y: -0.092 }, caption: "Meta inspects the captured frame", note: "Wait shortened" },
+  { id: "solve-incorrect", src: STEP2, from: 8.5, dur: 4, place: { scale: 1.2, x: -0.346, y: -0.08 }, caption: "Incorrect: wrong printed side facing forward", sfx: "alert" },
+  { id: "solve-plan", src: STEP2, from: 21, dur: 4.3, place: { scale: 1.2, x: -0.334, y: -0.104 }, caption: "Correction plan: rotate the blue block 180°" },
+  { id: "solve-fix", src: STEP3, from: 7.5, dur: 2, place: { scale: 1.1, x: -0.12, y: -0.05 }, caption: "The user corrects the real build", brightness: 1.45 },
+  { id: "solve-again", src: STEP3, from: 13.8, dur: 2, place: { scale: 1.12, x: -0.216, y: 0 }, caption: "Only Check Again takes a new image", sfx: "tick" },
+  { id: "solve-verify", src: STEP4, from: 1, dur: 5.5, place: { scale: 1.2, x: -0.334, y: -0.056 }, caption: "A new verification frame goes to Meta", note: "18.2 s wait shortened" },
+  { id: "solve-verified", src: STEP4, from: 12.5, dur: 3.7, place: { scale: 1.2, x: -0.322, y: -0.08 }, caption: "Step verified: the workflow continues", sfx: "confirm" },
 ];
 
 export const completionShots: Shot[] = [
-  { id: "done-finish", src: END, from: 1.2, dur: 4, zoom: { from: 1.02, to: 1.1, x: 50, y: 18 }, caption: "Final step verified. Finish completes the assembly.", sfx: "confirm" },
+  { id: "done-finish", src: END, from: 1.2, dur: 4, place: { scale: 1.2, x: -0.262, y: -0.056 }, caption: "Final step verified. Finish completes the assembly.", sfx: "confirm" },
   { id: "done-mascot", src: END, from: 11, dur: 5.5, caption: "From instructions to understanding.", sfx: "whoosh" },
-  { id: "done-restart", src: END, from: 22.6, dur: 2.5, rate: 0.85, zoom: { from: 1.08, to: 1.14, x: 42, y: 40 }, caption: "Restart Assembly begins again at Step 1", sfx: "tick" },
+  { id: "done-restart", src: END, from: 22.6, dur: 2.5, place: { scale: 1.2, x: -0.202, y: -0.056 }, rate: 0.85, caption: "Restart Assembly begins again at Step 1", sfx: "tick" },
 ];
 
 const sum = (shots: Shot[]) => shots.reduce((total, shot) => total + shot.dur, 0);
@@ -121,6 +121,23 @@ export type SceneId = (typeof scenes)[number]["id"];
 export const frames = (seconds: number) => Math.round(seconds * FPS);
 export const totalFrames = scenes.reduce((total, scene) => total + frames(scene.dur), 0);
 export const MAX_SECONDS = 180;
+
+/** The chapter overlay over real footage. Text and timing live here, on the global timeline. */
+export const CHAPTER_FADE = 12;
+export const chapters: { number: string; title: string; subtitle: string; scene: SceneId; at: number; dur: number }[] = [
+  { number: "02", title: "THE PROBLEM", subtitle: "A printed manual cannot answer.", scene: "problem", at: 0, dur: 12 },
+  { number: "03", title: "THE WORKFLOW", subtitle: "From instruction to physical action.", scene: "product", at: 2.5, dur: 13.5 },
+  { number: "04", title: "THE INSPECTION", subtitle: "AI checks the real build.", scene: "workflow", at: 6, dur: 11 },
+  { number: "05", title: "THE LOCAL DEMO", subtitle: "The same workflow runs in a browser.", scene: "browser", at: 0, dur: 11.5 },
+  { number: "06", title: "THE FEEDBACK LOOP", subtitle: "Every result leads to a next action.", scene: "solve", at: 0, dur: 12.3 },
+  { number: "07", title: "THE CORRECTION", subtitle: "Uncertainty asks for fresh evidence.", scene: "solve", at: 12.3, dur: 28.4 },
+  { number: "08", title: "THE COMPLETION", subtitle: "From guidance to verified completion.", scene: "completion", at: 0, dur: 12 },
+];
+export const chapterStart = (scene: SceneId, at: number) => {
+  let t = 0;
+  for (const s of scenes) { if (s.id === scene) return t + at; t += frames(s.dur) / FPS; }
+  return t;
+};
 
 /**
  * Where each voice-over file plays. `at` is seconds into the scene; `from` and `to` cut a file

@@ -21,6 +21,10 @@ following instructions.
 | 10 | `FutureVision` | 19 | Today, tomorrow, cooking | Abstract text, marked as vision |
 | 11 | `EndCard` | 12.5 | Name and promise | Logo |
 
+Chapters over real footage share one overlay, set by chapter 02: 02 The Problem, 03 The Workflow,
+04 The Inspection, 05 The Local Demo, 06 The Feedback Loop, 07 The Correction, 08 The Completion.
+The architecture, the future vision and the end card keep their own layouts.
+
 **Emotional arc:** curiosity, uncertainty, confidence, a setback, relief at "Step Verified",
 joy at the mascot, then a wider horizon. The music follows it: tension builds until the
 verified result, and the chords turn to a major-key order at that moment.

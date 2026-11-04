@@ -88,7 +88,9 @@ The files are generated through the ElevenLabs connection, not by a script in th
 different. If you change a line, regenerate that file, update `src/voiceover.ts` and run `npm run align`.
 
 Music drops under speech and rises between lines. Levels are in
-`src/components/VoiceOver.tsx`. Subtitles follow the word times, are burned in by
+`src/components/VoiceOver.tsx`. Every chapter over real footage uses
+`src/components/VideoChapterOverlay.tsx`, with its text and timing in `chapters` in
+`src/manifest.ts`. Subtitles follow the word times, are burned in by
 `src/components/PremiumSubtitle.tsx`, and are also written as an SRT file.
 
 Remotion has its own license. It is free for individuals and small teams; check

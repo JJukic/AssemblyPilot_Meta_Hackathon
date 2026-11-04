@@ -2,8 +2,6 @@ import type { CSSProperties, ReactNode } from "react";
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { color, mono, sans } from "../theme";
 
-/** Footage card on the left, so that the right column never covers a panel or hologram. */
-export const CARD = { left: 56, top: 64, width: 1110, height: 770 };
 /** Right text column: starts at 62 % of the width, 32 % wide, leaves 5 % or more on the right. */
 export const COLUMN = { left: 1190, width: 614 };
 
@@ -13,59 +11,61 @@ export function useEnter(delay = 0) {
   return spring({ frame: frame - delay, fps, config: { damping: 200 }, durationInFrames: 22 });
 }
 
-/** Chapter heading in the right column: number, accent line, title, optional short line. */
-export function RightSectionHeading({ number, title, subtitle, delay = 6, shadow = false }: { number: string; title: string; subtitle?: string; delay?: number; shadow?: boolean }) {
-  const enter = useEnter(delay);
-  const textShadow = shadow ? "0 2px 18px rgba(0,0,0,0.75)" : undefined;
+/** Number, line, title and short line. Shared by the chapter overlay and the static scenes. */
+export function HeadingBlock({ number, title, subtitle, titleSize = 50, align }: { number?: string; title: string; subtitle?: string; titleSize?: number; align?: CSSProperties }) {
   return (
-    <div style={{
-      position: "absolute", left: COLUMN.left, top: 162, width: COLUMN.width, opacity: enter,
-      transform: `translateX(${interpolate(enter, [0, 1], [28, 0])}px)`,
-    }}>
-      <div style={{ fontFamily: mono, fontWeight: 500, fontSize: 30, color: color.cyan, textShadow }}>{number}</div>
-      <div style={{ width: 64, height: 3, margin: "10px 0 14px", background: color.cyan, borderRadius: 2 }} />
-      <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 62, lineHeight: 1.06, letterSpacing: -1, color: "#fff", textShadow }}>{title}</div>
-      {subtitle && <div style={{ marginTop: 12, fontFamily: sans, fontWeight: 500, fontSize: 30, lineHeight: 1.25, color: color.muted, textShadow }}>{subtitle}</div>}
+    <div style={align}>
+      {number && <div style={{ fontFamily: mono, fontWeight: 500, fontSize: 30, lineHeight: 1.1, color: color.cyan }}>{number}</div>}
+      {number && <div style={{ width: 64, height: 3, margin: "10px 0 14px", background: color.cyan, borderRadius: 2 }} />}
+      <div style={{ fontFamily: sans, fontWeight: 800, fontSize: titleSize, lineHeight: 1.06, letterSpacing: -1, color: "#fff" }}>{title}</div>
+      {subtitle && <div style={{ marginTop: 12, fontFamily: sans, fontWeight: 500, fontSize: 28, lineHeight: 1.25, color: color.muted }}>{subtitle}</div>}
     </div>
   );
 }
 
-/** Short UI note. Sits in the right column, so that it never covers the footage. */
+/** Heading of a static scene, in the same right column as the video chapters. */
+export function RightSectionHeading({ number, title, subtitle, delay = 6 }: { number?: string; title: string; subtitle?: string; delay?: number }) {
+  const enter = useEnter(delay);
+  return (
+    <div style={{ position: "absolute", left: COLUMN.left, top: 162, width: COLUMN.width, opacity: enter }}>
+      <HeadingBlock number={number} title={title} subtitle={subtitle} titleSize={62} />
+    </div>
+  );
+}
+
+/** The local text surface used by every plate over video. */
+export const plate: CSSProperties = {
+  background: "rgba(5,15,30,0.28)", border: "1px solid rgba(105,213,255,0.28)", borderRadius: 16,
+  textShadow: "0 1px 10px rgba(0,0,0,0.65)", boxSizing: "border-box",
+};
+
+/** Short UI note on a small plate under the chapter overlay, clear of the footage's panels. */
 export function Caption({ text, step, style }: { text: string; step?: string; style?: CSSProperties }) {
   const enter = useEnter(4);
   return (
     <div style={{
-      position: "absolute", left: COLUMN.left, top: 396, width: COLUMN.width, display: "flex", gap: 16, alignItems: "baseline",
-      opacity: enter, transform: `translateY(${interpolate(enter, [0, 1], [12, 0])}px)`, ...style,
+      ...plate, position: "absolute", left: COLUMN.left, top: 396, width: COLUMN.width, padding: "12px 22px", display: "flex", gap: 14, alignItems: "baseline",
+      opacity: enter, ...style,
     }}>
-      {step && <span style={{ fontFamily: mono, fontWeight: 500, fontSize: 28, color: color.cyan }}>{step}</span>}
-      <span style={{ fontFamily: sans, fontWeight: 700, fontSize: 32, color: color.text, lineHeight: 1.25 }}>{text}</span>
+      {step && <span style={{ fontFamily: mono, fontWeight: 500, fontSize: 24, color: color.cyan }}>{step}</span>}
+      <span style={{ fontFamily: sans, fontWeight: 700, fontSize: 27, color: color.text, lineHeight: 1.25 }}>{text}</span>
     </div>
   );
 }
 
-/** Small, quiet source label, always in the top left, away from the chapter heading. */
-export function SourceBadge({ text, belowCard = false }: { text: string; belowCard?: boolean }) {
+/** Small, quiet source label. Always bottom right, away from the chapter overlay. */
+export function SourceBadge({ text }: { text: string }) {
   return (
     <div style={{
-      position: "absolute", top: belowCard ? CARD.top + CARD.height + 6 : 78, left: belowCard ? CARD.left : 70, padding: "6px 12px", borderRadius: 6, background: "rgba(7,12,22,0.46)",
-      fontFamily: mono, fontWeight: 500, fontSize: 20, color: "rgba(238,244,255,0.82)",
+      position: "absolute", right: 96, bottom: 42, padding: "5px 11px", borderRadius: 6, background: "rgba(7,12,22,0.46)",
+      fontFamily: mono, fontWeight: 500, fontSize: 19, color: "rgba(238,244,255,0.82)",
     }}>{text}</div>
   );
 }
 
 /** Marks footage as real capture, and states any shortened wait. */
-export function CaptureBadge({ note, source = "Real HoloLens 2 capture", belowCard }: { note?: string; source?: string; belowCard?: boolean }) {
-  return <SourceBadge text={note ? `${source} · ${note}` : source} belowCard={belowCard} />;
-}
-
-export function VideoCard({ children }: { children: ReactNode }) {
-  return (
-    <div style={{
-      position: "absolute", ...CARD, borderRadius: 14, overflow: "hidden", background: "#000",
-      boxShadow: "0 18px 50px rgba(0,0,0,0.45), 0 0 0 1px rgba(63,208,255,0.16)",
-    }}>{children}</div>
-  );
+export function CaptureBadge({ note, source = "Real HoloLens 2 capture" }: { note?: string; source?: string }) {
+  return <SourceBadge text={note ? `${source} · ${note}` : source} />;
 }
 
 export function FadeScene({ duration, children }: { duration: number; children: ReactNode }) {
@@ -74,7 +74,7 @@ export function FadeScene({ duration, children }: { duration: number; children: 
   return <AbsoluteFill style={{ opacity, background: color.bg }}>{children}</AbsoluteFill>;
 }
 
-/** Faint tracking grid behind cards and diagrams. */
+/** Faint tracking grid behind diagrams and other static scenes. */
 export function Grid() {
   return (
     <AbsoluteFill style={{

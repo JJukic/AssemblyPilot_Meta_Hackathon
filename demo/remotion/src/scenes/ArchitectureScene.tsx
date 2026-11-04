@@ -40,7 +40,7 @@ export function ArchitectureScene() {
         <Img src={staticFile("architecture/assemblypilot-architecture.png")} style={{ width: 1920, height: 1080 }} />
         {CUES.map((cue) => <Spotlight key={cue.node} {...cue} />)}
       </AbsoluteFill>
-      <RightSectionHeading number="06" title="ARCHITECTURE" subtitle="How the AI workflow connects the real world" />
+      <RightSectionHeading title="ARCHITECTURE" subtitle="How the AI workflow connects the real world" />
       <SourceBadge text="Explanatory diagram" />
     </AbsoluteFill>
   );

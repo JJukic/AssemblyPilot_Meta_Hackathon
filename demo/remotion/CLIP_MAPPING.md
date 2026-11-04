@@ -38,7 +38,7 @@ Total: 166.9 s, 5007 frames at 30 fps.
 | Assembly workflow | flow-brick | `intro.mov` | 0:55.6–0:58.6 | 1× | The real brick in the field of view |
 | Assembly workflow | flow-capture | `shot3.jpg` | still | 1× | One exact frame is captured and sent to Meta |
 | Assembly workflow | flow-next | `step1.mov` | 0:06.2–0:09.2 | 1× | The next assembly step appears |
-| Browser | browser-live | `Bildschirmaufnahme 2026-11-04 um 21.49.08.mov` | 0:20.4–0:22.1 | 0.45× | The same workflow in a regular browser |
+| Browser | browser-live | `Bildschirmaufnahme 2026-11-04 um 21.49.08.mov` | 0:20.4–0:22.1 | 0.45× | Live camera feed in the app |
 | Browser | browser-parts | `Bildschirmaufnahme 2026-11-04 um 21.49.08.mov` | 1:02.5–1:06.7 | 1× | Your own parts, captured from a webcam |
 | Browser | browser-verified | `Bildschirmaufnahme 2026-11-04 um 21.49.08.mov` | 3:06.0–3:07.8 | 0.5× | Verified on a fresh image (Waits cut) |
 | Problem solving | solve-place | `step1.mov` | 0:12.6–0:15.1 | 1× | Step 2: the blue brick goes on top |
