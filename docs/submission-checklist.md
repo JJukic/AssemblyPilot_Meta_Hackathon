@@ -24,7 +24,7 @@ posted on the event page.
 | Technical Report | Done | Checked against the code |
 | Installation with uv and pip | Checked locally | Fresh clone, macOS arm64 |
 | `requirements.txt` | Checked locally | Generated from `uv.lock`, with hashes |
-| CI status | Open | Check the run for this branch on GitHub |
+| CI status | Checked locally | GitHub Actions passed all four jobs on commit `a6bfe74` (run 41935563210) |
 | License | Done | Apache-2.0 for the source; asset questions remain below |
 | Secrets | Checked locally | Tracked files and history searched; `make check-repo` runs in CI |
 | Automated tests, lint, build | Checked locally | Without a key; live Meta requests never run in CI |
