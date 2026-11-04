@@ -6,7 +6,9 @@
   "scripts": {
     "audio": "node scripts/generate-audio.ts",
     "check": "node scripts/check-footage.ts",
+    "align": "python3 scripts/align-voice.py",
     "voice": "node scripts/build-voice-timing.ts",
+    "diagram": "remotion still src/index.ts ArchitectureDiagram public/architecture/assemblypilot-architecture.png --scale=2",
     "mapping": "node scripts/write-clip-mapping.ts",
     "prepare:assets": "npm run check && npm run audio && npm run voice && npm run mapping",
     "preview": "remotion studio src/index.ts",

@@ -29,6 +29,8 @@ export type Shot = {
   note?: string;
   /** Source label. Defaults to the HoloLens label. */
   badge?: string;
+  /** Keep the left edge when the card crops the sides. */
+  alignLeft?: boolean;
   sfx?: Sfx;
 };
 
@@ -54,10 +56,10 @@ export const introShots: Shot[] = [
   { id: "hook-camera", src: STEP2, from: 2.5, dur: 2, zoom: { from: 1.25, to: 1.4, x: 52, y: 28 } },
 ];
 
-export const problemShot: Shot = { id: "problem-hands", src: INTRO, from: 54.2, dur: 12, rate: 0.5, chrome: true, brightness: 1.15 };
+export const problemShot: Shot = { id: "problem-hands", src: INTRO, from: 54.2, dur: 12, rate: 0.5, chrome: true, brightness: 1.45 };
 
 export const productShots: Shot[] = [
-  { id: "product-home", src: INTRO, from: 3, dur: 2.5, chrome: true, zoom: { from: 1, to: 1.12, x: 62, y: 25 }, brightness: 1, sfx: "whoosh" },
+  { id: "product-home", src: INTRO, from: 3, dur: 2.5, chrome: true, zoom: { from: 1, to: 1.12, x: 62, y: 25 }, brightness: 1.1, sfx: "whoosh" },
   { id: "product-tabletop", src: INTRO, from: 24.3, dur: 2.5, chrome: true },
   { id: "product-field", src: INTRO, from: 40, dur: 2.5, chrome: true },
 ];
@@ -65,7 +67,7 @@ export const productShots: Shot[] = [
 export const workflowShots: { before: Shot[]; after: Shot[] } = {
   before: [
     { id: "flow-target", src: SHOT_READY, from: 0, dur: 3, zoom: { from: 1.2, to: 1.45, x: 42, y: 25 }, step: "1", caption: "Target step and reference photo", sfx: "tick" },
-    { id: "flow-brick", src: INTRO, from: 55.6, dur: 3, chrome: true, step: "2", caption: "The real brick in the field of view", brightness: 1.3 },
+    { id: "flow-brick", src: INTRO, from: 55.6, dur: 3, chrome: true, step: "2", caption: "The real brick in the field of view", brightness: 1.45 },
     { id: "flow-capture", src: SHOT_INSPECTING, from: 0, dur: 3, zoom: { from: 1.3, to: 1.5, x: 34, y: 40 }, step: "3", caption: "One exact frame is captured and sent to Meta", sfx: "tick" },
   ],
   after: [
@@ -75,17 +77,17 @@ export const workflowShots: { before: Shot[]; after: Shot[] } = {
 
 /** Zoomed so that the panels stay readable and the camera name in the dropdown stays out of frame. */
 export const browserShots: Shot[] = [
-  { id: "browser-live", src: BROWSER, from: 20.4, dur: 3.8, rate: 0.45, brightness: 1, badge: "Real browser capture", zoom: { from: 1.4, to: 1.46, x: 0, y: 0 }, caption: "The same workflow in a regular browser", sfx: "whoosh" },
-  { id: "browser-parts", src: BROWSER, from: 62.5, dur: 4.2, brightness: 1, badge: "Real browser capture", zoom: { from: 1.65, to: 1.72, x: 0, y: 0 }, caption: "Your own parts, captured from a webcam" },
-  { id: "browser-verified", src: BROWSER, from: 186, dur: 3.5, rate: 0.5, brightness: 1, badge: "Real browser capture", note: "Waits cut", zoom: { from: 1.5, to: 1.54, x: 0, y: 100 }, caption: "Verified on a fresh image", sfx: "tick" },
+  { id: "browser-live", src: BROWSER, from: 20.4, dur: 3.8, rate: 0.45, brightness: 1, alignLeft: true, badge: "Real browser capture", zoom: { from: 1.4, to: 1.46, x: 0, y: 0 }, caption: "The same workflow in a regular browser", sfx: "whoosh" },
+  { id: "browser-parts", src: BROWSER, from: 62.5, dur: 4.2, brightness: 1, alignLeft: true, badge: "Real browser capture", zoom: { from: 1.65, to: 1.72, x: 0, y: 0 }, caption: "Your own parts, captured from a webcam" },
+  { id: "browser-verified", src: BROWSER, from: 186, dur: 3.5, rate: 0.5, brightness: 1, alignLeft: true, badge: "Real browser capture", note: "Waits cut", zoom: { from: 1.22, to: 1.26, x: 0, y: 100 }, caption: "Verified on a fresh image", sfx: "tick" },
 ];
 
 export const solveShots: Shot[] = [
-  { id: "solve-place", src: STEP1, from: 12.6, dur: 2.5, chrome: true, caption: "Step 2: the blue brick goes on top", brightness: 1.3 },
+  { id: "solve-place", src: STEP1, from: 12.6, dur: 2.5, chrome: true, caption: "Step 2: the blue brick goes on top", brightness: 1.45 },
   { id: "solve-inspect", src: STEP2, from: 0.5, dur: 1.5, zoom: { from: 1.3, to: 1.4, x: 40, y: 30 }, caption: "Meta inspects the captured frame", note: "Wait shortened" },
-  { id: "solve-incorrect", src: STEP2, from: 8.5, dur: 4, zoom: { from: 1.35, to: 1.5, x: 58, y: 42 }, caption: "Incorrect: wrong printed side facing forward", sfx: "alert" },
-  { id: "solve-plan", src: STEP2, from: 21, dur: 4.3, zoom: { from: 1.35, to: 1.5, x: 55, y: 45 }, caption: "Correction plan: rotate the blue block 180°" },
-  { id: "solve-fix", src: STEP3, from: 7.5, dur: 2, caption: "The user corrects the real build", brightness: 1.3 },
+  { id: "solve-incorrect", src: STEP2, from: 8.5, dur: 4, zoom: { from: 1.3, to: 1.36, x: 58, y: 38 }, caption: "Incorrect: wrong printed side facing forward", sfx: "alert" },
+  { id: "solve-plan", src: STEP2, from: 21, dur: 4.3, zoom: { from: 1.3, to: 1.36, x: 56, y: 38 }, caption: "Correction plan: rotate the blue block 180°" },
+  { id: "solve-fix", src: STEP3, from: 7.5, dur: 2, caption: "The user corrects the real build", brightness: 1.45 },
   { id: "solve-again", src: STEP3, from: 13.8, dur: 2, zoom: { from: 1.15, to: 1.3, x: 55, y: 35 }, caption: "Only Check Again takes a new image", sfx: "tick" },
   { id: "solve-verify", src: STEP4, from: 1, dur: 5.5, zoom: { from: 1.3, to: 1.4, x: 42, y: 30 }, caption: "A new verification frame goes to Meta", note: "18.2 s wait shortened" },
   { id: "solve-verified", src: STEP4, from: 12.5, dur: 3.7, zoom: { from: 1.3, to: 1.45, x: 45, y: 38 }, caption: "Step verified: the workflow continues", sfx: "confirm" },
@@ -108,7 +110,7 @@ export const scenes = [
   { id: "browser", dur: sum(browserShots) },
   { id: "solve", dur: sum(solveShots) },
   { id: "status", dur: 15.2 },
-  { id: "ai", dur: 28.4 },
+  { id: "ai", dur: 22.6 },
   { id: "completion", dur: sum(completionShots) },
   { id: "vision", dur: 19 },
   { id: "end", dur: 12.5 },

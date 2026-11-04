@@ -24,9 +24,9 @@ export function Clip({ shot }: { shot: Shot }) {
     ? interpolate(frame, [0, duration], [shot.zoom.from, shot.zoom.to], { extrapolateRight: "clamp" })
     : 1;
   const origin = shot.zoom ? `${shot.zoom.x}% ${shot.zoom.y}%` : "50% 50%";
-  const media = { width: "100%", height: "100%", objectFit: "cover" as const, objectPosition: "50% 0%" };
+  const media = { width: "100%", height: "100%", objectFit: "cover" as const, objectPosition: shot.alignLeft ? "0% 0%" : "50% 0%" };
   // Footage from the Device Portal preview is dim; lift it without clipping the panel.
-  const filter = `brightness(${shot.brightness ?? 1.2}) contrast(1.06) saturate(1.1)`;
+  const filter = `brightness(${shot.brightness ?? 1.38}) contrast(1.05) saturate(1.08)`;
   return (
     <AbsoluteFill style={{ overflow: "hidden", background: "#000" }}>
       <AbsoluteFill style={{ transform: `scale(${zoom})`, transformOrigin: origin }}>

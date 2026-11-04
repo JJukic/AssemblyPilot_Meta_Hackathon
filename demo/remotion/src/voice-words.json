@@ -1,0 +1,1723 @@
+{
+ "01-hook": [
+  {
+   "word": "How",
+   "start": 0.0,
+   "end": 0.22
+  },
+  {
+   "word": "do",
+   "start": 0.22,
+   "end": 0.34
+  },
+  {
+   "word": "you",
+   "start": 0.34,
+   "end": 0.44
+  },
+  {
+   "word": "build",
+   "start": 0.44,
+   "end": 0.82
+  },
+  {
+   "word": "something",
+   "start": 0.82,
+   "end": 1.26
+  },
+  {
+   "word": "you",
+   "start": 1.26,
+   "end": 1.52
+  },
+  {
+   "word": "have",
+   "start": 1.52,
+   "end": 1.7
+  },
+  {
+   "word": "never",
+   "start": 1.7,
+   "end": 2.02
+  },
+  {
+   "word": "built",
+   "start": 2.02,
+   "end": 2.38
+  },
+  {
+   "word": "before?",
+   "start": 2.38,
+   "end": 2.82
+  },
+  {
+   "word": "What",
+   "start": 3.52,
+   "end": 3.72
+  },
+  {
+   "word": "if",
+   "start": 3.72,
+   "end": 3.9
+  },
+  {
+   "word": "mixed",
+   "start": 3.9,
+   "end": 4.06
+  },
+  {
+   "word": "reality",
+   "start": 4.06,
+   "end": 4.7
+  },
+  {
+   "word": "could",
+   "start": 4.7,
+   "end": 4.98
+  },
+  {
+   "word": "teach",
+   "start": 4.98,
+   "end": 5.3
+  },
+  {
+   "word": "you",
+   "start": 5.3,
+   "end": 5.42
+  },
+  {
+   "word": "a",
+   "start": 5.42,
+   "end": 5.56
+  },
+  {
+   "word": "physical",
+   "start": 5.56,
+   "end": 5.98
+  },
+  {
+   "word": "skill",
+   "start": 5.98,
+   "end": 6.48
+  },
+  {
+   "word": "through",
+   "start": 6.48,
+   "end": 6.82
+  },
+  {
+   "word": "direct",
+   "start": 6.82,
+   "end": 7.22
+  },
+  {
+   "word": "guidance",
+   "start": 7.22,
+   "end": 7.72
+  },
+  {
+   "word": "and",
+   "start": 7.72,
+   "end": 8.04
+  },
+  {
+   "word": "feedback?",
+   "start": 8.04,
+   "end": 8.4
+  }
+ ],
+ "02-problem": [
+  {
+   "word": "A",
+   "start": 0.0,
+   "end": 0.14
+  },
+  {
+   "word": "manual",
+   "start": 0.14,
+   "end": 0.52
+  },
+  {
+   "word": "can",
+   "start": 0.52,
+   "end": 0.78
+  },
+  {
+   "word": "show",
+   "start": 0.78,
+   "end": 1.02
+  },
+  {
+   "word": "the",
+   "start": 1.02,
+   "end": 1.2
+  },
+  {
+   "word": "next",
+   "start": 1.2,
+   "end": 1.46
+  },
+  {
+   "word": "step,",
+   "start": 1.46,
+   "end": 1.86
+  },
+  {
+   "word": "but",
+   "start": 2.28,
+   "end": 2.48
+  },
+  {
+   "word": "it",
+   "start": 2.48,
+   "end": 2.58
+  },
+  {
+   "word": "cannot",
+   "start": 2.58,
+   "end": 2.96
+  },
+  {
+   "word": "see",
+   "start": 2.96,
+   "end": 3.38
+  },
+  {
+   "word": "what",
+   "start": 3.38,
+   "end": 3.6
+  },
+  {
+   "word": "happened",
+   "start": 3.6,
+   "end": 3.94
+  },
+  {
+   "word": "on",
+   "start": 3.94,
+   "end": 4.1
+  },
+  {
+   "word": "the",
+   "start": 4.1,
+   "end": 4.22
+  },
+  {
+   "word": "table.",
+   "start": 4.22,
+   "end": 4.56
+  },
+  {
+   "word": "It",
+   "start": 5.04,
+   "end": 5.34
+  },
+  {
+   "word": "cannot",
+   "start": 5.34,
+   "end": 5.66
+  },
+  {
+   "word": "tell",
+   "start": 5.66,
+   "end": 5.96
+  },
+  {
+   "word": "whether",
+   "start": 5.96,
+   "end": 6.2
+  },
+  {
+   "word": "a",
+   "start": 6.2,
+   "end": 6.38
+  },
+  {
+   "word": "part",
+   "start": 6.38,
+   "end": 6.58
+  },
+  {
+   "word": "is",
+   "start": 6.58,
+   "end": 6.76
+  },
+  {
+   "word": "misplaced,",
+   "start": 6.76,
+   "end": 7.44
+  },
+  {
+   "word": "explain",
+   "start": 7.78,
+   "end": 8.12
+  },
+  {
+   "word": "what",
+   "start": 8.12,
+   "end": 8.4
+  },
+  {
+   "word": "went",
+   "start": 8.4,
+   "end": 8.58
+  },
+  {
+   "word": "wrong,",
+   "start": 8.58,
+   "end": 8.9
+  },
+  {
+   "word": "or",
+   "start": 9.28,
+   "end": 9.6
+  },
+  {
+   "word": "guide",
+   "start": 9.6,
+   "end": 10.0
+  },
+  {
+   "word": "the",
+   "start": 10.0,
+   "end": 10.18
+  },
+  {
+   "word": "correction.",
+   "start": 10.18,
+   "end": 10.62
+  }
+ ],
+ "03-hololens": [
+  {
+   "word": "AssemblyPilot",
+   "start": 0.0,
+   "end": 0.74
+  },
+  {
+   "word": "connects",
+   "start": 0.74,
+   "end": 1.1
+  },
+  {
+   "word": "a",
+   "start": 1.1,
+   "end": 1.34
+  },
+  {
+   "word": "physical",
+   "start": 1.34,
+   "end": 1.76
+  },
+  {
+   "word": "workspace",
+   "start": 1.76,
+   "end": 2.22
+  },
+  {
+   "word": "with",
+   "start": 2.22,
+   "end": 2.72
+  },
+  {
+   "word": "mixed",
+   "start": 2.72,
+   "end": 2.92
+  },
+  {
+   "word": "reality.",
+   "start": 2.92,
+   "end": 3.52
+  },
+  {
+   "word": "On",
+   "start": 4.04,
+   "end": 4.26
+  },
+  {
+   "word": "HoloLens,",
+   "start": 4.26,
+   "end": 4.9
+  },
+  {
+   "word": "you",
+   "start": 5.22,
+   "end": 5.32
+  },
+  {
+   "word": "confirm",
+   "start": 5.32,
+   "end": 5.72
+  },
+  {
+   "word": "an",
+   "start": 5.72,
+   "end": 5.9
+  },
+  {
+   "word": "assembly",
+   "start": 5.9,
+   "end": 6.28
+  },
+  {
+   "word": "field",
+   "start": 6.28,
+   "end": 6.58
+  },
+  {
+   "word": "on",
+   "start": 6.58,
+   "end": 6.74
+  },
+  {
+   "word": "the",
+   "start": 6.74,
+   "end": 6.86
+  },
+  {
+   "word": "table",
+   "start": 6.86,
+   "end": 7.2
+  },
+  {
+   "word": "and",
+   "start": 7.2,
+   "end": 7.6
+  },
+  {
+   "word": "see",
+   "start": 7.6,
+   "end": 7.88
+  },
+  {
+   "word": "the",
+   "start": 7.88,
+   "end": 8.04
+  },
+  {
+   "word": "next",
+   "start": 8.04,
+   "end": 8.28
+  },
+  {
+   "word": "step",
+   "start": 8.28,
+   "end": 8.5
+  },
+  {
+   "word": "as",
+   "start": 8.5,
+   "end": 8.74
+  },
+  {
+   "word": "a",
+   "start": 8.74,
+   "end": 8.84
+  },
+  {
+   "word": "hologram.",
+   "start": 8.84,
+   "end": 9.38
+  },
+  {
+   "word": "You",
+   "start": 9.88,
+   "end": 10.08
+  },
+  {
+   "word": "place",
+   "start": 10.08,
+   "end": 10.32
+  },
+  {
+   "word": "the",
+   "start": 10.32,
+   "end": 10.56
+  },
+  {
+   "word": "real",
+   "start": 10.56,
+   "end": 10.8
+  },
+  {
+   "word": "brick",
+   "start": 10.8,
+   "end": 11.06
+  },
+  {
+   "word": "and",
+   "start": 11.06,
+   "end": 11.38
+  },
+  {
+   "word": "select",
+   "start": 11.38,
+   "end": 11.7
+  },
+  {
+   "word": "Check",
+   "start": 11.7,
+   "end": 12.2
+  },
+  {
+   "word": "Step.",
+   "start": 12.2,
+   "end": 12.52
+  },
+  {
+   "word": "The",
+   "start": 12.94,
+   "end": 13.26
+  },
+  {
+   "word": "camera",
+   "start": 13.26,
+   "end": 13.56
+  },
+  {
+   "word": "captures",
+   "start": 13.56,
+   "end": 14.02
+  },
+  {
+   "word": "that",
+   "start": 14.02,
+   "end": 14.28
+  },
+  {
+   "word": "moment,",
+   "start": 14.28,
+   "end": 14.62
+  },
+  {
+   "word": "and",
+   "start": 14.62,
+   "end": 14.98
+  },
+  {
+   "word": "the",
+   "start": 14.98,
+   "end": 15.1
+  },
+  {
+   "word": "feedback",
+   "start": 15.1,
+   "end": 15.42
+  },
+  {
+   "word": "appears",
+   "start": 15.42,
+   "end": 15.92
+  },
+  {
+   "word": "directly",
+   "start": 15.92,
+   "end": 16.42
+  },
+  {
+   "word": "in",
+   "start": 16.42,
+   "end": 16.8
+  },
+  {
+   "word": "your",
+   "start": 16.8,
+   "end": 16.94
+  },
+  {
+   "word": "workspace.",
+   "start": 16.94,
+   "end": 17.3
+  }
+ ],
+ "04-local-demo": [
+  {
+   "word": "The",
+   "start": 0.0,
+   "end": 0.14
+  },
+  {
+   "word": "same",
+   "start": 0.14,
+   "end": 0.44
+  },
+  {
+   "word": "web",
+   "start": 0.44,
+   "end": 0.7
+  },
+  {
+   "word": "application",
+   "start": 0.7,
+   "end": 1.32
+  },
+  {
+   "word": "also",
+   "start": 1.32,
+   "end": 1.92
+  },
+  {
+   "word": "runs",
+   "start": 1.92,
+   "end": 2.28
+  },
+  {
+   "word": "in",
+   "start": 2.28,
+   "end": 2.48
+  },
+  {
+   "word": "a",
+   "start": 2.48,
+   "end": 2.56
+  },
+  {
+   "word": "regular",
+   "start": 2.56,
+   "end": 2.92
+  },
+  {
+   "word": "browser.",
+   "start": 2.92,
+   "end": 3.38
+  },
+  {
+   "word": "This",
+   "start": 3.9,
+   "end": 4.2
+  },
+  {
+   "word": "makes",
+   "start": 4.2,
+   "end": 4.4
+  },
+  {
+   "word": "the",
+   "start": 4.4,
+   "end": 4.6
+  },
+  {
+   "word": "system",
+   "start": 4.6,
+   "end": 4.94
+  },
+  {
+   "word": "easy",
+   "start": 4.94,
+   "end": 5.34
+  },
+  {
+   "word": "to",
+   "start": 5.34,
+   "end": 5.5
+  },
+  {
+   "word": "test",
+   "start": 5.5,
+   "end": 5.8
+  },
+  {
+   "word": "with",
+   "start": 5.8,
+   "end": 5.98
+  },
+  {
+   "word": "your",
+   "start": 5.98,
+   "end": 6.14
+  },
+  {
+   "word": "own",
+   "start": 6.14,
+   "end": 6.38
+  },
+  {
+   "word": "parts,",
+   "start": 6.38,
+   "end": 6.9
+  },
+  {
+   "word": "even",
+   "start": 7.24,
+   "end": 7.52
+  },
+  {
+   "word": "when",
+   "start": 7.52,
+   "end": 7.74
+  },
+  {
+   "word": "immersive",
+   "start": 7.74,
+   "end": 8.1
+  },
+  {
+   "word": "hardware",
+   "start": 8.1,
+   "end": 8.54
+  },
+  {
+   "word": "is",
+   "start": 8.54,
+   "end": 8.86
+  },
+  {
+   "word": "not",
+   "start": 8.86,
+   "end": 9.08
+  },
+  {
+   "word": "available.",
+   "start": 9.08,
+   "end": 9.58
+  }
+ ],
+ "05-problem-solving": [
+  {
+   "word": "Here,",
+   "start": 0.0,
+   "end": 0.28
+  },
+  {
+   "word": "the",
+   "start": 0.74,
+   "end": 0.84
+  },
+  {
+   "word": "blue",
+   "start": 0.84,
+   "end": 1.1
+  },
+  {
+   "word": "brick",
+   "start": 1.1,
+   "end": 1.42
+  },
+  {
+   "word": "is",
+   "start": 1.42,
+   "end": 1.62
+  },
+  {
+   "word": "in",
+   "start": 1.62,
+   "end": 1.72
+  },
+  {
+   "word": "the",
+   "start": 1.72,
+   "end": 1.84
+  },
+  {
+   "word": "right",
+   "start": 1.84,
+   "end": 2.04
+  },
+  {
+   "word": "place,",
+   "start": 2.04,
+   "end": 2.5
+  },
+  {
+   "word": "but",
+   "start": 2.84,
+   "end": 2.94
+  },
+  {
+   "word": "the",
+   "start": 2.94,
+   "end": 3.06
+  },
+  {
+   "word": "wrong",
+   "start": 3.06,
+   "end": 3.36
+  },
+  {
+   "word": "printed",
+   "start": 3.36,
+   "end": 3.76
+  },
+  {
+   "word": "side",
+   "start": 3.76,
+   "end": 4.12
+  },
+  {
+   "word": "faces",
+   "start": 4.12,
+   "end": 4.46
+  },
+  {
+   "word": "forward.",
+   "start": 4.46,
+   "end": 5.0
+  },
+  {
+   "word": "AssemblyPilot",
+   "start": 5.82,
+   "end": 6.4
+  },
+  {
+   "word": "explains",
+   "start": 6.4,
+   "end": 6.92
+  },
+  {
+   "word": "the",
+   "start": 6.92,
+   "end": 7.18
+  },
+  {
+   "word": "issue",
+   "start": 7.18,
+   "end": 7.5
+  },
+  {
+   "word": "and",
+   "start": 7.5,
+   "end": 7.78
+  },
+  {
+   "word": "proposes",
+   "start": 7.78,
+   "end": 8.22
+  },
+  {
+   "word": "a",
+   "start": 8.22,
+   "end": 8.4
+  },
+  {
+   "word": "fix:",
+   "start": 8.4,
+   "end": 8.72
+  },
+  {
+   "word": "rotate",
+   "start": 9.38,
+   "end": 9.7
+  },
+  {
+   "word": "the",
+   "start": 9.7,
+   "end": 9.88
+  },
+  {
+   "word": "block.",
+   "start": 9.88,
+   "end": 10.12
+  },
+  {
+   "word": "The",
+   "start": 10.84,
+   "end": 11.06
+  },
+  {
+   "word": "user",
+   "start": 11.06,
+   "end": 11.3
+  },
+  {
+   "word": "corrects",
+   "start": 11.3,
+   "end": 11.88
+  },
+  {
+   "word": "the",
+   "start": 11.88,
+   "end": 11.98
+  },
+  {
+   "word": "real",
+   "start": 11.98,
+   "end": 12.22
+  },
+  {
+   "word": "build",
+   "start": 12.22,
+   "end": 12.66
+  },
+  {
+   "word": "and",
+   "start": 12.66,
+   "end": 12.9
+  },
+  {
+   "word": "selects",
+   "start": 12.9,
+   "end": 13.44
+  },
+  {
+   "word": "Check",
+   "start": 13.5,
+   "end": 13.72
+  },
+  {
+   "word": "Again.",
+   "start": 13.72,
+   "end": 14.1
+  },
+  {
+   "word": "Only",
+   "start": 14.74,
+   "end": 15.06
+  },
+  {
+   "word": "then",
+   "start": 15.06,
+   "end": 15.44
+  },
+  {
+   "word": "is",
+   "start": 15.44,
+   "end": 15.74
+  },
+  {
+   "word": "a",
+   "start": 15.74,
+   "end": 15.86
+  },
+  {
+   "word": "new",
+   "start": 15.86,
+   "end": 16.06
+  },
+  {
+   "word": "image",
+   "start": 16.06,
+   "end": 16.34
+  },
+  {
+   "word": "taken,",
+   "start": 16.34,
+   "end": 16.8
+  },
+  {
+   "word": "and",
+   "start": 17.04,
+   "end": 17.12
+  },
+  {
+   "word": "the",
+   "start": 17.12,
+   "end": 17.24
+  },
+  {
+   "word": "next",
+   "start": 17.24,
+   "end": 17.48
+  },
+  {
+   "word": "decision",
+   "start": 17.48,
+   "end": 17.94
+  },
+  {
+   "word": "is",
+   "start": 17.94,
+   "end": 18.18
+  },
+  {
+   "word": "based",
+   "start": 18.18,
+   "end": 18.5
+  },
+  {
+   "word": "on",
+   "start": 18.5,
+   "end": 18.64
+  },
+  {
+   "word": "that",
+   "start": 18.64,
+   "end": 18.92
+  },
+  {
+   "word": "fresh",
+   "start": 18.92,
+   "end": 19.34
+  },
+  {
+   "word": "evidence.",
+   "start": 19.34,
+   "end": 19.76
+  },
+  {
+   "word": "This",
+   "start": 20.38,
+   "end": 20.62
+  },
+  {
+   "word": "time,",
+   "start": 20.62,
+   "end": 20.96
+  },
+  {
+   "word": "the",
+   "start": 21.22,
+   "end": 21.3
+  },
+  {
+   "word": "step",
+   "start": 21.3,
+   "end": 21.52
+  },
+  {
+   "word": "is",
+   "start": 21.52,
+   "end": 21.7
+  },
+  {
+   "word": "verified.",
+   "start": 21.7,
+   "end": 22.14
+  },
+  {
+   "word": "When",
+   "start": 22.82,
+   "end": 23.1
+  },
+  {
+   "word": "the",
+   "start": 23.1,
+   "end": 23.24
+  },
+  {
+   "word": "visual",
+   "start": 23.24,
+   "end": 23.56
+  },
+  {
+   "word": "evidence",
+   "start": 23.56,
+   "end": 23.96
+  },
+  {
+   "word": "is",
+   "start": 23.96,
+   "end": 24.22
+  },
+  {
+   "word": "unclear,",
+   "start": 24.22,
+   "end": 24.74
+  },
+  {
+   "word": "AssemblyPilot",
+   "start": 24.74,
+   "end": 25.94
+  },
+  {
+   "word": "does",
+   "start": 25.94,
+   "end": 26.16
+  },
+  {
+   "word": "not",
+   "start": 26.16,
+   "end": 26.48
+  },
+  {
+   "word": "pretend",
+   "start": 26.48,
+   "end": 26.84
+  },
+  {
+   "word": "to",
+   "start": 26.84,
+   "end": 27.1
+  },
+  {
+   "word": "know.",
+   "start": 27.1,
+   "end": 27.3
+  },
+  {
+   "word": "An",
+   "start": 27.9,
+   "end": 28.04
+  },
+  {
+   "word": "uncertain",
+   "start": 28.04,
+   "end": 28.48
+  },
+  {
+   "word": "result",
+   "start": 28.48,
+   "end": 28.92
+  },
+  {
+   "word": "is",
+   "start": 28.92,
+   "end": 29.32
+  },
+  {
+   "word": "not",
+   "start": 29.32,
+   "end": 29.66
+  },
+  {
+   "word": "a",
+   "start": 29.66,
+   "end": 29.9
+  },
+  {
+   "word": "pass.",
+   "start": 29.9,
+   "end": 30.34
+  },
+  {
+   "word": "The",
+   "start": 30.84,
+   "end": 30.94
+  },
+  {
+   "word": "workflow",
+   "start": 30.94,
+   "end": 31.28
+  },
+  {
+   "word": "pauses.",
+   "start": 31.28,
+   "end": 31.94
+  },
+  {
+   "word": "The",
+   "start": 32.52,
+   "end": 32.66
+  },
+  {
+   "word": "user",
+   "start": 32.66,
+   "end": 32.9
+  },
+  {
+   "word": "changes",
+   "start": 32.9,
+   "end": 33.32
+  },
+  {
+   "word": "the",
+   "start": 33.32,
+   "end": 33.56
+  },
+  {
+   "word": "view",
+   "start": 33.56,
+   "end": 33.82
+  },
+  {
+   "word": "or",
+   "start": 33.82,
+   "end": 34.16
+  },
+  {
+   "word": "corrects",
+   "start": 34.16,
+   "end": 34.66
+  },
+  {
+   "word": "the",
+   "start": 34.66,
+   "end": 34.74
+  },
+  {
+   "word": "assembly,",
+   "start": 34.74,
+   "end": 35.18
+  },
+  {
+   "word": "and",
+   "start": 35.18,
+   "end": 35.64
+  },
+  {
+   "word": "selects",
+   "start": 35.64,
+   "end": 36.18
+  },
+  {
+   "word": "Check",
+   "start": 36.18,
+   "end": 36.4
+  },
+  {
+   "word": "Again.",
+   "start": 36.4,
+   "end": 36.76
+  }
+ ],
+ "06-architecture": [
+  {
+   "word": "The",
+   "start": 0.0,
+   "end": 0.16
+  },
+  {
+   "word": "browser",
+   "start": 0.16,
+   "end": 0.54
+  },
+  {
+   "word": "or",
+   "start": 0.54,
+   "end": 0.88
+  },
+  {
+   "word": "HoloLens",
+   "start": 0.88,
+   "end": 1.42
+  },
+  {
+   "word": "camera",
+   "start": 1.42,
+   "end": 1.9
+  },
+  {
+   "word": "captures",
+   "start": 1.9,
+   "end": 2.38
+  },
+  {
+   "word": "the",
+   "start": 2.38,
+   "end": 2.68
+  },
+  {
+   "word": "real",
+   "start": 2.68,
+   "end": 2.94
+  },
+  {
+   "word": "scene.",
+   "start": 2.94,
+   "end": 3.26
+  },
+  {
+   "word": "The",
+   "start": 3.88,
+   "end": 4.0
+  },
+  {
+   "word": "backend",
+   "start": 4.0,
+   "end": 4.46
+  },
+  {
+   "word": "validates",
+   "start": 4.46,
+   "end": 5.06
+  },
+  {
+   "word": "the",
+   "start": 5.06,
+   "end": 5.2
+  },
+  {
+   "word": "request",
+   "start": 5.2,
+   "end": 5.52
+  },
+  {
+   "word": "and",
+   "start": 5.94,
+   "end": 6.0
+  },
+  {
+   "word": "the",
+   "start": 6.0,
+   "end": 6.14
+  },
+  {
+   "word": "Assembly",
+   "start": 6.14,
+   "end": 6.48
+  },
+  {
+   "word": "Orchestrator",
+   "start": 6.48,
+   "end": 7.2
+  },
+  {
+   "word": "manages",
+   "start": 7.2,
+   "end": 7.6
+  },
+  {
+   "word": "the",
+   "start": 7.6,
+   "end": 7.92
+  },
+  {
+   "word": "workflow.",
+   "start": 7.92,
+   "end": 8.3
+  },
+  {
+   "word": "Muse",
+   "start": 9.0,
+   "end": 9.22
+  },
+  {
+   "word": "Spark",
+   "start": 9.22,
+   "end": 9.56
+  },
+  {
+   "word": "evaluates",
+   "start": 9.56,
+   "end": 10.4
+  },
+  {
+   "word": "the",
+   "start": 10.4,
+   "end": 10.54
+  },
+  {
+   "word": "assembly",
+   "start": 10.54,
+   "end": 10.94
+  },
+  {
+   "word": "state.",
+   "start": 10.94,
+   "end": 11.44
+  },
+  {
+   "word": "When",
+   "start": 11.82,
+   "end": 12.02
+  },
+  {
+   "word": "enabled,",
+   "start": 12.02,
+   "end": 12.4
+  },
+  {
+   "word": "SAM",
+   "start": 12.88,
+   "end": 13.0
+  },
+  {
+   "word": "three",
+   "start": 13.0,
+   "end": 13.84
+  },
+  {
+   "word": "point",
+   "start": 13.84,
+   "end": 13.89
+  },
+  {
+   "word": "one",
+   "start": 13.89,
+   "end": 13.94
+  },
+  {
+   "word": "adds",
+   "start": 13.84,
+   "end": 14.24
+  },
+  {
+   "word": "object",
+   "start": 14.24,
+   "end": 14.62
+  },
+  {
+   "word": "localization",
+   "start": 14.62,
+   "end": 15.42
+  },
+  {
+   "word": "and",
+   "start": 15.42,
+   "end": 15.8
+  },
+  {
+   "word": "segmentation.",
+   "start": 15.8,
+   "end": 16.64
+  },
+  {
+   "word": "The",
+   "start": 17.18,
+   "end": 17.34
+  },
+  {
+   "word": "validated",
+   "start": 17.34,
+   "end": 17.74
+  },
+  {
+   "word": "result",
+   "start": 17.74,
+   "end": 18.22
+  },
+  {
+   "word": "returns",
+   "start": 18.22,
+   "end": 18.66
+  },
+  {
+   "word": "to",
+   "start": 18.66,
+   "end": 18.9
+  },
+  {
+   "word": "both",
+   "start": 18.9,
+   "end": 19.14
+  },
+  {
+   "word": "the",
+   "start": 19.14,
+   "end": 19.3
+  },
+  {
+   "word": "browser",
+   "start": 19.3,
+   "end": 19.7
+  },
+  {
+   "word": "and",
+   "start": 19.7,
+   "end": 20.12
+  },
+  {
+   "word": "the",
+   "start": 20.12,
+   "end": 20.32
+  },
+  {
+   "word": "mixed-reality",
+   "start": 20.32,
+   "end": 20.9
+  },
+  {
+   "word": "display.",
+   "start": 20.9,
+   "end": 21.38
+  }
+ ],
+ "07-future-vision": [
+  {
+   "word": "Today,",
+   "start": 0.0,
+   "end": 0.28
+  },
+  {
+   "word": "AssemblyPilot",
+   "start": 0.78,
+   "end": 1.52
+  },
+  {
+   "word": "guides",
+   "start": 1.52,
+   "end": 1.86
+  },
+  {
+   "word": "a",
+   "start": 1.86,
+   "end": 2.08
+  },
+  {
+   "word": "LEGO",
+   "start": 2.08,
+   "end": 2.34
+  },
+  {
+   "word": "assembly.",
+   "start": 2.34,
+   "end": 2.82
+  },
+  {
+   "word": "Tomorrow,",
+   "start": 3.52,
+   "end": 3.9
+  },
+  {
+   "word": "the",
+   "start": 4.4,
+   "end": 4.46
+  },
+  {
+   "word": "same",
+   "start": 4.46,
+   "end": 4.76
+  },
+  {
+   "word": "interaction",
+   "start": 4.76,
+   "end": 5.4
+  },
+  {
+   "word": "could",
+   "start": 5.4,
+   "end": 5.64
+  },
+  {
+   "word": "support",
+   "start": 5.64,
+   "end": 6.0
+  },
+  {
+   "word": "cooking,",
+   "start": 6.0,
+   "end": 6.46
+  },
+  {
+   "word": "repairs,",
+   "start": 6.96,
+   "end": 7.34
+  },
+  {
+   "word": "education,",
+   "start": 7.82,
+   "end": 8.34
+  },
+  {
+   "word": "and",
+   "start": 8.7,
+   "end": 8.88
+  },
+  {
+   "word": "industrial",
+   "start": 8.88,
+   "end": 9.38
+  },
+  {
+   "word": "training.",
+   "start": 9.38,
+   "end": 9.88
+  },
+  {
+   "word": "Imagine",
+   "start": 10.52,
+   "end": 10.88
+  },
+  {
+   "word": "putting",
+   "start": 10.88,
+   "end": 11.14
+  },
+  {
+   "word": "on",
+   "start": 11.14,
+   "end": 11.4
+  },
+  {
+   "word": "mixed",
+   "start": 11.4,
+   "end": 11.58
+  },
+  {
+   "word": "reality",
+   "start": 11.58,
+   "end": 12.18
+  },
+  {
+   "word": "and",
+   "start": 12.18,
+   "end": 12.46
+  },
+  {
+   "word": "learning",
+   "start": 12.46,
+   "end": 12.74
+  },
+  {
+   "word": "to",
+   "start": 12.74,
+   "end": 12.96
+  },
+  {
+   "word": "cook",
+   "start": 12.96,
+   "end": 13.26
+  },
+  {
+   "word": "without",
+   "start": 13.26,
+   "end": 13.68
+  },
+  {
+   "word": "prior",
+   "start": 13.68,
+   "end": 14.1
+  },
+  {
+   "word": "experience,",
+   "start": 14.1,
+   "end": 14.9
+  },
+  {
+   "word": "with",
+   "start": 15.24,
+   "end": 15.4
+  },
+  {
+   "word": "guidance",
+   "start": 15.4,
+   "end": 15.7
+  },
+  {
+   "word": "adapted",
+   "start": 15.7,
+   "end": 16.26
+  },
+  {
+   "word": "to",
+   "start": 16.26,
+   "end": 16.52
+  },
+  {
+   "word": "what",
+   "start": 16.52,
+   "end": 16.68
+  },
+  {
+   "word": "is",
+   "start": 16.68,
+   "end": 16.78
+  },
+  {
+   "word": "happening",
+   "start": 16.78,
+   "end": 17.12
+  },
+  {
+   "word": "in",
+   "start": 17.12,
+   "end": 17.3
+  },
+  {
+   "word": "front",
+   "start": 17.3,
+   "end": 17.5
+  },
+  {
+   "word": "of",
+   "start": 17.5,
+   "end": 17.68
+  },
+  {
+   "word": "you.",
+   "start": 17.68,
+   "end": 17.84
+  }
+ ],
+ "08-closing": [
+  {
+   "word": "AssemblyPilot",
+   "start": 0.0,
+   "end": 0.76
+  },
+  {
+   "word": "turns",
+   "start": 0.76,
+   "end": 1.1
+  },
+  {
+   "word": "instructions",
+   "start": 1.1,
+   "end": 1.7
+  },
+  {
+   "word": "into",
+   "start": 1.7,
+   "end": 2.2
+  },
+  {
+   "word": "an",
+   "start": 2.2,
+   "end": 2.38
+  },
+  {
+   "word": "interactive",
+   "start": 2.38,
+   "end": 3.0
+  },
+  {
+   "word": "learning",
+   "start": 3.0,
+   "end": 3.4
+  },
+  {
+   "word": "loop:",
+   "start": 3.4,
+   "end": 3.82
+  },
+  {
+   "word": "from",
+   "start": 4.0,
+   "end": 4.38
+  },
+  {
+   "word": "guidance,",
+   "start": 4.38,
+   "end": 4.78
+  },
+  {
+   "word": "to",
+   "start": 4.78,
+   "end": 5.3
+  },
+  {
+   "word": "action,",
+   "start": 5.3,
+   "end": 5.74
+  },
+  {
+   "word": "to",
+   "start": 5.74,
+   "end": 6.2
+  },
+  {
+   "word": "visual",
+   "start": 6.2,
+   "end": 6.64
+  },
+  {
+   "word": "verification.",
+   "start": 6.64,
+   "end": 7.4
+  },
+  {
+   "word": "AI-guided",
+   "start": 7.4,
+   "end": 8.82
+  },
+  {
+   "word": "mixed",
+   "start": 8.82,
+   "end": 9.08
+  },
+  {
+   "word": "reality",
+   "start": 9.08,
+   "end": 9.64
+  },
+  {
+   "word": "for",
+   "start": 9.64,
+   "end": 9.98
+  },
+  {
+   "word": "the",
+   "start": 9.98,
+   "end": 10.12
+  },
+  {
+   "word": "real",
+   "start": 10.12,
+   "end": 10.44
+  },
+  {
+   "word": "world.",
+   "start": 10.44,
+   "end": 10.88
+  }
+ ]
+}

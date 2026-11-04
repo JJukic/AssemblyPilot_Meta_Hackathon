@@ -1,30 +1,18 @@
-import { AbsoluteFill, Sequence, interpolate, useCurrentFrame } from "remotion";
-import { Grid, Headline } from "../components/Overlays";
-import { frames } from "../manifest";
-import { color, mono } from "../theme";
+import { AbsoluteFill, Img, interpolate, staticFile } from "remotion";
+import { Grid, RightSectionHeading, useEnter } from "../components/Overlays";
+import { SHOT_VERIFIED } from "../manifest";
+import { color, mono, sans } from "../theme";
 
-/** Abstract guided path: steps connected by a line. Deliberately not a product shot. */
-function GuidedPath() {
-  const frame = useCurrentFrame();
-  const points = [[260, 880], [640, 800], [1020, 860], [1400, 780], [1660, 840]];
-  const line = points.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" ");
-  const progress = interpolate(frame, [20, 540], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  return (
-    <svg width="1920" height="1080" style={{ position: "absolute", inset: 0 }}>
-      <path d={line} fill="none" stroke={color.cyan} strokeWidth="3" pathLength={1} strokeDasharray={1} strokeDashoffset={1 - progress} opacity={0.75} />
-      {points.map(([x, y], i) => {
-        const on = progress >= i / (points.length - 1);
-        return <circle key={x} cx={x} cy={y} r={on ? 12 : 7} fill={on ? color.cyan : color.border} />;
-      })}
-    </svg>
-  );
-}
+const GOLD = color.amber;
+const FIELDS = ["Cooking", "Repairs", "Education", "Industrial training"];
 
-function Line({ from, duration, text, size = 76 }: { from: number; duration: number; text: string; size?: number }) {
+function Block({ delay, label, tone, children }: { delay: number; label: string; tone: string; children: React.ReactNode }) {
+  const enter = useEnter(delay);
   return (
-    <Sequence from={frames(from)} durationInFrames={frames(duration)} layout="none">
-      <Headline text={text} size={size} />
-    </Sequence>
+    <div style={{ opacity: enter, transform: `translateY(${interpolate(enter, [0, 1], [20, 0])}px)`, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontFamily: mono, fontWeight: 500, fontSize: 24, color: tone }}>{label}</div>
+      {children}
+    </div>
   );
 }
 
@@ -32,16 +20,27 @@ export function FutureVision() {
   return (
     <AbsoluteFill>
       <Grid />
-      <GuidedPath />
       <div style={{
-        position: "absolute", top: 56, left: "50%", transform: "translateX(-50%)", padding: "12px 26px", borderRadius: 8,
-        border: `3px solid ${color.amber}`, fontFamily: mono, fontWeight: 500, fontSize: 30, color: color.amber, whiteSpace: "nowrap",
+        position: "absolute", top: 76, right: 116, padding: "7px 14px", borderRadius: 7, border: `1.5px solid ${GOLD}`,
+        fontFamily: mono, fontWeight: 500, fontSize: 22, color: GOLD, whiteSpace: "nowrap",
       }}>FUTURE VISION · NOT IMPLEMENTED</div>
-      <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", padding: "0 170px 120px" }}>
-        <Line from={0.3} duration={3.4} text="Today: a LEGO assembly." />
-        <Line from={3.8} duration={6.6} text="Tomorrow, it could support cooking, repairs, education and training." size={66} />
-        <Line from={10.5} duration={8.2} text="Imagine putting on mixed reality and learning to cook without prior experience." size={66} />
-      </AbsoluteFill>
+      <RightSectionHeading number="08" title="FUTURE VISION" subtitle="Possible applications, not part of this prototype." />
+      <div style={{ position: "absolute", left: 90, top: 150, width: 1020, display: "flex", flexDirection: "column", gap: 44 }}>
+        <Block delay={9} label="TODAY · REAL PROTOTYPE" tone={color.cyan}>
+          <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
+            <Img src={staticFile(SHOT_VERIFIED)} style={{ width: 300, height: 169, objectFit: "cover", borderRadius: 10, border: `2px solid ${color.cyan}` }} />
+            <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 48, lineHeight: 1.15, color: "#fff" }}>A guided LEGO assembly</div>
+          </div>
+        </Block>
+        <Block delay={114} label="TOMORROW · POSSIBLE" tone={GOLD}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+            {FIELDS.map((text) => <div key={text} style={{ padding: "14px 24px", borderRadius: 10, border: `2px dashed ${GOLD}`, fontFamily: sans, fontWeight: 700, fontSize: 36, color: "#fff" }}>{text}</div>)}
+          </div>
+        </Block>
+        <Block delay={315} label="IMAGINE · CONCEPT" tone={GOLD}>
+          <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 48, lineHeight: 1.15, color: "#fff" }}>Learning to cook, with no prior experience</div>
+        </Block>
+      </div>
     </AbsoluteFill>
   );
 }

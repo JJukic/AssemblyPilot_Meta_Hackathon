@@ -1,6 +1,5 @@
-import { Audio, Sequence, getStaticFiles, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { Audio, Sequence, getStaticFiles, staticFile, useVideoConfig } from "remotion";
 import timing from "../voice-timing.json";
-import { color, sans } from "../theme";
 
 /** Speech level. All eight lines share it, so the voice stays consistent. */
 const VOICE_VOLUME = 1.5;
@@ -25,22 +24,5 @@ export function VoiceTrack() {
         </Sequence>
       ))}
     </>
-  );
-}
-
-/** Burned-in English subtitles, from the same cues as subtitles/voiceover.en.srt. */
-export function Subtitles() {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const seconds = frame / fps;
-  const cue = timing.cues.find((c) => seconds >= c.start && seconds < c.end);
-  if (!cue) return null;
-  return (
-    <div style={{ position: "absolute", left: 0, right: 0, bottom: 40, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
-      <div style={{
-        maxWidth: 1480, padding: "10px 26px", borderRadius: 8, background: "rgba(5,9,17,0.84)", textAlign: "center",
-        fontFamily: sans, fontWeight: 600, fontSize: 38, lineHeight: 1.26, color: color.text,
-      }}>{cue.text}</div>
-    </div>
   );
 }

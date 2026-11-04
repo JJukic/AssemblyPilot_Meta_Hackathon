@@ -1,9 +1,9 @@
 /**
- * Final voice-over text. `spoken` goes to ElevenLabs; `subtitle` is the same text with
- * product names as written. `file` is relative to public/. Generated with ElevenLabs; change
+ * Final voice-over text, as spoken and sent to ElevenLabs. Subtitles come from this text, with
+ * "three point one" written as 3.1. `file` is relative to public/. Generated with ElevenLabs; change
  * the text here only together with the audio file.
  */
-export type VoiceScene = { id: string; file: string; spoken: string; subtitle?: string };
+export type VoiceScene = { id: string; file: string; spoken: string };
 
 export const voiceScenes: VoiceScene[] = [
   {
@@ -28,8 +28,7 @@ export const voiceScenes: VoiceScene[] = [
   },
   {
     id: "06-architecture", file: "audio/06-architecture.mp3",
-    spoken: "The browser or HoloLens camera sends a frame to the backend. The Assembly Orchestrator validates the request and sends the image, with its reference photos, to Muse Spark, which evaluates the assembly state. When enabled, SAM three point one adds object localization and segmentation. It never decides whether an assembly is correct. The backend validates the result and keeps the workflow state, and the web and WebXR layers display it.",
-    subtitle: "The browser or HoloLens camera sends a frame to the backend. The Assembly Orchestrator validates the request and sends the image, with its reference photos, to Muse Spark, which evaluates the assembly state. When enabled, SAM 3.1 adds object localization and segmentation. It never decides whether an assembly is correct. The backend validates the result and keeps the workflow state, and the web and WebXR layers display it.",
+    spoken: "The browser or HoloLens camera captures the real scene. The backend validates the request and the Assembly Orchestrator manages the workflow. Muse Spark evaluates the assembly state. When enabled, SAM three point one adds object localization and segmentation. The validated result returns to both the browser and the mixed-reality display.",
   },
   {
     id: "07-future-vision", file: "audio/07-future-vision.mp3",

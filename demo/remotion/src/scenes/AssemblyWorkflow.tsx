@@ -1,6 +1,6 @@
 import { AbsoluteFill, Img, Series, interpolate, staticFile, useCurrentFrame } from "remotion";
 import { frames, SHOT_INSPECTING, SHOT_READY, SHOT_VERIFIED, workflowShots } from "../manifest";
-import { CaptureBadge, Caption, Grid, useEnter } from "../components/Overlays";
+import { CaptureBadge, Caption, Grid, RightSectionHeading, useEnter } from "../components/Overlays";
 import { ShotSeries } from "../components/ShotSeries";
 import { color, mono, sans } from "../theme";
 
@@ -45,7 +45,7 @@ function Triptych() {
   return (
     <AbsoluteFill>
       <Grid />
-      <AbsoluteFill style={{ alignItems: "center", paddingTop: 170 }}>
+      <AbsoluteFill style={{ alignItems: "center", paddingTop: 372 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Tile title="Reference" tone={color.blue} delay={4} crop={{ src: SHOT_READY, x: [0.56, 0.74], y: [0.08, 0.41] }} />
           <Arrow delay={24} />
@@ -55,7 +55,7 @@ function Triptych() {
         </div>
       </AbsoluteFill>
       <CaptureBadge />
-      <Caption step="4" text="Muse Spark compares capture and reference" />
+      <Caption step="4" text="Muse Spark compares capture and reference" style={{ left: 90, top: 200, width: 1040 }} />
     </AbsoluteFill>
   );
 }
@@ -64,10 +64,14 @@ export function AssemblyWorkflow() {
   const before = workflowShots.before.reduce((t, s) => t + frames(s.dur), 0);
   const after = workflowShots.after.reduce((t, s) => t + frames(s.dur), 0);
   return (
-    <Series>
-      <Series.Sequence durationInFrames={before}><ShotSeries shots={workflowShots.before} /></Series.Sequence>
-      <Series.Sequence durationInFrames={frames(5)}><Triptych /></Series.Sequence>
-      <Series.Sequence durationInFrames={after}><ShotSeries shots={workflowShots.after} /></Series.Sequence>
-    </Series>
+    <AbsoluteFill>
+      <Grid />
+      <Series>
+        <Series.Sequence durationInFrames={before}><ShotSeries shots={workflowShots.before} split /></Series.Sequence>
+        <Series.Sequence durationInFrames={frames(5)}><Triptych /></Series.Sequence>
+        <Series.Sequence durationInFrames={after}><ShotSeries shots={workflowShots.after} split /></Series.Sequence>
+      </Series>
+      <RightSectionHeading number="03" title="ON HOLOLENS" delay={0} />
+    </AbsoluteFill>
   );
 }

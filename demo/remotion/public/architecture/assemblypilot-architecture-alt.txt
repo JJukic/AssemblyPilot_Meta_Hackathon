@@ -1,0 +1,7 @@
+AssemblyPilot system architecture, an orchestrated AI workflow. This is the architecture of the AssemblyPilot prototype, not a Meta product architecture.
+
+The data flow runs in solid cyan arrows. Camera (HoloLens 2 or browser camera) sends to Frontend / WebXR (capture, guided panel and spatial display), which sends to the FastAPI Backend (secure API boundary and request validation). The backend passes the request to the Assembly Orchestrator (workflow state, references and verification).
+
+The orchestrator runs three branches. Local visual checks and Muse Spark are solid paths. Muse Spark is highlighted as the assembly evaluation: it evaluates the assembly state. SAM 3.1 is a dashed, optional side path for object localization and segmentation. It provides localization only and never decides correctness.
+
+The branches join in the Validated Result (snapshot-bound status and evidence), shown with the states correct, incorrect and uncertain. The result goes to Browser / HoloLens (guidance, feedback and holographic display).

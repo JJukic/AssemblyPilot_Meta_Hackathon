@@ -16,7 +16,7 @@ following instructions.
 | 5 | `BrowserDemo` | 11.5 | The same workflow in a regular browser | Real browser capture, with cut waits |
 | 6 | `ProblemSolving` | 25.5 | Incorrect, plan, correction, Check Again, new frame, verified | The real Step 2 sequence |
 | 7 | `StatusLegend` | 15.2 | `correct`, `incorrect`, `uncertain` | Labelled diagram |
-| 8 | `AIExplanation` | 28.4 | The pipeline, and what Muse Spark and SAM 3.1 each do | Labelled diagram |
+| 8 | `ArchitectureScene` | 22.6 | The data flow, Muse Spark as evaluation, SAM 3.1 as optional path | Architecture image |
 | 9 | `Completion` | 12 | Finish, mascot, Restart Assembly, without speech | Real capture |
 | 10 | `FutureVision` | 19 | Today, tomorrow, cooking | Abstract text, marked as vision |
 | 11 | `EndCard` | 12.5 | Name and promise | Logo |
@@ -41,5 +41,6 @@ verified result, and the chords turn to a major-key order at that moment.
 - **Real capture:** all footage carries a "Real HoloLens 2 capture" or "Real browser capture"
   label. Diagrams are labelled as diagrams.
 - **Voice-over wording:** SAM 3.1 is described as optional localization that never decides
-  correctness. The script makes no autonomous multi-agent claim.
+  correctness. The diagram says this too, since the final spoken line does not. The video makes no
+  autonomous multi-agent claim.
   It does not say Check Again is the only way out of `uncertain`, because `Confirm Position` exists.
