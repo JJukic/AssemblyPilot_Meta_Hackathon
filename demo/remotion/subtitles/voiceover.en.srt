@@ -1,0 +1,143 @@
+1
+00:00:00,300 --> 00:00:03,309
+How do you build something you have never built before?
+
+2
+00:00:03,862 --> 00:00:09,180
+What if mixed reality could teach you a physical skill through direct guidance and feedback?
+
+3
+00:00:10,000 --> 00:00:14,688
+A manual can show the next step, but it cannot see what happened on the table.
+
+4
+00:00:15,269 --> 00:00:21,040
+It cannot tell whether a part is misplaced, explain what went wrong, or guide the correction.
+
+5
+00:00:21,800 --> 00:00:25,479
+AssemblyPilot connects a physical workspace with mixed reality.
+
+6
+00:00:25,956 --> 00:00:31,313
+On HoloLens, you confirm an assembly field on the table and see the next step as a hologram.
+
+7
+00:00:34,854 --> 00:00:37,401
+You place the real brick and select Check Step.
+
+8
+00:00:38,056 --> 00:00:42,690
+The camera captures that moment, and the feedback appears directly in your workspace.
+
+9
+00:00:49,100 --> 00:00:52,662
+The same web application also runs in a regular browser.
+
+10
+00:00:53,181 --> 00:00:56,322
+This makes the system easy to test with your own parts,
+
+11
+00:00:56,322 --> 00:00:59,100
+even when immersive hardware is not available.
+
+12
+00:01:01,600 --> 00:01:06,719
+Here, the blue brick is in the right place, but the wrong printed side faces forward.
+
+13
+00:01:07,303 --> 00:01:10,463
+AssemblyPilot explains the issue and proposes a fix:
+
+14
+00:01:10,913 --> 00:01:11,862
+rotate the block.
+
+15
+00:01:12,433 --> 00:01:15,835
+The user corrects the real build and selects Check Again.
+
+16
+00:01:16,311 --> 00:01:21,626
+Only then is a new image taken, and the next decision is based on that fresh evidence.
+
+17
+00:01:22,100 --> 00:01:23,872
+This time, the step is verified.
+
+18
+00:01:26,275 --> 00:01:30,700
+When the visual evidence is unclear, AssemblyPilot does not pretend to know.
+
+19
+00:01:31,194 --> 00:01:33,689
+An uncertain result is not a pass.
+
+20
+00:01:34,140 --> 00:01:35,357
+The workflow pauses.
+
+21
+00:01:35,860 --> 00:01:40,370
+The user changes the view or corrects the assembly, and selects Check Again.
+
+22
+00:01:41,200 --> 00:01:44,953
+The browser or HoloLens camera sends a frame to the backend.
+
+23
+00:01:45,417 --> 00:01:49,303
+The Assembly Orchestrator validates the request and sends the image,
+
+24
+00:01:49,303 --> 00:01:53,615
+with its reference photos, to Muse Spark, which evaluates the assembly state.
+
+25
+00:01:54,266 --> 00:01:59,097
+When enabled, SAM 3.1 adds object localization and segmentation.
+
+26
+00:01:59,558 --> 00:02:02,132
+It never decides whether an assembly is correct.
+
+27
+00:02:02,585 --> 00:02:06,173
+The backend validates the result and keeps the workflow state,
+
+28
+00:02:06,173 --> 00:02:08,560
+and the web and WebXR layers display it.
+
+29
+00:02:21,600 --> 00:02:24,624
+Today, AssemblyPilot guides a LEGO assembly.
+
+30
+00:02:25,096 --> 00:02:27,988
+Tomorrow, the same interaction could support cooking,
+
+31
+00:02:27,988 --> 00:02:30,671
+repairs, education, and industrial training.
+
+32
+00:02:30,671 --> 00:02:36,082
+Imagine putting on mixed reality and learning to cook without prior experience,
+
+33
+00:02:36,082 --> 00:02:39,680
+with guidance adapted to what is happening in front of you.
+
+34
+00:02:40,600 --> 00:02:44,301
+AssemblyPilot turns instructions into an interactive learning loop:
+
+35
+00:02:44,842 --> 00:02:48,214
+from guidance, to action, to visual verification.
+
+36
+00:02:48,749 --> 00:02:51,800
+AI-guided mixed reality for the real world.

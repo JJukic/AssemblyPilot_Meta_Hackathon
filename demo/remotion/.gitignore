@@ -1,0 +1,6 @@
+node_modules/
+out/
+.DS_Store
+# Large local recordings and generated audio are not committed.
+public/footage/
+public/audio/
