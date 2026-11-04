@@ -1,12 +1,13 @@
 # Spatial assembly guidance (Phase 6)
 
-**Hardware status: not validated.** The owner reports that the HoloLens is offline
-and disconnected. No device/browser version or successful immersive session was
-observed. This implements a WebXR vertical slice, not a claim that the installed
-HoloLens Edge build supports it. Desktop tests mock XR poses and the GPU; they
+**Hardware status: partly observed, acceptance open.** Owner reports later in this
+document confirm immersive WebXR on a real HoloLens 2 (see "Local voice control" and
+"Phase 7.1"). The manual acceptance checklists below are still open, and support can
+differ by installed HoloLens Edge build. Desktop tests mock XR poses and the GPU; they
 cannot establish stereoscopy, physical scale, tabletop alignment or drift.
-PR #10 (the setup wizard) was merged before this work; this feature branches from
-main, not from an open wizard branch.
+
+This file grew phase by phase. Where sections differ, the later section and the code win.
+For the current overview see the [Technical Report](technical-report.md).
 
 ## Start with two real blocks
 
@@ -35,11 +36,10 @@ main, not from an open wizard branch.
    Otherwise a clearly reported local reference-space placement is used; drift
    remains possible. **Re-anchor** resets placement. **Recenter panel** only moves
    the instruction panel back in front of the user; it does not move the assembly.
-7. **Previous/Next** browse instructions, never verify them. **Verify Step** ends XR
-   and opens the existing camera workspace at the selected project/step. Capture a
-   new image and use existing inspection/correction/fresh-image verification.
-   If camera access is unavailable on the headset, open the displayed verification
-   link on your iPhone/Mac. Return to AR to see server verification status (polled
+7. **Previous/Next** browse instructions, never verify them. **Check Step** stays in
+   XR and captures a fresh image (see "Verify Step inside immersive AR"). If camera
+   access is unavailable on the headset, an external capture request with a pairing
+   code is filed for your iPhone/Mac. AR shows server verification status (polled
    every three seconds, without model inference). Re-entering XR requires re-anchoring.
 
 The floating panel accepts WebXR `select` events using the input source's target ray
@@ -85,7 +85,9 @@ legibility and supported input must be checked before demoing.
 The development API is unauthenticated. Keep both servers on loopback; expose only
 a TLS proxy bound to the PC's **private** LAN address, restricted by firewall to
 trusted devices. Do not use public tunnels, public port forwarding, or expose port
-8000. This setup is for a trusted local demo network, not public deployment.
+8000. This setup is for a trusted local demo network, not public deployment. The HoloLens
+Device Portal is a separate management interface: the app does not need it, and it must
+not be exposed through a router or the internet.
 
 Install Caddy on the serving machine. Copy `deploy/Caddyfile.hololens`, replace both
 `192.168.1.50` occurrences with the serving machine's private LAN IP, and keep that
@@ -109,7 +111,8 @@ uv run --frozen uvicorn app.main:app --host 127.0.0.1 --port 8000
 caddy run --config deploy/Caddyfile.hololens --adapter caddyfile
 ```
 
-Allow the proxy to bind HTTPS with the appropriate OS service privileges. Caddy's
+On macOS the tracked template needs `sudo`; the
+[README](../README.md#hololens-2-over-https) has a variant on port 3443 without it. Caddy's
 internal CA issues the local certificate. On each client, including HoloLens,
 install/trust **only the CA public root certificate** from Caddy's data directory
 (`pki/authorities/local/root.crt`); never distribute its private keys. Follow
@@ -382,7 +385,9 @@ relied on for HoloLens.)
    commands and German aliases). Unknown/ambiguous/negated speech is
    rejected, duplicates are suppressed, and each clip triggers at most one
    action. Recognized commands reuse the existing action dispatch.
-4. **Verify Step:** voice stops, XR ends safely, and the HoloLens camera
+4. **Verify Step:** (original flow, superseded inside AR by "Verify Step inside
+   immersive AR" below; this path now applies only outside an active XR session.)
+   Voice stops and the HoloLens camera
    workspace opens for the current project/step with a voice-verify intent.
    The camera starts automatically, one **new** frame is captured from the
    actual HoloLens video stream (never the WebXR canvas, never a stale
@@ -861,27 +866,31 @@ assessment next to the capture that produced it). Tap **Camera** to toggle.
 
 ## Guided HoloLens flow (buttons instead of voice commands)
 
-The AR panel shows **Step X of Y**, a coloured state (Ready · Checking… ·
-Correct · Try again · Partially correct · Check unavailable · Confirmed), a
-short instruction generated from the step data (e.g. "Place the red 2×4 brick
+The AR panel shows **Step X of Y**, a coloured state (Ready · Capturing image… ·
+Inspecting by Meta… · Almost correct · Correct · Try again · Position uncertain ·
+Check unavailable · Confirmed · Assembly complete), a short instruction generated from the step data (e.g. "Place the red 2×4 brick
 on the green marker." — no camera text recognition) and at most two large
 contextual buttons:
 
 | State | Hologram | Buttons |
 |---|---|---|
 | Ready | transparent ghost + **green** target marker | Check Step |
-| Checking… | unchanged | — |
+| Capturing image… / Inspecting by Meta… | unchanged | — |
+| Almost correct (inspection correct, verification missing) | marker **green** | Check Again |
 | Try again ("Adjust the brick.") | marker + ghost **red** | Check Again |
-| Partially correct / Check unavailable | marker **yellow** | Check Again · Confirm Position |
+| Position uncertain / Check unavailable | marker **yellow** | Check Again · Confirm Position |
 | Correct ("Step correct.") | **green** | Next Step |
-| Confirmed (manual, not AI-checked) | green | Next Step |
+| Final step correct (backend verified) | **green** | Finish |
+| Confirmed (manual, not AI-checked) | green | Next Step (none on the last step) |
+| Assembly complete | **green** | Restart Assembly |
 
 Check Step captures a fresh image and inspects it; if it is correct, the
 backend verifies a **separate, later** image automatically. Only then does
 Next Step appear (no automatic advance unless Autonomous mode is on). Confirm
 Position appears only when the check is uncertain or could not run; it never
-writes backend verification. Next/Previous/Check/Check Again are deliberately
-**not** voice commands; the 2D page shows the same guided card as a fallback.
+writes backend verification. Next, Previous, Check Step and Check Again also exist
+as voice commands that dispatch the same actions; Confirm Position, Finish and
+Restart Assembly do not. The 2D page shows the same guided card as a fallback.
 
 Demo project (two steps, red 2×4 brick on a baseplate, additive only):
 `cd backend && uv run python scripts/create_ar_demo.py` → prints the AR URL.
@@ -1114,7 +1123,7 @@ ambiguous view. Now:
 - A due check still needs a steady view of the field, a **fresh frame newer than the last
   one sent**, the per-step (4) and per-session (12) budgets, single flight and — in AR — an
   anchored field in view. A rejected burst spends nothing and defers the next burst 2 s.
-- `correct` → Check Again (`/api/verify`) with a separate fresh frame after
+- `correct` → automatic verification (`/api/verify`) with a separate fresh frame after
   `verifyDelayMs` (5 s). `verified` (backend) → advance exactly once.
 
 ### Panel states
