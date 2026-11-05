@@ -1,12 +1,13 @@
 # AssemblyPilot Technical Report
 
-Status: describes the code on `main`. Application code is unchanged from commit `8bfc628`
-(2026-11-03), apart from the `create_ar_demo.py` fix recorded in [Submission readiness](submission-readiness.md). Claims are checked against the
-code. Where a claim rests on a record rather than on code, the source is named.
+Status: describes the code on `main`. Claims are checked against the code. Where a claim rests
+on a record rather than on code, the source is named. The verified commit and CI run are in
+[Submission readiness](submission-readiness.md).
 
 Status terms: **implemented**, **optional** (implemented and configurable), **not
 implemented**, **planned**. The [README](../README.md#feature-scope) lists every feature
-with its status. Hardware results are **owner-reported** unless a record says otherwise.
+with its status. Hardware results are **owner-reported** unless a record says otherwise. CI
+does not test live Meta inference or a HoloLens. Cloud deployment is **not implemented**.
 
 ## Built with
 
@@ -28,7 +29,9 @@ with its status. Hardware results are **owner-reported** unless a record says ot
 
 The pictograms are generic drawings made for this repository, not product logos.
 
-## Problem
+<a id="problem"></a>
+
+## 🎯 Problem
 
 Following a printed manual leaves the checking to the person building. Mistakes such as a
 wrong colour, a misplaced part or a printed face turned the wrong way are easy to miss
@@ -41,7 +44,9 @@ workflow, for three reasons:
 - In a headset, a wrong or stale status is shown as if it were fact, so results must be
   bound to the exact step and image they came from.
 
-## Solution and user flow
+<a id="solution-and-user-flow"></a>
+
+## ✨ Solution and user flow
 
 The system is an **orchestrated AI workflow** with specialized workflow roles, not a set of
 autonomous agents. The modules in `backend/app/agents/` are early, context-free helpers that
@@ -65,7 +70,9 @@ The guided flow is:
 3. Follow the result: **Next Step**, adjust and **Check Again**, or change the view.
 4. On the last verified step select **Finish**, then optionally **Restart Assembly**.
 
-## System architecture
+<a id="system-architecture"></a>
+
+## 🏗️ System architecture
 
 ```mermaid
 flowchart TD
@@ -275,7 +282,9 @@ The backend entry point is `backend/app/main.py`; the workflow is in
 `frontend/src/components/ar/ARWorkspace.tsx` and `frontend/src/lib/ar/`, where
 `guidedFlow.ts` derives the visible state.
 
-## Role of Muse Spark
+<a id="role-of-muse-spark"></a>
+
+## 🧠 Role of Muse Spark
 
 Muse Spark (`META_VISION_MODEL`, default `muse-spark-1.3`) is the semantic judge. Through
 `POST https://api.meta.ai/v1/chat/completions` it receives the snapshot, reference photos
@@ -318,7 +327,9 @@ evidence when a step configures it:
 Gates can only make a result stricter. No gate can turn a Muse `incorrect` or `uncertain`
 into a pass.
 
-## Role of SAM 3.1
+<a id="role-of-sam-31"></a>
+
+## 🧠 Role of SAM 3.1
 
 SAM 3.1 is an **optional** add-on. It locates visible objects and returns validated masks,
 from which the app derives boxes and outlines. It does not judge the assembly.
@@ -511,14 +522,16 @@ action is refused, and no server state changes.
 Muse and SAM each make at most three attempts, for transient 429, 500, 502, 503 and transport
 failures only. In the guided UI all such failures appear as "Check unavailable".
 
-## HoloLens 2 deployment
+<a id="hololens-2-deployment"></a>
+
+## 🥽 HoloLens 2 deployment
 
 **Delivery.** This is a web application, not an installed HoloLens app. HoloLens Edge opens
 the Next.js page over HTTPS. `deploy/Caddyfile.hololens` terminates TLS on a private LAN
 address with Caddy's internal CA, and forwards `/api/*` and `/health` to the backend and all
 else to the frontend, both on loopback. The frontend is built with
-`NEXT_PUBLIC_API_URL=''` so the API uses the same origin. Commands are in the
-[README](../README.md#hololens-2-over-https).
+`NEXT_PUBLIC_API_URL=''` so the API uses the same origin. Commands are in
+[Local deployment](local-deployment.md#hololens-2-over-https).
 
 **WebXR.** The page checks `navigator.xr` and `isSessionSupported('immersive-ar')`, and only a
 user gesture starts a session. Unsupported devices get a labelled 2D preview. The field uses
@@ -563,7 +576,9 @@ Images are sent as base64 JPEG, only with an explicit user action or after start
 Autonomous Assembly. Voice audio goes to a local Whisper CLI, never to Meta. This repository
 cannot state how long Meta keeps request data; that follows the terms of your API account.
 
-## Security and network model
+<a id="security-and-network-model"></a>
+
+## 🔐 Security and network model
 
 AssemblyPilot is a local demonstration system for a trusted machine or private network.
 
@@ -599,7 +614,9 @@ AssemblyPilot is a local demonstration system for a trusted machine or private n
 - Voice clips go only to the local backend, are not sent to Meta and are deleted immediately.
 - The setup planner treats user text and images as untrusted data.
 
-## Test strategy
+<a id="test-strategy"></a>
+
+## 🧪 Test strategy
 
 The CI workflow (`.github/workflows/ci.yml`) runs on each push and pull request without Meta
 credentials:
@@ -629,7 +646,9 @@ The dated record of earlier checks is [validation.md](validation.md). No Markdow
 documentation check exists in this repository. Results of live smoke tests are not recorded
 here, because no such result exists in the repository.
 
-## Known limits and future work
+<a id="known-limits-and-future-work"></a>
+
+## ⚠️ Known limits and future work
 
 **Current limits**
 
@@ -654,7 +673,6 @@ here, because no such result exists in the repository.
 
 **Planned**
 
-- Record the demo videos (see below).
 - Complete the HoloLens acceptance checklists, including simultaneous camera and WebXR.
 - Evaluate real labelled photos with `backend/benchmark_inspection.py`.
 - Run the live smoke tests and record the results in `docs/validation.md`.
@@ -670,7 +688,10 @@ Found by reading the implementation. They are documented, not changed here.
 | Mascot outside XR | Loaded only in an active XR session | The browser demo shows no mascot |
 | `allowedDevOrigins` | `frontend/next.config.ts` lists two fixed private IPs | Affects development mode only; use the production build for LAN tests |
 
-## Demo video
+<a id="demo-video"></a>
 
-[Watch the demo video](https://youtu.be/QWZPpFY55rc). It is made separately in `demo/remotion/`, and the final render
-is 166.9 seconds. See the [demo plan](demo-plan.md).
+## 🎥 Demo video
+
+[Watch the demo video](https://youtu.be/QWZPpFY55rc). It is made separately in `demo/remotion/`.
+The final render is 166.9 seconds, as recorded in
+[`CLIP_MAPPING.md`](../demo/remotion/CLIP_MAPPING.md). See the [demo plan](demo-plan.md).

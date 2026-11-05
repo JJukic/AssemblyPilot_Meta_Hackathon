@@ -1,5 +1,8 @@
 # Validation results
 
+> **Historical record.** Dated checks of older commits. Test counts and open items here are as of each date. The
+> current state is in [Submission readiness](submission-readiness.md).
+
 ## Independent Canny debug — 2026-10-30
 
 Validated on `feature/logo-face-orientation-verification` / PR #9.
