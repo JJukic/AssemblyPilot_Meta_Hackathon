@@ -34,8 +34,8 @@ posted on the event page.
 | HoloLens recording | Video only | Real Mixed Reality Capture, local only |
 | Meta model explanation | Done | README, report and video |
 | Future vision | Video only | Marked "Future vision, not implemented" in the video; cooking is not in the code |
-| Demo video | Open | Rendered locally at 166.9 s; **not uploaded** |
-| Actual video link | Open | **None yet.** Do not add one until it exists |
+| Demo video | Done | Final render 166.9 s, uploaded to YouTube |
+| Actual video link | Done | <https://youtu.be/QWZPpFY55rc>, reachable without signing in. Still enter it in the form |
 | Submission form | Open | Must be filled in and sent by the owner |
 | Cloud deployment | Later | [Requirements](local-deployment.md#later-cloud-deployment) only, nothing implemented |
 
@@ -78,7 +78,7 @@ Weights come from OR and apply to submitted projects. EP also has shorter track 
 | Impact, including fit with a problem statement | 30% | [README](../README.md#problem-audience-and-value) | **Owner** | Choose a theme: EP lists "Build for Your World" and "Push the Frontier". Real-world evidence is limited to a toy-brick demonstration |
 | Use of Meta AI tooling | 25% | Muse with strict schema, SAM localization, closed verification loop: [report](technical-report.md) | Done | Show it in the video |
 | Technical depth and execution | 20% | [Report](technical-report.md), tests in [readiness](submission-readiness.md) | Done | None |
-| Demo: working demo, holds up live, video quality | 25% | Rendered locally, **not uploaded** | **Blocked** | Upload it and add the link to the form ([demo plan](demo-plan.md)) |
+| Demo: working demo, holds up live, video quality | 25% | [Demo video](https://youtu.be/QWZPpFY55rc) | **Owner** | Add the link to the form |
 
 ## Not confirmed by any readable source
 

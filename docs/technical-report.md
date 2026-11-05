@@ -673,5 +673,5 @@ Found by reading the implementation. They are documented, not changed here.
 
 ## Demo video
 
-The video is made separately in `demo/remotion/`. It is rendered locally at 166.9 seconds and
-is not published yet, so none is linked here. See the [demo plan](demo-plan.md).
+[Watch the demo video](https://youtu.be/QWZPpFY55rc). It is made separately in `demo/remotion/`, and the final render
+is 166.9 seconds. See the [demo plan](demo-plan.md).

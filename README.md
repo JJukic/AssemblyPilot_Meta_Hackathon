@@ -11,6 +11,7 @@ Built for the Meta Global AI Developer Hackathon.
 
 | Start here | |
 | --- | --- |
+| [Demo video](https://youtu.be/QWZPpFY55rc) | The workflow on HoloLens 2 and in a browser |
 | [Jury quickstart](docs/jury-quickstart.md) | Fresh clone to your first checked step |
 | [Technical Report](docs/technical-report.md) | Architecture, decisions, security, tests, limits |
 | [Submission checklist](docs/submission-checklist.md) | What is done, checked and still open |
@@ -128,7 +129,7 @@ Status terms used here and in the Technical Report:
 | Authentication, public deployment, rate limits on inspection | Not implemented | Trusted local network only |
 | Local GPU models, non-Meta inference providers | Not implemented | |
 | Autonomous physical correction, 3D metrology, native HoloLens app | Not implemented | A Unity/OpenXR path is only described in [docs/hololens.md](docs/hololens.md) |
-| Demo video | Separate | Rendered locally, not linked here yet. See [Remotion demo](#remotion-demo) |
+| Demo video | Published | [Watch it on YouTube](https://youtu.be/QWZPpFY55rc). See [Remotion demo](#remotion-demo) |
 | Public or cloud deployment | Planned | A future option only. See [Local deployment](docs/local-deployment.md#later-cloud-deployment) |
 | Real-photo accuracy benchmark, completed HoloLens acceptance checklists | Planned | Tooling exists; results do not |
 
@@ -568,8 +569,7 @@ For a labelled real-image evaluation, see [docs/benchmark.md](docs/benchmark.md)
 
 The demo video is made separately in [`demo/remotion/`](demo/remotion/README.md) and has no
 effect on the application. The final render is 166.9 seconds, within the 180 second limit.
-**The video is not published yet**, so this repository has no link to it. The link goes into
-the submission form once it exists.
+**[Watch the demo video](https://youtu.be/QWZPpFY55rc).**
 
 Raw recordings, audio and renders stay local and are not in Git:
 

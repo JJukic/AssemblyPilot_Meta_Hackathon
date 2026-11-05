@@ -10,7 +10,7 @@ is not complete.** The open points are [listed below](#open-before-submitting).
 | Local testing | **Ready.** A fresh clone installs, passes all checks and starts without a key |
 | Real inference | Needs your own Meta key. **Not run in this check** |
 | HoloLens testing | Documented. **Not run in this check**: no device was attached |
-| Remotion demo | Rendered locally at 166.9 s. **Not uploaded** |
+| Remotion demo | Final render 166.9 s, [published on YouTube](https://youtu.be/QWZPpFY55rc) |
 | Cloud deployment | **Not implemented.** A [future option](local-deployment.md#later-cloud-deployment) only |
 
 ## Checked state
@@ -62,7 +62,7 @@ Deadline: **November 4, 2026, 9:00 PM ET** (November 5, 03:00 CET).
 
 | # | Item | Next action |
 | --- | --- | --- |
-| 1 | The demo video is not uploaded, and no link exists | Upload `demo/remotion/out/assemblypilot-hackathon-demo.mp4` and add the link to the form |
+| 1 | The video link is not in the form yet | Enter <https://youtu.be/QWZPpFY55rc> in the form |
 | 2 | Form fields and video rules are not verified | Sign in and compare with the [checklist](submission-checklist.md) |
 | 3 | This work is not on `main` | Review and merge, or name the branch in the form |
 | 4 | Asset rights are open, and the rules require ownership | Answer the [open questions](assets-and-licenses.md#open-questions-for-the-project-owner) |

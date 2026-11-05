@@ -1,13 +1,12 @@
 # Demo plan
 
-Status: **rendered locally, not published.** Add links here and in the README only after a
-real upload exists.
+Status: **published** at <https://youtu.be/QWZPpFY55rc>.
 
 | Item | State |
 | --- | --- |
 | Final render | `demo/remotion/out/assemblypilot-hackathon-demo.mp4`, 166.9 s, 1920×1080, 30 fps. Local only |
 | Limit | At most 180 seconds |
-| Public video link | **None yet** |
+| Public video link | <https://youtu.be/QWZPpFY55rc> |
 
 The Official Rules score Demo at 25% and name "the quality of the demo video". The rules
 text checked on 2026-11-04 states no length or format. Check the submission form for those
@@ -61,6 +60,6 @@ as a labelled diagram.
 ## Still missing before submitting
 
 - [x] Recording 1 and recording 2, edited into the final video.
-- [ ] Public or unlisted video link, if the form asks for one.
+- [x] Public video link: <https://youtu.be/QWZPpFY55rc>.
 - [ ] All submission form fields, checked after signing in to the portal.
 - [ ] Date and commit shown in the video, noted in `docs/submission-readiness.md`.
