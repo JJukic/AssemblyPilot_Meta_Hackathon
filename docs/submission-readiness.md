@@ -1,7 +1,8 @@
 # Submission readiness
 
-Recorded on 2026-11-05. **Status: the repository is ready for a local test, and the submission
-is not complete.** The open points are [listed below](#open-before-submitting).
+Recorded on 2026-11-05. **Status: submitted by the project owner on 2026-11-05, as reported by
+the owner.** The repository is ready for a local test. The remaining points are
+[listed below](#remaining-points).
 
 ## Readiness by area
 
@@ -17,7 +18,7 @@ is not complete.** The open points are [listed below](#open-before-submitting).
 
 | Item | Value |
 | --- | --- |
-| Branch | `codex/hackathon-submission-ready` |
+| Branch | `codex/hackathon-submission-ready`, merged to `main` in pull request #15 |
 | Checked commit | `7cab24c`. Later commits change documentation only |
 | Environment | macOS 26, arm64, Python 3.12.6, Node 24.10.0, npm 11.19.0, uv 0.13.5 |
 | Method | Fresh `git clone`, with no `.env`, no `MODEL_API_KEY` and no local data |
@@ -56,18 +57,14 @@ are on the GitHub Actions page.
 | Remotion render in a fresh clone | Needs the local recordings and audio, which are not in Git |
 | Details page and submission form | Need a signed-in session |
 
-## Open before submitting
+## Remaining points
 
 Deadline: **November 4, 2026, 9:00 PM ET** (November 5, 03:00 CET).
 
 | # | Item | Next action |
 | --- | --- | --- |
-| 1 | The video link is not in the form yet | Enter <https://youtu.be/QWZPpFY55rc> in the form |
-| 2 | Form fields and video rules are not verified | Sign in and compare with the [checklist](submission-checklist.md) |
-| 3 | This work is not on `main` | Review and merge, or name the branch in the form |
-| 4 | Asset rights are open, and the rules require ownership | Answer the [open questions](assets-and-licenses.md#open-questions-for-the-project-owner) |
-| 5 | No live run is recorded in the repository | Run one real inspection with a key and record it |
-| 6 | Track and theme are not chosen | Choose them in the form |
+| 1 | Asset rights are open, and the rules require ownership | Answer the [open questions](assets-and-licenses.md#open-questions-for-the-project-owner) |
+| 2 | No live run is recorded in the repository | Run one real inspection with a key and record it |
 
 ## Draft project text
 
