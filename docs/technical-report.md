@@ -1,11 +1,33 @@
 # AssemblyPilot Technical Report
 
-Status: describes the code on `main` at commit `8bfc628` (2026-11-03). Claims are checked
-against the code. Where a claim rests on a record rather than on code, the source is named.
+Status: describes the code of branch `codex/hackathon-submission-ready`. Application code is
+unchanged from `main` at commit `8bfc628` (2026-11-03), apart from the `create_ar_demo.py` fix
+recorded in [Submission readiness](submission-readiness.md). Claims are checked against the
+code. Where a claim rests on a record rather than on code, the source is named.
 
 Status terms: **implemented**, **optional** (implemented and configurable), **not
 implemented**, **planned**. The [README](../README.md#feature-scope) lists every feature
-with its status.
+with its status. Hardware results are **owner-reported** unless a record says otherwise.
+
+## Built with
+
+![AssemblyPilot built with: Mixed Reality, WebXR, Meta Model API, Muse Spark, SAM 3.1, Next.js and React, FastAPI, HTTPS, Project Registry, Remotion, Open Source and CI](assets/stack/assemblypilot-built-with.svg)
+
+| Tile | Part | Used for |
+| --- | --- | --- |
+| <img src="assets/stack/mixed-reality.svg" width="96" alt="Mixed Reality pictogram"> | Mixed Reality | HoloLens 2 headset view through WebXR |
+| <img src="assets/stack/webxr.svg" width="96" alt="WebXR pictogram"> | WebXR | WebXR session and three.js hologram |
+| <img src="assets/stack/meta-model-api.svg" width="96" alt="Meta Model API pictogram"> | Meta Model API | Hosted inference, called only by the backend |
+| <img src="assets/stack/muse-spark.svg" width="96" alt="Muse Spark pictogram"> | Muse Spark | Evaluates the assembly state |
+| <img src="assets/stack/sam.svg" width="96" alt="SAM 3.1 pictogram"> | SAM 3.1 | Optional object localization and segmentation |
+| <img src="assets/stack/nextjs-react.svg" width="96" alt="Next.js / React pictogram"> | Next.js / React | Web workspace, setup wizard and AR page |
+| <img src="assets/stack/fastapi.svg" width="96" alt="FastAPI pictogram"> | FastAPI | Python API and Assembly Orchestrator |
+| <img src="assets/stack/https.svg" width="96" alt="HTTPS pictogram"> | HTTPS | Caddy with an internal CA on the private network |
+| <img src="assets/stack/project-registry.svg" width="96" alt="Project Registry pictogram"> | Project Registry | SQLite and local reference photos |
+| <img src="assets/stack/remotion.svg" width="96" alt="Remotion pictogram"> | Remotion | Separate demo video project |
+| <img src="assets/stack/open-source-ci.svg" width="96" alt="Open Source / CI pictogram"> | Open Source / CI | Apache-2.0 source and GitHub Actions checks |
+
+The pictograms are generic drawings made for this repository, not product logos.
 
 ## Problem
 
@@ -21,6 +43,10 @@ workflow, for three reasons:
   bound to the exact step and image they came from.
 
 ## Solution and user flow
+
+The system is an **orchestrated AI workflow** with specialized workflow roles, not a set of
+autonomous agents. The modules in `backend/app/agents/` are early, context-free helpers that
+the active routes do not use.
 
 AssemblyPilot registers what should be built (blocks, ordered steps, reference photos) and
 then runs a closed loop for each step: show the target, capture a real image, judge it,
@@ -165,6 +191,73 @@ sequenceDiagram
     end
 ```
 
+## API endpoints
+
+Everything is served by `backend/app/main.py`. Paths below are the routes of the running
+application. `http://localhost:8000/docs` shows the full schema.
+
+| Area | Endpoints | Source |
+| --- | --- | --- |
+| Health | `GET /health` | `api/health.py` |
+| Inspection | `POST /api/inspect`, `POST /api/verify` | `api/inspection.py` |
+| Progress and runs | `GET /api/projects/{id}/progress`, `POST /api/projects/{id}/assembly-runs` | `api/projects.py`, `api/ar.py` |
+| SAM object search | `POST /api/vision/objects` | `api/object_localization.py` |
+| Setup wizard | `POST /api/setup/draft`, `POST /api/setup/projects` | `api/setup.py` |
+| Registry | `/api/blocks`, `/api/projects`, step and reference routes, `/api/media/{id}` | `api/blocks.py`, `api/projects.py`, `api/steps.py`, `api/media.py` |
+| AR state | `/api/projects/{project}/ar-view`, `/api/projects/{project}/steps/{step}/ar-placement` | `api/ar.py` |
+| External camera | `/api/ar-camera` | `api/ar_camera.py` |
+| Precision and debug | calibration, geometry, faces, edge debug | `api/calibration.py`, `api/geometry.py`, `api/faces.py`, `api/edge_debug.py` |
+| Voice | `/api/voice` | `api/voice.py` |
+
+## Where data is stored
+
+| Data | Location | Lifetime |
+| --- | --- | --- |
+| Blocks, projects, steps, progress, runs, AR placements, setup receipts | SQLite, `backend/data/assemblypilot.db` | Until deleted |
+| Reference photos | `backend/data/uploads` | Until deleted |
+| Calibration JSON | `backend/data/calibrations` | Until deleted |
+| Inspection sessions, voice sessions, camera bridge | Backend process memory | TTL or backend restart |
+| Captured snapshots | Browser memory, and backend memory during a request | Not written to disk unless saved as a reference |
+| Setup drafts | Browser memory | Lost on reload |
+| XR anchors | Browser session | Lost on exit |
+| Local Caddy keys | Caddy data directory, never the repository | Until deleted |
+
+Paths are the defaults; `DATABASE_URL`, `UPLOAD_DIR` and `CALIBRATION_DIR` change them.
+
+## Workflow state transitions
+
+`backend/app/models/workflow.py` defines the states, and `transition()` raises on any other
+move. `assembly_orchestrator.py` applies it.
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle
+    idle --> inspecting
+    inspecting --> correct
+    inspecting --> correction_required
+    inspecting --> uncertain
+    inspecting --> error
+    correct --> awaiting_rescan
+    correction_required --> awaiting_rescan
+    uncertain --> awaiting_rescan
+    error --> awaiting_rescan
+    still_incorrect --> awaiting_rescan
+    verified --> awaiting_rescan
+    awaiting_rescan --> verifying
+    verifying --> verified
+    verifying --> still_incorrect
+    verifying --> uncertain
+    verifying --> error
+```
+
+For readability the diagram omits one rule: every state except `idle`, `inspecting` and
+`verifying` can also return to `inspecting`.
+
+Persistent progress in `StepProgress` is simpler: `not_started`, `in_progress` or
+`verified`. It counts only when it still matches the step's revision and specification
+fingerprint, and the run ID is part of that fingerprint. `verified` comes only from the
+fused state on a fresh image (`services/progress_service.py`).
+
 ## Frontend and backend responsibilities
 
 | Concern | Frontend | Backend |
@@ -251,6 +344,18 @@ For each issue:
 A selected mask needs a clear association with the Muse hint. Ambiguous matches are reported
 as `ambiguous` and nothing is highlighted. A separate user action,
 `POST /api/vision/objects`, searches for objects in an already inspected snapshot.
+
+**Automatic and manual use:**
+
+| Trigger | Runs when | Controlled by |
+| --- | --- | --- |
+| Automatic | During an inspection whose Muse status is `incorrect` | `SAM_ENABLED`, `SAM_MAX_CONCEPTS_PER_INSPECTION`, `SAM_REQUEST_TIMEOUT`, `META_SAM_MODEL` |
+| Manual | The user enters an object in the diagnostic overlay on an inspected snapshot (`ObjectLocalizationControls.tsx`, `POST /api/vision/objects`) | `SAM_ENABLED`, `SAM_REQUEST_TIMEOUT`, `META_SAM_MODEL` |
+
+**Parser and inference are different things.** `meta-sam-parser==0.1.0` is a normal runtime
+dependency, always installed, and used locally by `sam_client.py` and `sam_decode.py` to
+build prompts and decode responses. Installing it sends nothing to Meta and does not enable
+inference. Inference happens only when the backend makes the request above.
 
 ### Why SAM only adds localization
 
@@ -414,7 +519,7 @@ the Next.js page over HTTPS. `deploy/Caddyfile.hololens` terminates TLS on a pri
 address with Caddy's internal CA, and forwards `/api/*` and `/health` to the backend and all
 else to the frontend, both on loopback. The frontend is built with
 `NEXT_PUBLIC_API_URL=''` so the API uses the same origin. Commands are in the
-[README](../README.md#hololens-2-test-on-the-local-network).
+[README](../README.md#hololens-2-over-https).
 
 **WebXR.** The page checks `navigator.xr` and `isSessionSupported('immersive-ar')`, and only a
 user gesture starts a session. Unsupported devices get a labelled 2D preview. The field uses
@@ -438,9 +543,26 @@ clips go to Whisper on the Mac over the same HTTPS origin. Commands are matched 
 allowlist. Voice can trigger Check Step or Check Again, but never verifies. Confirm Position,
 Finish and Restart Assembly have no voice commands.
 
-**Device status.** `docs/hololens.md` records owner observations on a real HoloLens 2:
-immersive WebXR works and the 2D workspace shows a live camera image. Manual acceptance
-checklists remain open. The repository contains no Device Portal setup, so none is described.
+**Device status.** `docs/hololens.md` records **owner-reported** observations on a real
+HoloLens 2: immersive WebXR works and the 2D workspace shows a live camera image. They are
+not reproduced by automated tests. Manual acceptance checklists remain open. The app does not
+use the Device Portal, a separate management interface that must not be exposed publicly.
+
+## Images sent to the Meta API
+
+| Situation | Images sent | Destination |
+| --- | --- | --- |
+| Inspection or verification | `current_snapshot`, plus `block_reference` and `assembled_step_reference` photos up to `META_MAX_REFERENCE_IMAGES`; the longest edge is at most `INSPECTION_MAX_DIMENSION` | Muse, `chat/completions` |
+| Print rule configured | Additionally `current_print_crop`, a crop of the snapshot | Muse |
+| `incorrect` result | The same validated snapshot JPEG | SAM, `responses` |
+| Manual object search | The inspected snapshot | SAM |
+| Setup plan generation | Uploaded setup photos, and a selected block's default reference | Muse |
+| Autonomous Assembly | Frames after the user pressed Start, within its budgets | Muse, and SAM on `incorrect` |
+| External camera companion | The companion's frame goes to the backend, then as above | Muse, SAM |
+
+Images are sent as base64 JPEG, only with an explicit user action or after starting
+Autonomous Assembly. Voice audio goes to a local Whisper CLI, never to Meta. This repository
+cannot state how long Meta keeps request data; that follows the terms of your API account.
 
 ## Security and network model
 
@@ -485,7 +607,7 @@ credentials:
 
 | Job | Steps |
 | --- | --- |
-| `backend` | `uv sync --frozen`, `ruff check .`, `pytest` |
+| `backend` | `make check-requirements`, `uv sync --frozen`, `ruff check .`, `pytest` |
 | `frontend` | `npm ci`, ESLint, type check, unit tests, build, Playwright with Chromium |
 
 Test layers:
@@ -501,14 +623,8 @@ Test layers:
 it does not prove.** Model accuracy, physical camera behaviour, HoloLens rendering, frame rate
 or alignment.
 
-Result of a local run for this report (2026-11-04, `main` at `8bfc628`, macOS, Node 24):
-
-| Check | Command | Result |
-| --- | --- | --- |
-| Lint | `make lint` | Ruff and ESLint passed |
-| Backend and frontend tests | `make test` | 514 pytest passed; type check passed; 279 unit tests passed |
-| Build | `make build` | Passed |
-| Browser | `make test-browser` | 148 Playwright tests passed |
+The latest executed commands and results are in
+[submission-readiness.md](submission-readiness.md).
 
 The dated record of earlier checks is [validation.md](validation.md). No Markdown or
 documentation check exists in this repository. Results of live smoke tests are not recorded
@@ -544,9 +660,18 @@ here, because no such result exists in the repository.
 - Evaluate real labelled photos with `backend/benchmark_inspection.py`.
 - Run the live smoke tests and record the results in `docs/validation.md`.
 
-## Demo-Videos – folgt später
+## Open defects and deviations
 
-> **TODO — no demo videos exist yet.** No links, file names or results are given on purpose.
+Found by reading the implementation. They are documented, not changed here.
 
-- [ ] TODO: Final HoloLens demo, recorded live with Mixed Reality Capture.
-- [ ] TODO: Local browser demo, recorded with the Mac's screen recording.
+| Topic | Behaviour in code | Impact |
+| --- | --- | --- |
+| Finish scope | Finish checks server progress of the last step only, and reports how many steps were verified | "Assembly complete" does not prove that earlier steps were verified |
+| Mascot animation | `meta-mascot-animated.glb` has `Running`, `Walking` and `FunnyDancing_02` only; Wave and Idle phases are skipped | Do not describe a wave |
+| Mascot outside XR | Loaded only in an active XR session | The browser demo shows no mascot |
+| `allowedDevOrigins` | `frontend/next.config.ts` lists two fixed private IPs | Affects development mode only; use the production build for LAN tests |
+
+## Demo video
+
+[Watch the demo video](https://youtu.be/QWZPpFY55rc). It is made separately in `demo/remotion/`, and the final render
+is 166.9 seconds. See the [demo plan](demo-plan.md).

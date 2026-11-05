@@ -1,0 +1,313 @@
+{
+  "placements": [
+    {
+      "voice": "01-hook",
+      "file": "audio/01-hook.mp3",
+      "start": 0.3,
+      "end": 9.180000000000001,
+      "trimBefore": 0
+    },
+    {
+      "voice": "02-problem",
+      "file": "audio/02-problem.mp3",
+      "start": 10,
+      "end": 21.04,
+      "trimBefore": 0
+    },
+    {
+      "voice": "03-hololens",
+      "file": "audio/03-hololens.mp3",
+      "start": 21.8,
+      "end": 31.55,
+      "trimBefore": 0,
+      "trimAfter": 293
+    },
+    {
+      "voice": "03-hololens",
+      "file": "audio/03-hololens.mp3",
+      "start": 34.6,
+      "end": 42.69,
+      "trimBefore": 293
+    },
+    {
+      "voice": "04-local-demo",
+      "file": "audio/04-local-demo.mp3",
+      "start": 49.1,
+      "end": 59.1,
+      "trimBefore": 0
+    },
+    {
+      "voice": "05-problem-solving",
+      "file": "audio/05-problem-solving.mp3",
+      "start": 61.6,
+      "end": 84.25,
+      "trimBefore": 0,
+      "trimAfter": 680
+    },
+    {
+      "voice": "05-problem-solving",
+      "file": "audio/05-problem-solving.mp3",
+      "start": 85.89999999999999,
+      "end": 100.36999999999999,
+      "trimBefore": 680
+    },
+    {
+      "voice": "06-architecture",
+      "file": "audio/06-architecture.mp3",
+      "start": 101.2,
+      "end": 122.96000000000001,
+      "trimBefore": 0
+    },
+    {
+      "voice": "07-future-vision",
+      "file": "audio/07-future-vision.mp3",
+      "start": 135.8,
+      "end": 153.88,
+      "trimBefore": 0
+    },
+    {
+      "voice": "08-closing",
+      "file": "audio/08-closing.mp3",
+      "start": 154.8,
+      "end": 166,
+      "trimBefore": 0
+    }
+  ],
+  "cues": [
+    {
+      "start": 0.3,
+      "end": 3.3,
+      "text": "How do you build something you have never built before?"
+    },
+    {
+      "start": 3.82,
+      "end": 6.78,
+      "text": "What if mixed reality could teach you a physical skill"
+    },
+    {
+      "start": 6.78,
+      "end": 8.88,
+      "text": "through direct guidance and feedback?"
+    },
+    {
+      "start": 10,
+      "end": 12.04,
+      "text": "A manual can show the next step,"
+    },
+    {
+      "start": 12.28,
+      "end": 14.739999999999998,
+      "text": "but it cannot see what happened on the table."
+    },
+    {
+      "start": 15.04,
+      "end": 17.62,
+      "text": "It cannot tell whether a part is misplaced,"
+    },
+    {
+      "start": 17.78,
+      "end": 20.799999999999997,
+      "text": "explain what went wrong, or guide the correction."
+    },
+    {
+      "start": 21.8,
+      "end": 25.5,
+      "text": "AssemblyPilot connects a physical workspace with mixed reality."
+    },
+    {
+      "start": 25.84,
+      "end": 28.380000000000003,
+      "text": "On HoloLens, you confirm an assembly field"
+    },
+    {
+      "start": 28.380000000000003,
+      "end": 31.36,
+      "text": "on the table and see the next step as a hologram."
+    },
+    {
+      "start": 34.730000000000004,
+      "end": 37.550000000000004,
+      "text": "You place the real brick and select Check Step."
+    },
+    {
+      "start": 37.79,
+      "end": 39.47,
+      "text": "The camera captures that moment,"
+    },
+    {
+      "start": 39.47,
+      "end": 42.330000000000005,
+      "text": "and the feedback appears directly in your workspace."
+    },
+    {
+      "start": 49.1,
+      "end": 52.660000000000004,
+      "text": "The same web application also runs in a regular browser."
+    },
+    {
+      "start": 53,
+      "end": 56.18,
+      "text": "This makes the system easy to test with your own parts,"
+    },
+    {
+      "start": 56.34,
+      "end": 58.86,
+      "text": "even when immersive hardware is not available."
+    },
+    {
+      "start": 61.6,
+      "end": 64.28,
+      "text": "Here, the blue brick is in the right place,"
+    },
+    {
+      "start": 64.44,
+      "end": 66.78,
+      "text": "but the wrong printed side faces forward."
+    },
+    {
+      "start": 67.42,
+      "end": 70.50000000000001,
+      "text": "AssemblyPilot explains the issue and proposes a fix:"
+    },
+    {
+      "start": 70.98,
+      "end": 71.9,
+      "text": "rotate the block."
+    },
+    {
+      "start": 72.44,
+      "end": 75.88000000000001,
+      "text": "The user corrects the real build and selects Check Again."
+    },
+    {
+      "start": 76.34,
+      "end": 78.58000000000001,
+      "text": "Only then is a new image taken,"
+    },
+    {
+      "start": 78.64,
+      "end": 81.54,
+      "text": "and the next decision is based on that fresh evidence."
+    },
+    {
+      "start": 81.98,
+      "end": 83.92000000000002,
+      "text": "This time, the step is verified."
+    },
+    {
+      "start": 86.07,
+      "end": 87.98999999999998,
+      "text": "When the visual evidence is unclear,"
+    },
+    {
+      "start": 87.98999999999998,
+      "end": 90.72999999999999,
+      "text": "AssemblyPilot does not pretend to know."
+    },
+    {
+      "start": 91.14999999999998,
+      "end": 93.77000000000001,
+      "text": "An uncertain result is not a pass."
+    },
+    {
+      "start": 94.09,
+      "end": 95.37,
+      "text": "The workflow pauses."
+    },
+    {
+      "start": 95.76999999999998,
+      "end": 97.07,
+      "text": "The user changes the view"
+    },
+    {
+      "start": 97.07,
+      "end": 100.19,
+      "text": "or corrects the assembly, and selects Check Again."
+    },
+    {
+      "start": 101.2,
+      "end": 104.64000000000001,
+      "text": "The browser or HoloLens camera captures the real scene."
+    },
+    {
+      "start": 105.08,
+      "end": 106.9,
+      "text": "The backend validates the request"
+    },
+    {
+      "start": 107.14,
+      "end": 109.68,
+      "text": "and the Assembly Orchestrator manages the workflow."
+    },
+    {
+      "start": 110.2,
+      "end": 112.82000000000001,
+      "text": "Muse Spark evaluates the assembly state."
+    },
+    {
+      "start": 113.02000000000001,
+      "end": 116.62,
+      "text": "When enabled, SAM 3.1 adds object localization"
+    },
+    {
+      "start": 116.62,
+      "end": 118.02000000000001,
+      "text": "and segmentation."
+    },
+    {
+      "start": 118.38,
+      "end": 120.9,
+      "text": "The validated result returns to both the browser"
+    },
+    {
+      "start": 120.9,
+      "end": 122.76,
+      "text": "and the mixed-reality display."
+    },
+    {
+      "start": 135.8,
+      "end": 138.8,
+      "text": "Today, AssemblyPilot guides a LEGO assembly."
+    },
+    {
+      "start": 139.32000000000002,
+      "end": 142.44000000000003,
+      "text": "Tomorrow, the same interaction could support cooking,"
+    },
+    {
+      "start": 142.76000000000002,
+      "end": 145.86,
+      "text": "repairs, education, and industrial training."
+    },
+    {
+      "start": 146.32000000000002,
+      "end": 148.54000000000002,
+      "text": "Imagine putting on mixed reality and learning"
+    },
+    {
+      "start": 148.54000000000002,
+      "end": 150.88000000000002,
+      "text": "to cook without prior experience,"
+    },
+    {
+      "start": 151.04000000000002,
+      "end": 153.82000000000002,
+      "text": "with guidance adapted to what is happening in front of you."
+    },
+    {
+      "start": 154.8,
+      "end": 158.8,
+      "text": "AssemblyPilot turns instructions into an interactive learning loop:"
+    },
+    {
+      "start": 158.8,
+      "end": 162.20000000000002,
+      "text": "from guidance, to action, to visual verification."
+    },
+    {
+      "start": 162.20000000000002,
+      "end": 165.86,
+      "text": "AI-guided mixed reality for the real world."
+    }
+  ]
+}

@@ -19,10 +19,21 @@ playwright-report/
 test-results/
 .DS_Store
 .local-https/
+.uv-cache/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
 next-env.d.ts
 
 # Local registry data and reference photos
 backend/data/
+
+# Demo video: recordings, audio and renders stay local
+demo/remotion/out/
+demo/remotion/public/footage/
+demo/remotion/public/audio/
 *.db
 *.db-shm
 *.db-wal

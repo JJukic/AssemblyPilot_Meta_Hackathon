@@ -85,7 +85,9 @@ legibility and supported input must be checked before demoing.
 The development API is unauthenticated. Keep both servers on loopback; expose only
 a TLS proxy bound to the PC's **private** LAN address, restricted by firewall to
 trusted devices. Do not use public tunnels, public port forwarding, or expose port
-8000. This setup is for a trusted local demo network, not public deployment.
+8000. This setup is for a trusted local demo network, not public deployment. The HoloLens
+Device Portal is a separate management interface: the app does not need it, and it must
+not be exposed through a router or the internet.
 
 Install Caddy on the serving machine. Copy `deploy/Caddyfile.hololens`, replace both
 `192.168.1.50` occurrences with the serving machine's private LAN IP, and keep that
@@ -109,7 +111,8 @@ uv run --frozen uvicorn app.main:app --host 127.0.0.1 --port 8000
 caddy run --config deploy/Caddyfile.hololens --adapter caddyfile
 ```
 
-Allow the proxy to bind HTTPS with the appropriate OS service privileges. Caddy's
+On macOS the tracked template needs `sudo`; the
+[README](../README.md#hololens-2-over-https) has a variant on port 3443 without it. Caddy's
 internal CA issues the local certificate. On each client, including HoloLens,
 install/trust **only the CA public root certificate** from Caddy's data directory
 (`pki/authorities/local/root.crt`); never distribute its private keys. Follow

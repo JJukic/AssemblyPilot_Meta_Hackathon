@@ -4,6 +4,40 @@ Module-level notes collected through Phase 4.1E. For the current system overview
 including Spatial AR, Autonomous Assembly and the guided flow, see the
 [Technical Report](technical-report.md).
 
+## Current data flow
+
+```mermaid
+flowchart TD
+    CAM["HoloLens 2 or browser camera"] --> FE["Next.js / React / WebXR frontend"]
+    FE --> API["FastAPI backend"]
+    API --> ORCH["Assembly Orchestrator"]
+    ORCH --> LOCAL["Local image and geometry checks"]
+    ORCH --> MUSE["Muse Spark<br/>semantic assembly verification"]
+    ORCH -.->|"optional"| SAM["SAM 3.1<br/>object localization"]
+    LOCAL --> RESULT["Validated inspection result"]
+    MUSE --> RESULT
+    SAM -.-> RESULT
+    RESULT --> PANELS["Browser panel and HoloLens panel"]
+```
+
+This is an orchestrated AI workflow with specialized workflow roles, not a set of autonomous
+agents.
+
+| Rule | Behaviour |
+| --- | --- |
+| Muse Spark | Evaluates the assembly state: `correct`, `incorrect` or `uncertain` |
+| SAM 3.1 | Localizes visible objects and regions. It does not decide correctness on its own |
+| Backend rules and local checks | Can make the final workflow decision stricter, never better |
+| `correct` | Needs a separate fresh image before the backend records the step as verified |
+| `incorrect` | Shows the issue and a correction. Check Again uses a new image |
+| `uncertain` | Nothing is sent. A new image is taken only by Check Again |
+| Finish | Appears only after the last step is verified |
+| Restart Assembly | Starts a new run at Step 1 and deletes nothing |
+| Binding | Reference photos and snapshots stay bound to their step |
+| Failures | Infrastructure failures appear as "Check unavailable", never as a verdict |
+
+The sections below are the older module-level notes.
+
 ## Components
 
 ```text

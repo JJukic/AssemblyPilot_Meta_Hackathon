@@ -5,6 +5,26 @@ on:
 permissions:
   contents: read
 jobs:
+  repository:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check tracked files for local data and secrets
+        run: make check-repo
+  demo:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: demo/remotion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: demo/remotion/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -14,6 +34,8 @@ jobs:
           version: "0.12.23"
           enable-cache: true
       - run: uv python install 3.12
+      - name: Check requirements files match uv.lock
+        run: make check-requirements
       - run: uv sync --frozen
         working-directory: backend
       - run: uv run --frozen ruff check .
