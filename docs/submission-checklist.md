@@ -19,7 +19,7 @@ posted on the event page.
 
 | Item | Status | Note |
 | --- | --- | --- |
-| GitHub link | Done | <https://github.com/JJukic/AssemblyPilot_Meta_Hackathon>, public. This work must still reach the default branch, or the form must name the branch |
+| GitHub link | Done | <https://github.com/JJukic/AssemblyPilot_Meta_Hackathon>, public. This work is on `main` |
 | README | Done | Links to the report, quickstart and this list |
 | Technical Report | Done | Checked against the code |
 | Installation with uv and pip | Checked locally | Fresh clone, macOS arm64 |
@@ -35,8 +35,8 @@ posted on the event page.
 | Meta model explanation | Done | README, report and video |
 | Future vision | Video only | Marked "Future vision, not implemented" in the video; cooking is not in the code |
 | Demo video | Done | Final render 166.9 s, uploaded to YouTube |
-| Actual video link | Done | <https://youtu.be/QWZPpFY55rc>, reachable without signing in. Still enter it in the form |
-| Submission form | Open | Must be filled in and sent by the owner |
+| Actual video link | Done | <https://youtu.be/QWZPpFY55rc>, reachable without signing in |
+| Submission form | Done | Sent by the owner on 2026-11-05, as reported by the owner |
 | Cloud deployment | Later | [Requirements](local-deployment.md#later-cloud-deployment) only, nothing implemented |
 
 ## Sources

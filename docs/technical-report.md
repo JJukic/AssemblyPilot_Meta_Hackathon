@@ -1,8 +1,7 @@
 # AssemblyPilot Technical Report
 
-Status: describes the code of branch `codex/hackathon-submission-ready`. Application code is
-unchanged from `main` at commit `8bfc628` (2026-11-03), apart from the `create_ar_demo.py` fix
-recorded in [Submission readiness](submission-readiness.md). Claims are checked against the
+Status: describes the code on `main`. Application code is unchanged from commit `8bfc628`
+(2026-11-03), apart from the `create_ar_demo.py` fix recorded in [Submission readiness](submission-readiness.md). Claims are checked against the
 code. Where a claim rests on a record rather than on code, the source is named.
 
 Status terms: **implemented**, **optional** (implemented and configurable), **not
