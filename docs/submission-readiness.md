@@ -23,12 +23,12 @@ Checked on 2026-11-05 against GitHub.
 
 | Item | Value |
 | --- | --- |
-| `main` | `13b516f`, the merge of pull request #16 |
+| Application code on `main` | `13b516f`, the merge of pull request #16. Only documentation from `codex/readme-visual-polish` follows it |
 | Pull request #15 | Merged to `main` as `aa21cee` on 2026-11-05 |
 | Pull request #16 | Merged to `main` as `13b516f` on 2026-11-05, documentation only |
 | CI on `13b516f` | Run 41942595313: `repository`, `demo`, `backend` and `frontend` passed |
 | Repository | Public |
-| Demo video | <https://youtu.be/QWZPpFY55rc>; the linked upload was not replayed in this documentation check |
+| Demo video | <https://youtu.be/QWZPpFY55rc>; YouTube reports it as publicly available (oEmbed, 2026-11-05), but it was not replayed in this check |
 | Final render length | 166.9 s, recorded in [`CLIP_MAPPING.md`](../demo/remotion/CLIP_MAPPING.md) |
 
 CI runs offline with mocks and a synthetic camera. **It does not test live Meta inference or a
