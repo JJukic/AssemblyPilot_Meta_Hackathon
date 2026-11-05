@@ -286,7 +286,7 @@ serving the app, and it must never be exposed publicly.
    a Mac or iPhone, enter the code and select **Act as external camera companion**. That
    device captures and inspects, and only a validated text summary returns to HoloLens.
 
-To film the headset view, use Mixed Reality Capture ([demo plan](demo-plan.md)).
+To film the headset view, use Mixed Reality Capture.
 Use the same HTTPS URL on all devices so they share state. Details, coordinate
 conventions, voice setup and manual checklists are in [docs/hololens.md](hololens.md).
 

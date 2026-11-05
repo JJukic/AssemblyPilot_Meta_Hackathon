@@ -7,8 +7,7 @@ Originally implemented from main at `9089e07`. Phase 4 is now merged into main a
 localization on the exact new image after initial diagnosis or verification. SAM
 never changes the semantic diagnosis, resolution assessments or progress decision.
 The existing bounded retries, mask validation and Muse-box fallback remain in place.
-See [the Phase 4 integration review](pr6-integration-review.md) and
-[the calibration architecture](calibration.md) for the combined branch basis.
+See [the calibration architecture](calibration.md) for the combined branch basis.
 
 Next.js, FastAPI, SQLite, registry data, selected step references, camera capture,
 Active Vision, diagnostic overlays and temporary image history remain in place.
@@ -246,5 +245,5 @@ above tests that timing and the physical camera.
 
 The user reports that live Muse inference works locally. The new Phase 4 workflow has
 not yet been demonstrated with real photos in this cloud instance; see the dated
-[validation record](validation.md). Visual verification is probabilistic and does not
+[verification status](technical-report.md#verification-status). Visual verification is probabilistic and does not
 certify structural stability, internal connections, exact dimensions or safety.

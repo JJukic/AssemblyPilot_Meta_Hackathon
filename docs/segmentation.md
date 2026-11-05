@@ -172,7 +172,8 @@ named `.env.backend` is **not** automatically loaded; if that is your local file
 use `uv run --env-file .env.backend --frozen python smoke_segmentation.py ...`.
 Never put the key in a command argument or frontend variable.
 
-Actual live status and executed checks are recorded in [validation.md](validation.md).
+Actual live status and executed checks are recorded in the
+[Technical Report](technical-report.md#verification-status).
 The next acceptance step is real-photo validation of correct/incorrect assemblies,
 multiple identical blocks, occlusion and mask alignment. SAM segments visible shapes;
 it does not independently understand the assembly specification or verify a repair.
