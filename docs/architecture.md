@@ -36,6 +36,23 @@ agents.
 | Binding | Reference photos and snapshots stay bound to their step |
 | Failures | Infrastructure failures appear as "Check unavailable", never as a verdict |
 
+## Repository layout
+
+```text
+backend/    FastAPI app (app/main.py), SQLModel/SQLite, Pillow, OpenCV, httpx, Meta clients, tests
+frontend/   Next.js App Router, React, TypeScript, Tailwind, three.js/WebXR, unit + Playwright tests
+data/       Shared practice assembly (data/assemblies/demo-lego.json)
+demo/       Separate Remotion project for the demo video
+deploy/     Caddyfile.hololens: private-LAN HTTPS proxy template
+docs/       Technical report, API contracts, HoloLens guide, validation records, stack tiles
+scripts/    Repository checks
+.github/    CI workflow
+```
+
+Entry points: `backend/app/main.py` (`app.main:app`) and
+`frontend/src/app/(workspace)/page.tsx` (route `/`). Other routes: `/setup`, `/blocks`,
+`/projects`, `/projects/[projectId]`, `/ar`, `/settings`.
+
 The sections below are the older module-level notes.
 
 ## Components

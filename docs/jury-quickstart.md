@@ -10,7 +10,7 @@ mock mode to fall back on: without a key, checks show "Check unavailable".
 ## What you need
 
 - macOS or Linux with Git, Python 3.12, Node.js 24 and [uv](https://docs.astral.sh/uv/getting-started/installation/)
-  (pip works too; see [the README](../README.md#backend-option-b-venv-and-pip)).
+  (pip works too; see [Install with pip](local-deployment.md#install-with-pip)).
 - Chrome, Edge, Firefox or Safari, and a webcam or phone-style camera.
 - Your own Meta Model API key with access to `muse-spark-1.3`, plus internet access. Use
   `sam-3.1` access too if you want highlighted regions. Requests may be billed to you.
@@ -41,7 +41,7 @@ The app is at <http://localhost:3000>. Check the backend in a third terminal:
 curl --fail http://localhost:8000/health
 ```
 
-If a port is busy, see [Troubleshooting](../README.md#troubleshooting).
+If a port is busy, see [Troubleshooting](local-deployment.md#troubleshooting).
 
 ## 2. Create a small project
 
@@ -107,7 +107,7 @@ to the Meta API; see [the list](technical-report.md#images-sent-to-the-meta-api)
 ## Without a key
 
 Everything except inference still works: projects, manual setup, camera capture, and the
-AR page. See [Without and with an API key](../README.md#without-and-with-an-api-key). The
+AR page. See [Without and with an API key](local-deployment.md#without-and-with-an-api-key). The
 automated tests use mocks and need no key:
 
 ```sh
@@ -119,7 +119,7 @@ make lint && make test
 This is optional and needs a HoloLens 2 and Caddy. WebXR and the camera require trusted HTTPS,
 so the headset connects to Caddy on your private network.
 
-1. Follow [HoloLens 2 over HTTPS](../README.md#hololens-2-over-https): build the frontend with
+1. Follow [HoloLens 2 over HTTPS](local-deployment.md#hololens-2-over-https): build the frontend with
    an empty API URL, start both servers on loopback, then start Caddy on your private IP.
 2. Install only Caddy's public root certificate on the headset.
 3. Open `https://<your-private-ip>/ar?project=<project-id>` in HoloLens Edge and select

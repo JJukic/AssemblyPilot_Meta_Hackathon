@@ -1,5 +1,8 @@
 # PR #6 integration review — 2026-10-29
 
+> **Historical record.** A review of the repository on 2026-10-29. The pull request states here are as of that
+> date.
+
 Reviewed main `edbdef0`, original PR #6 `743ba77`, and PR #7 `a795e8e`.
 PR #5 (SAM) is merged; #6 and #7 remain open. This update merges main into
 **the feature branch**, not the feature PR into main. No PR is merged or closed.

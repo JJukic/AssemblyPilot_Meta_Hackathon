@@ -112,7 +112,7 @@ caddy run --config deploy/Caddyfile.hololens --adapter caddyfile
 ```
 
 On macOS the tracked template needs `sudo`; the
-[README](../README.md#hololens-2-over-https) has a variant on port 3443 without it. Caddy's
+[Local deployment](local-deployment.md#hololens-2-over-https) has a variant on port 3443 without it. Caddy's
 internal CA issues the local certificate. On each client, including HoloLens,
 install/trust **only the CA public root certificate** from Caddy's data directory
 (`pki/authorities/local/root.crt`); never distribute its private keys. Follow

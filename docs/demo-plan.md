@@ -1,19 +1,22 @@
-# Demo plan
+# Demo record
 
-Status: **published** at <https://youtu.be/QWZPpFY55rc>.
+Status: **published** at <https://youtu.be/QWZPpFY55rc>. The plan below is kept as a record of
+how the video was made.
 
 | Item | State |
 | --- | --- |
 | Final render | `demo/remotion/out/assemblypilot-hackathon-demo.mp4`, 166.9 s, 1920×1080, 30 fps. Local only |
+| Evidence for the length | [`CLIP_MAPPING.md`](../demo/remotion/CLIP_MAPPING.md): 5007 frames at 30 fps |
 | Limit | At most 180 seconds |
 | Public video link | <https://youtu.be/QWZPpFY55rc> |
 
-The Official Rules score Demo at 25% and name "the quality of the demo video". The rules
-text checked on 2026-11-04 states no length or format. Check the submission form for those
-before recording. If the form requires a video, the submission is incomplete until one
-exists. See the [submission checklist](submission-checklist.md).
+The Official Rules score Demo at 25% and name "the quality of the demo video". The rules text
+checked on 2026-11-04 states no length or format. See the
+[submission checklist](submission-checklist.md).
 
-## Recordings
+<a id="recordings"></a>
+
+## 🎥 Recordings
 
 | # | Recording | Tool | Shows | Status |
 | --- | --- | --- | --- | --- |
@@ -41,14 +44,16 @@ result, and do not edit a verdict into a clip.
 Each scene needs a real outcome. If a scene does not happen live, re-record it or leave it
 out and do not fake it.
 
-## Editing
+<a id="editing"></a>
+
+## 🎥 Editing
 
 The clips are combined in the separate Remotion project in `demo/remotion/`. Its
 [README](../demo/remotion/README.md) has the commands and file locations. Raw recordings, audio
 and renders stay local. `uncertain` does not occur in the recordings, so the video explains it
 as a labelled diagram.
 
-## Before recording
+## Before recording (historical)
 
 - [ ] Fresh key with model access, and enough credit.
 - [ ] Reference photos for every demo step.
@@ -57,9 +62,9 @@ as a labelled diagram.
 - [ ] Confirm that the mascot and brick assets may be shown
       ([open questions](assets-and-licenses.md)).
 
-## Still missing before submitting
+<a id="video-status"></a>
+
+## 🎯 Video status
 
 - [x] Recording 1 and recording 2, edited into the final video.
 - [x] Public video link: <https://youtu.be/QWZPpFY55rc>.
-- [ ] All submission form fields, checked after signing in to the portal.
-- [ ] Date and commit shown in the video, noted in `docs/submission-readiness.md`.

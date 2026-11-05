@@ -1,7 +1,8 @@
 # AssemblyPilot hackathon demo
 
 Remotion project for the AssemblyPilot demo video: 1920×1080, 30 fps. It is separate from the
-application. The final render is 166.9 seconds, and the limit is 180 seconds.
+application. The final render is 166.9 seconds, as recorded in [`CLIP_MAPPING.md`](CLIP_MAPPING.md),
+and the limit is 180 seconds. The video is published at <https://youtu.be/QWZPpFY55rc>.
 
 Recordings, audio and renders stay local and are not in Git:
 
@@ -11,7 +12,9 @@ Recordings, audio and renders stay local and are not in Git:
 | Voice-over, music and UI sounds | `public/audio/` |
 | Renders | `out/` |
 
-## Setup
+<a id="setup"></a>
+
+## 🚀 Setup
 
 Needs Node.js 22 or newer and FFmpeg (`ffprobe` for the footage check). The recordings are
 not in Git. Put them in `public/footage/hololens/` and `public/footage/browser/`.
@@ -21,7 +24,9 @@ cd demo/remotion
 npm ci
 ```
 
-## Commands
+<a id="commands"></a>
+
+## 🧪 Commands
 
 | Task | Command |
 | --- | --- |
@@ -38,7 +43,9 @@ npm ci
 
 The render commands run the footage check, audio generation, voice timing and mapping first.
 
-## Project layout
+<a id="project-layout"></a>
+
+## 🏗️ Project layout
 
 | Path | Purpose |
 | --- | --- |
@@ -58,17 +65,21 @@ To change the edit, adjust `src/manifest.ts`. Scene lengths, the music, the subt
 mapping follow from it. `npm run voice` fails if a line overruns its scene, two lines overlap,
 or the video passes 180 seconds.
 
-## Missing clips
+<a id="missing-clips"></a>
+
+## ⚠️ Missing clips
 
 `npm run check` tests every clip with `ffprobe`. A missing or unreadable clip is listed in
 `src/clip-status.json` and renders as a labelled "Clip unavailable" card instead of failing
 the render. A shot that runs past the end of its clip fails the check.
 
-## Audio and fonts
+<a id="audio-and-fonts"></a>
+
+## ⚖️ Audio and fonts
 
 The recordings have no audio track. Music and UI sounds are synthesized by
 `scripts/generate-audio.ts`, so no third-party music is included. Inter and JetBrains Mono are
-under the SIL Open Font License.
+under the SIL Open Font License, and their license texts are in `public/fonts/`.
 
 ### Voice-over
 
@@ -101,5 +112,6 @@ Music drops under speech and rises between lines. Levels are in
 `src/manifest.ts`. Subtitles follow the word times, are burned in by
 `src/components/PremiumSubtitle.tsx`, and are also written as an SRT file.
 
-Remotion has its own license. It is free for individuals and small teams; check
-[its terms](https://www.remotion.dev/license) for your case.
+Remotion 4.0.540 has its own license. Check [its terms](https://www.remotion.dev/license) for
+the license that applies to this project. Rights in the voice-over and footage are covered in
+[Assets and licenses](../../docs/assets-and-licenses.md).

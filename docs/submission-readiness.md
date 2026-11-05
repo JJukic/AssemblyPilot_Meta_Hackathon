@@ -1,29 +1,61 @@
 # Submission readiness
 
-Recorded on 2026-11-05. **Status: submitted by the project owner on 2026-11-05, as reported by
-the owner.** The repository is ready for a local test. The remaining points are
-[listed below](#remaining-points).
+Recorded on 2026-11-05. **Status: submitted by owner.** The owner reports that the hackathon
+portal is filled in. The repository is ready for a local test. The remaining owner tasks are
+[listed below](#open).
 
-## Readiness by area
+Evidence in this file uses these terms:
 
-| Area | State |
+| Term | Meaning |
 | --- | --- |
-| Local testing | **Ready.** A fresh clone installs, passes all checks and starts without a key |
-| Real inference | Needs your own Meta key. **Not run in this check** |
-| HoloLens testing | Documented. **Not run in this check**: no device was attached |
-| Remotion demo | Final render 166.9 s, [published on YouTube](https://youtu.be/QWZPpFY55rc) |
-| Cloud deployment | **Not implemented.** A [future option](local-deployment.md#later-cloud-deployment) only |
+| **Implemented** | In the code on `main` |
+| **Tested locally** | Run on the owner's machine, with the commands and results recorded |
+| **CI passed** | Verified on GitHub Actions for the named commit |
+| **Owner-reported** | Stated by the project owner, with no record in this repository |
+| **Historical** | A dated check of an older commit |
+| **Open** | Still to be done or confirmed |
 
-## Checked state
+<a id="verified-state"></a>
+
+## 🧪 Verified state
+
+Checked on 2026-11-05 against GitHub.
 
 | Item | Value |
 | --- | --- |
-| Branch | `codex/hackathon-submission-ready`, merged to `main` in pull request #15 |
-| Checked commit | `7cab24c`. Later commits change documentation only |
-| Environment | macOS 26, arm64, Python 3.12.6, Node 24.10.0, npm 11.19.0, uv 0.13.5 |
-| Method | Fresh `git clone`, with no `.env`, no `MODEL_API_KEY` and no local data |
+| `main` | `13b516f`, the merge of pull request #16 |
+| Pull request #15 | Merged to `main` as `aa21cee` on 2026-11-05 |
+| Pull request #16 | Merged to `main` as `13b516f` on 2026-11-05, documentation only |
+| CI on `13b516f` | Run 41942595313: `repository`, `demo`, `backend` and `frontend` passed |
+| Repository | Public |
+| Demo video | <https://youtu.be/QWZPpFY55rc>; the linked upload was not replayed in this documentation check |
+| Final render length | 166.9 s, recorded in [`CLIP_MAPPING.md`](../demo/remotion/CLIP_MAPPING.md) |
 
-## Executed checks
+CI runs offline with mocks and a synthetic camera. **It does not test live Meta inference or a
+HoloLens.**
+
+<a id="status-by-area"></a>
+
+## 🎯 Status by area
+
+| Area | Status | Note |
+| --- | --- | --- |
+| Assembly workflow, Muse Spark and SAM 3.1 clients, WebXR | Implemented | See the [Technical Report](technical-report.md) |
+| Install, lint, tests, build | CI passed | Run 41942595313 on `13b516f`; local results are in the [historical check](#historical-check-of-7cab24c) |
+| Local start without a key | Tested locally | Health check only |
+| Portal submission | Submitted by owner | Owner-reported. Form fields were not seen in this check |
+| Live Muse inference | Owner-reported | No result is recorded in this repository |
+| HoloLens 2 operation | Owner-reported | The video shows real captures; the [acceptance checklists](hololens.md) stay open |
+| Real-photo benchmark | Open | Tooling exists, results do not |
+| Asset and brand rights | Open | See [open questions](assets-and-licenses.md#open-questions-for-the-project-owner) |
+| Cloud deployment | Not implemented | The project is started locally on purpose |
+
+## Historical check of `7cab24c`
+
+These results belong to commit `7cab24c`, the state before pull request #15 was merged. Later
+commits changed documentation only. The check ran in a fresh `git clone` on macOS 26, arm64,
+with Python 3.12.6, Node 24.10.0, npm 11.19.0 and uv 0.13.5. It used no `.env`, no
+`MODEL_API_KEY` and no local data.
 
 | Check | Command | Result |
 | --- | --- | --- |
@@ -38,37 +70,48 @@ the owner.** The repository is ready for a local test. The remaining points are
 | pip install | `python3.12 -m venv`, `pip install -r requirements.txt -r requirements-dev.txt` | Passed; `pip check` clean |
 | Python tests, pip | `python -m pytest` | 514 passed |
 | Start without a key | `uvicorn` from the pip venv, then `GET /health` | 200, port 18000 |
-| Internal links | Script over 10 Markdown files | 124 links, 0 problems |
 | Secrets in Git history | Searches for tracked `.env`, key, certificate and database files, and private keys | No findings |
 
 `make check-repo` is a pattern search. It catches common mistakes and cannot prove that no
-secret exists. Mermaid diagrams were not rendered in this check. CI results for this branch
-are on the GitHub Actions page.
+secret exists. Mermaid diagrams were not rendered.
 
-## Skipped checks
+## Documentation review on 2026-11-05
+
+The `codex/readme-visual-polish` worktree was reviewed against `main` at `13b516f`.
+The local tracked-file check and whitespace check passed. A scan of 154 local Markdown
+links, including heading anchors, found no missing targets. The focused `auto-retry.test.cjs` and
+`guided-flow.test.cjs` tests passed (27 tests) on the unchanged application code.
+These checks cover simulated `uncertain` holds, explicit Check Again and guided completion;
+they do not establish a new live Meta or HoloLens result.
+
+<a id="not-checked"></a>
+
+## ⚠️ Not checked
 
 | Check | Reason |
 | --- | --- |
-| Live Meta inference, `backend/smoke_*.py`, benchmark | Needs a key and billable requests, so **live inference was not verified here** |
+| Live Meta inference, `backend/smoke_*.py`, benchmark | Needs a key and billable requests |
 | Physical camera and recognition quality | Automated tests use a synthetic camera and mocks |
-| HoloLens 2 device run | No device attached. Device results are owner reports |
-| Caddy | Not re-run. The 2026-11-04 record passed with the non-root variant; port 443 with `sudo` was not tested |
-| Linux and Windows install | Only macOS arm64 was available locally. CI covers Linux |
+| HoloLens 2 device run | No device was attached |
+| Caddy | Not re-run. The 2026-11-04 check passed with the non-root variant; port 443 with `sudo` was not tested |
+| Linux install | Covered by CI only |
+| Windows install | Not tested |
 | Remotion render in a fresh clone | Needs the local recordings and audio, which are not in Git |
-| Details page and submission form | Need a signed-in session |
+| Portal contents | Need the owner's session |
 
-## Remaining points
+<a id="open"></a>
 
-Deadline: **November 4, 2026, 9:00 PM ET** (November 5, 03:00 CET).
+## ⚠️ Open
 
 | # | Item | Next action |
 | --- | --- | --- |
-| 1 | Asset rights are open, and the rules require ownership | Answer the [open questions](assets-and-licenses.md#open-questions-for-the-project-owner) |
+| 1 | Asset and brand rights are not confirmed, and the rules require that no third-party rights are violated | Answer the [open questions](assets-and-licenses.md#open-questions-for-the-project-owner) |
 | 2 | No live run is recorded in the repository | Run one real inspection with a key and record it |
+| 3 | The HoloLens acceptance checklists are not complete | Run them on the device and fill in the [final device test](final-device-test.md) |
 
-## Draft project text
+## Project text prepared for the form
 
-Every statement below is supported by this repository. Check the portal for length limits.
+The owner entered the final text in the portal, and it may differ from this draft.
 
 > **AssemblyPilot** is a visual assembly assistant that checks physical work step by step.
 > It shows the next step in a browser or as a WebXR hologram on HoloLens 2, looks at the real

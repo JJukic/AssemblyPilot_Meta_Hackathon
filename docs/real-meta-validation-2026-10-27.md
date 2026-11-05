@@ -1,5 +1,8 @@
 # Real Meta integration validation — 2026-10-27
 
+> **Historical record.** This describes `main` at `d577684` on 2026-10-27. Later code differs. It is kept as
+> the record of that check. The current state is in [Submission readiness](submission-readiness.md).
+
 ## Verdict
 
 **Real image inspection is blocked; do not treat Phase 3B as live-validated yet.**
