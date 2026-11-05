@@ -1,8 +1,8 @@
 # AssemblyPilot Technical Report
 
 Status: describes the code on `main`. Claims are checked against the code. Where a claim rests
-on a record rather than on code, the source is named. The verified commit and CI run are in
-[Submission readiness](submission-readiness.md).
+on a record rather than on code, the source is named. The verified commit, CI run and open items are in
+[Verification status](#verification-status).
 
 Status terms: **implemented**, **optional** (implemented and configurable), **not
 implemented**, **planned**. The [README](../README.md#feature-scope) lists every feature
@@ -230,6 +230,19 @@ application. `http://localhost:8000/docs` shows the full schema.
 
 Paths are the defaults; `DATABASE_URL`, `UPLOAD_DIR` and `CALIBRATION_DIR` change them.
 
+### Persistence and file rules
+
+- `backend/app/db/tables.py` holds the internal SQLModel tables, and `models/` holds the API
+  schemas. Local file paths never leave the backend.
+- Foreign keys are enabled on every SQLite connection. Mutations start with `BEGIN IMMEDIATE`,
+  which serializes writers. This is a local single-user design with last-write-wins edits.
+- A reference image has exactly one owner, a block or a step. Stored names are generated, and
+  media requests are refused for symlinks and paths outside the upload root.
+- Deleting a project removes its steps, assignments and step images. Reusable blocks and their
+  photos stay. Deleting a block that a step still uses returns 409.
+- Image files are removed after a successful database commit. SQLite and the filesystem cannot
+  commit atomically, so a crash can leave an unreachable file. No automatic orphan scan exists.
+
 ## Workflow state transitions
 
 `backend/app/models/workflow.py` defines the states, and `transition()` raises on any other
@@ -263,6 +276,22 @@ Persistent progress in `StepProgress` is simpler: `not_started`, `in_progress` o
 `verified`. It counts only when it still matches the step's revision and specification
 fingerprint, and the run ID is part of that fingerprint. `verified` comes only from the
 fused state on a fresh image (`services/progress_service.py`).
+
+## Repository layout and routes
+
+```text
+backend/    FastAPI app, SQLModel/SQLite, Pillow, OpenCV, httpx, Meta clients, tests
+frontend/   Next.js App Router, React, TypeScript, three.js/WebXR, unit and Playwright tests
+data/       Shared practice assembly (data/assemblies/demo-lego.json)
+demo/       Separate Remotion project for the demo video
+deploy/     Caddyfile.hololens: private-LAN HTTPS proxy template
+docs/       Technical report, guides, API contracts and stack tiles
+scripts/    Repository checks
+.github/    CI workflow
+```
+
+Frontend routes are `/`, `/setup`, `/blocks`, `/projects`, `/projects/[projectId]`, `/ar` and
+`/settings`.
 
 ## Frontend and backend responsibilities
 
@@ -522,6 +551,11 @@ action is refused, and no server state changes.
 Muse and SAM each make at most three attempts, for transient 429, 500, 502, 503 and transport
 failures only. In the guided UI all such failures appear as "Check unavailable".
 
+One deadline, 60 seconds by default, covers all Muse attempts and backoff. An upstream 504 is
+not retried, and a long `Retry-After` is returned to the caller instead of being retried early.
+Request JSON is capped at `META_MAX_REQUEST_BYTES` (10 MiB), and response bodies at 1 MiB.
+Protocol sources are listed in the [inspection API](inspection-api.md).
+
 <a id="hololens-2-deployment"></a>
 
 ## 🥽 HoloLens 2 deployment
@@ -623,6 +657,8 @@ credentials:
 
 | Job | Steps |
 | --- | --- |
+| `repository` | `make check-repo` |
+| `demo` | `npm ci` and a type check in `demo/remotion` |
 | `backend` | `make check-requirements`, `uv sync --frozen`, `ruff check .`, `pytest` |
 | `frontend` | `npm ci`, ESLint, type check, unit tests, build, Playwright with Chromium |
 
@@ -639,12 +675,120 @@ Test layers:
 it does not prove.** Model accuracy, physical camera behaviour, HoloLens rendering, frame rate
 or alignment.
 
-The latest executed commands and results are in
-[submission-readiness.md](submission-readiness.md).
+Executed commands and results are in [Verification status](#verification-status).
 
-The dated record of earlier checks is [validation.md](validation.md). No Markdown or
-documentation check exists in this repository. Results of live smoke tests are not recorded
-here, because no such result exists in the repository.
+<a id="verification-status"></a>
+
+## 🧪 Verification status
+
+Terms: **CI passed** (verified on GitHub Actions for the named commit), **tested locally** (run
+with recorded commands), **owner-reported** (stated by the project owner, with no record in this
+repository), **historical** (a dated check of an older commit), **open** (still to be done).
+
+### Current state
+
+Checked on 2026-11-05.
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Application code | Unchanged since `13b516f` | Later commits change documentation only |
+| CI | CI passed | Run 41947687846 on `871de63`: `repository`, `demo`, `backend` and `frontend` |
+| Clean install, lint, tests, build | Historical | Full local check of `7cab24c`, below |
+| Start without a key | Historical | `GET /health` returned 200 at `7cab24c` |
+| Portal submission | Owner-reported | Portal contents are not visible from this repository |
+| Demo video | Published | YouTube reports it as public. The upload was not replayed in this check |
+| Live Muse inference | Owner-reported | No result is recorded in this repository |
+| Live SAM inference | Owner-reported | No result is recorded in this repository |
+| HoloLens 2 operation | Owner-reported | The video shows real captures. Acceptance checklists are open |
+| Real-photo accuracy benchmark | Open | The tooling exists, results do not |
+| Asset and brand rights | Open | [Open questions](assets-and-licenses.md#open-questions-for-the-project-owner) |
+
+CI runs offline with mocks and a synthetic camera. **It does not test live Meta inference or a
+HoloLens.**
+
+### Last full local check
+
+Commit `7cab24c`, the state before pull request #15, in a fresh `git clone` on macOS 26 arm64 with
+Python 3.12.6, Node 24.10.0, npm 11.19.0 and uv 0.13.5. It used no `.env`, no `MODEL_API_KEY` and
+no local data.
+
+| Check | Result |
+| --- | --- |
+| `make install`, `make check-requirements`, `make check-repo`, `make lint`, `make build` | Passed |
+| `make test` | 514 backend and 279 frontend unit tests passed |
+| `make test-browser` | 148 passed |
+| `npm ci`, `npm run typecheck` in `demo/remotion` | Passed |
+| Install with pip, `pip check` | Passed, clean |
+| `python -m pytest` in the pip environment | 514 passed |
+| `uvicorn` from the pip environment, `GET /health` | 200 |
+| Search of Git history for secrets | No findings; see the [audit](assets-and-licenses.md#secret-and-privacy-audit) |
+
+`make check-repo` is a pattern search. It cannot prove that no secret exists.
+
+### Not checked
+
+| Check | Reason |
+| --- | --- |
+| Live Meta inference, `backend/smoke_*.py`, benchmark | Needs a key and billable requests |
+| Physical camera and recognition quality | Automated tests use a synthetic camera and mocks |
+| HoloLens 2 device run | No device was attached to these checks |
+| Caddy on port 443 with `sudo` | The 2026-11-04 proxy check used the non-root variant |
+| Linux install | Covered by CI only |
+| Windows install | Not tested |
+| Remotion render in a fresh clone | Needs local recordings and audio, which are not in Git |
+
+### Live inference record
+
+| Date | What happened | What it shows |
+| --- | --- | --- |
+| 2026-10-27 | Authenticated `GET /v1/models/muse-spark-1.3` returned HTTP 200 with the matching ID | Key and model visibility only. It is **not** inference, and its 818 ms is not model latency |
+| 2026-10-26 to 2026-10-28 | `smoke_inspection.py` and `smoke_segmentation.py` exited 77 in the check environments | No key was available there, so no request was sent |
+| 2026-10-28 to 2026-10-29 | The owner reported working local Muse and SAM inference | Owner-reported; no output is recorded |
+| 2026-10-31 | Mocked tests added stricter handling after local print-rule rejections | The exact rejected field of those local answers cannot be recovered |
+
+To add a live record, run these with your own key and real photos. Requests may be billed.
+
+| Tool | Guide | Exit codes |
+| --- | --- | --- |
+| `backend/smoke_inspection.py` | [Inspection API](inspection-api.md) | 0 validated, 77 not configured, other failure |
+| `backend/smoke_verification.py` | [Verification](verification.md) | 77 without opt-in or photos |
+| `backend/smoke_segmentation.py` | [Segmentation](segmentation.md) | 77 not configured |
+| `backend/benchmark_inspection.py` | [Benchmark](benchmark.md) | 77 without a manifest or opt-in |
+
+### Growth of the automated tests
+
+Each row was recorded with lint, the type check and a production build passing. All of these runs
+used mocks or synthetic images, so none is evidence of model accuracy or hardware behaviour.
+
+| Date | Milestone | Backend tests | Browser tests |
+| --- | --- | --- | --- |
+| 2026-10-26 | Foundation | 28 | 9 |
+| 2026-10-26 | Registry and projects | 60 | 11 |
+| 2026-10-26 | Muse Spark inspection | 143 | 14 |
+| 2026-10-27 | Snapshot overlays and Active Vision | 161 | 19 |
+| 2026-10-29 | Verification and SAM integrated | 265 | 38 |
+| 2026-10-29 | ChArUco calibration, stud geometry | 308 | 44 |
+| 2026-10-30 | Printed faces, contours, Canny debug | 352 | 63 |
+| 2026-10-31 | Print recognition, SAM object search | 424 | 80 |
+| 2026-11-01 | Setup wizard | 466 | 87 |
+| 2026-11-01 | Spatial AR | 482 | 94 |
+| 2026-11-05 | Full check of `7cab24c`, plus 279 frontend unit tests | 514 | 148 |
+
+The dated logs behind this section stay in Git history, for example
+`git show 871de63:docs/validation.md`. The same commit holds
+`docs/real-meta-validation-2026-10-27.md`, `docs/pr6-integration-review.md`,
+`docs/submission-readiness.md`, `docs/submission-checklist.md`, `docs/demo-plan.md` and
+`docs/architecture.md`.
+
+No Markdown check exists in this repository's CI.
+
+### Open items
+
+| Item | Next action |
+| --- | --- |
+| Asset and brand rights | Answer the [open questions](assets-and-licenses.md#open-questions-for-the-project-owner) |
+| No live run is recorded | Run one real inspection with a key and record it here |
+| HoloLens acceptance | Run the [final device test](hololens.md#final-device-test) on the device |
 
 <a id="known-limits-and-future-work"></a>
 
@@ -659,6 +803,11 @@ here, because no such result exists in the repository.
   skipped through navigation, which the status count makes visible.
 - Confirm Position on the last step cannot complete the assembly.
 - Sessions and the camera bridge are in-memory, so use one backend worker.
+- The snapshot hash is a duplicate-image guard, not camera attestation. Finding links do not
+  prove that the same physical object is tracked.
+- A browser abort cannot guarantee that work already running at Meta is cancelled.
+- The SAM decoder limits are conservative, so large masks can be rejected. On macOS the
+  address-space limit is unavailable; the CPU and byte limits still apply.
 - `create_all` initializes the schema; there is no migration framework.
 - Change detection compensates translation and brightness, and not large perspective changes.
 - XR anchors do not persist between sessions.
@@ -675,7 +824,7 @@ here, because no such result exists in the repository.
 
 - Complete the HoloLens acceptance checklists, including simultaneous camera and WebXR.
 - Evaluate real labelled photos with `backend/benchmark_inspection.py`.
-- Run the live smoke tests and record the results in `docs/validation.md`.
+- Run the live smoke tests and record the results under [Verification status](#live-inference-record).
 
 ## Open defects and deviations
 
@@ -693,5 +842,10 @@ Found by reading the implementation. They are documented, not changed here.
 ## 🎥 Demo video
 
 [Watch the demo video](https://youtu.be/QWZPpFY55rc). It is made separately in `demo/remotion/`.
-The final render is 166.9 seconds, as recorded in
-[`CLIP_MAPPING.md`](../demo/remotion/CLIP_MAPPING.md). See the [demo plan](demo-plan.md).
+The final render is 166.9 seconds (1920×1080, 30 fps), as recorded in
+[`CLIP_MAPPING.md`](../demo/remotion/CLIP_MAPPING.md).
+
+The video combines a macOS screen recording of the browser workflow with a Mixed Reality Capture
+recording of the HoloLens workflow. The plan for the recordings allowed real, live inference only,
+with no mocked result or edited verdict. `uncertain` does not occur in the recordings, so the
+video explains it as a labelled diagram. Raw recordings, audio and renders stay local.
